@@ -52,8 +52,13 @@ default(size = 500 .* (√2, 1), dpi = 180, linewidth = 2., margins = 2Plots.mm,
 md"# Definition"
 
 # ╔═╡ 39c56031-6df5-4c10-a51e-a80d6091ae9e
-md"## Firms"
+md"
+## Firms
 
+The energy sector produces using a polluting technology, with emissions $\overline{e} \: [\textrm{GtCO}_2 / \textrm{time}]$. On each unit of emissions, it pays a government sanctioned taxed $\tau_t \; [\textrm{USD} / \textrm{GtCO}_2]$. It can choose to reduce its emissions by investing $\phi_t \; [\textrm{USD} / \textrm{time}]$ in abatement capital $a_t \; [\textrm{USD}]$, which depreciates at a rate $\delta \; [\mathrm{time}^{-1}]$. The costs of investment $\phi_t$ in abatemnet technology is given by 
+
+$k(\phi_t) = \frac{\kappa}{2} \frac{\phi_t^2}{1 - a_t}.$
+"
 
 # ╔═╡ 260db42f-833d-4df0-86df-312354b77566
 Base.@kwdef struct Firm{T <: Real}
@@ -89,7 +94,7 @@ end
 d(a, firm::Firm, government::Government) = government.ξ * (firm.ē * (1 - a))^government.ν;
 
 # ╔═╡ 6cdde00b-8287-479f-9ce0-a07cd7c2b635
-welfare(a, τ, ϕ, firm::Firm, government::Government) = k(a, τ, ϕ, firm) + d(a, firm, government);
+welfare(a, ϕ, firm::Firm, government::Government) = k(a, ϕ, firm) + d(a, firm, government);
 
 # ╔═╡ 1cc2e0fd-d7fe-4043-a5b0-8cd8752a7992
 md"# Solver"
@@ -273,6 +278,8 @@ function optimalterminalpolicy!(Φ, error::Error, V, τ, A, firm::Firm)
 	@inbounds for i in eachindex(V)
 		a = A[i]
 		_, ϕ′ = gssmin(ϕ -> c(a, τ, ϕ, firm) + firm.β * interpolate(V, f(a, ϕ, firm), A), 0., 1.)
+		ϕ′ = clamp(ϕ′, 0, 1)
+		
 		errorupdate!(error, ϕ′, Φ[i])
 		Φ[i] = ϕ′
 	end
@@ -298,18 +305,18 @@ function howard!(V, Φ, τ, A, firm::Firm{S}, valuetolerance::Error{S}, policyto
 	
 end;
 
-# ╔═╡ 07c31726-b41b-41ca-838a-63d1ce52f471
-n = 100; T = 201;
-
 # ╔═╡ 471288f2-2d41-48a7-a368-bbd0068e6dd6
 function howard!(valuefunction::FirmValue, τ, A, firm, valuetolerance, policytolerance)
-	V̄ = @view valuefunction.V[:, T]
-	Φ̄ = @view valuefunction.Φ[:, T]
+	V̄ = @view valuefunction.V[:, end]
+	Φ̄ = @view valuefunction.Φ[:, end]
 	
 	howard!(V̄, Φ̄, τ, A, firm, valuetolerance, policytolerance)
 
 	return valuefunction
 end;
+
+# ╔═╡ 07c31726-b41b-41ca-838a-63d1ce52f471
+n = 101; T = 501;
 
 # ╔═╡ 946e9952-a096-4f90-913c-32d7978d380d
 md"
@@ -389,7 +396,7 @@ backwardinduction!(valuefunction::FirmValue, policy, A, firm::Firm) = backwardin
 # ╔═╡ b466bf3b-4e97-4e99-adaf-49389dad800d
 md"
 Initial policy 
-- Initial tax ``\tau_0 =`` $(@bind τ₀ Slider(0:0.001:0.05, show_value = true, default = 0.002))
+- Initial tax ``\tau_0 =`` $(@bind τ₀ Slider(0:0.001:0.05, show_value = true, default = 0.001))
 - Tax growth rate ``\theta =`` $(@bind θ Slider(0:0.001:0.05, show_value = true, default = 0.002))
 "
 
@@ -429,8 +436,65 @@ let
 	end
 
 	fig = plot(1:T, abatement; ylabel = L"Abatemnet $a_t$", xlabel = L"t", yguidefontcolor = :darkred, c = :darkred, ylims = (0, 1), xlims = (1, T))
-	plot!(twinx(fig), 1:T, t -> τ(t, (τ₀, θ)); ylabel = L"Carbon tax \tau", yguidefontcolor = :darkgreen, c = :darkgreen, xlims = (1, T))
+	plot!(twinx(fig), 1:T, t -> τ(t, (τ₀, θ)); ylabel = L"Carbon tax $\tau$", yguidefontcolor = :darkgreen, c = :darkgreen, xlims = (1, T))
 end
+
+# ╔═╡ 192dff9b-12c3-46e5-9d2a-06176d5bba11
+md"
+## Optimal policy
+
+The committed type can choose the growth rate of the carbon tax $\theta$ to maximise welfare. 
+"
+
+# ╔═╡ 55f1a29a-5711-4e92-a2d2-09d6e16eb8b1
+function totalwelfare(τ₀, θ, firm::Firm, government::Government; n = 101, T = 150, tolerance = Error(1e-6, 1e-6), a₀ = 0.)
+	policy = (τ₀, θ)
+	valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
+	A = range(0, 1 - 1e-2; length = n)
+		
+	howard!(valuefunction, τ(T, policy), A, firm, tolerance, tolerance)
+	backwardinduction!(valuefunction, policy, A, firm)
+
+	ϕitp = linear_interpolation((A, 1:T), valuefunction.Φ; extrapolation_bc = Line())
+
+	aₜ = a₀
+	w = 0.
+	
+	for t in 1:(T - 1)
+		ϕₜ = ϕitp(aₜ, t)
+		w += welfare(aₜ, ϕₜ, firm, government)
+		aₜ = f(aₜ, ϕₜ, firm)
+	end
+
+	return w
+end;
+
+# ╔═╡ b9a2d50c-0684-4e89-9ef3-81aa5dd8c4b7
+md"
+Climate damages
+- Scale ``\xi =`` $(@bind ξ Slider(0.01:0.01:0.12, show_value = true, default = 0.05))
+- Growth ``\nu =`` $(@bind ν Slider(2:0.05:5, show_value = true, default = 2.8))
+"
+
+# ╔═╡ 713f2877-02de-4d7a-9ba0-cca9cfe1dc04
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	government = Government(ξ = ξ, ν = ν)
+	θspace = range(0, 0.05; length = 21)
+	τspace = range(0, 0.01; length = 20)
+	
+
+	welfares = [totalwelfare(τ, θ, firm, government) for θ in θspace, τ in τspace]
+end
+  ╠═╡ =#
+
+# ╔═╡ 19ad4b0c-b39c-4499-a1fd-74ed002fc133
+#=╠═╡
+begin
+	wireframe(θspace, τspace, welfares'; xlabel = L"Growth rate $\theta$", ylabel = L"Initial tax level $\tau$", c = :viridis)
+end
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1800,7 +1864,7 @@ version = "1.9.2+0"
 # ╠═d690a361-7815-49b1-9672-7ef7e2d057ab
 # ╠═7e8ac9fc-19e9-479f-a72c-c03e438e73ec
 # ╟─68bd2857-a01f-43ca-bf7f-75ddcd6a87a9
-# ╟─39c56031-6df5-4c10-a51e-a80d6091ae9e
+# ╠═39c56031-6df5-4c10-a51e-a80d6091ae9e
 # ╠═260db42f-833d-4df0-86df-312354b77566
 # ╠═1a8d991d-ce92-45b7-865f-c0b74263d458
 # ╠═054dd1fa-8d23-4730-9909-2e8a44369810
@@ -1813,7 +1877,7 @@ version = "1.9.2+0"
 # ╟─1cc2e0fd-d7fe-4043-a5b0-8cd8752a7992
 # ╠═87ebc746-36dc-45eb-b759-c83b59be7379
 # ╟─753c4f98-2884-4da6-b7b2-4eb1e169c8b2
-# ╠═edbe715b-67ef-4ecb-bfd0-17681329ffb4
+# ╟─edbe715b-67ef-4ecb-bfd0-17681329ffb4
 # ╟─3a8ea955-a597-47d0-a6ac-00ba3396d4b3
 # ╟─93797a79-2ab2-499e-932b-2b0d1ce6b006
 # ╠═42ef7079-c2f2-4940-87b3-b5fb960841c6
@@ -1841,7 +1905,12 @@ version = "1.9.2+0"
 # ╟─7c224f2e-1245-4ca9-b934-39e4ab084c32
 # ╠═55179fff-175e-4314-b7d3-dc5fa9c8505f
 # ╟─b466bf3b-4e97-4e99-adaf-49389dad800d
-# ╟─ddb11742-e9a9-41ee-9567-2ffec9ffedab
+# ╠═ddb11742-e9a9-41ee-9567-2ffec9ffedab
 # ╟─8ab7a666-6b81-4b18-b072-ea00900c2a0c
+# ╟─192dff9b-12c3-46e5-9d2a-06176d5bba11
+# ╠═55f1a29a-5711-4e92-a2d2-09d6e16eb8b1
+# ╟─b9a2d50c-0684-4e89-9ef3-81aa5dd8c4b7
+# ╠═713f2877-02de-4d7a-9ba0-cca9cfe1dc04
+# ╠═19ad4b0c-b39c-4499-a1fd-74ed002fc133
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
