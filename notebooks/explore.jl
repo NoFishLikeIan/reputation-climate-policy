@@ -4,8 +4,20 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    return quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
 # ╔═╡ 86f6f9f4-c3ce-11f0-b044-895396becc96
-using Plots
+using Plots, LaTeXStrings
 
 # ╔═╡ ee64a7b9-3f65-41b1-8772-9ceac2e6e74d
 using PlutoUI
@@ -18,6 +30,9 @@ using Roots, ForwardDiff, Optim
 
 # ╔═╡ a8d44e79-2eb3-4024-9691-f37f9ba50c86
 TableOfContents()
+
+# ╔═╡ d3a8bc9f-928a-4b58-bf29-f11bb9c1867e
+default(size = 400 .* (16 / 9, 1), linewidth = 2, label = false)
 
 # ╔═╡ ee69b863-2c99-4d06-8591-c50d615feb78
 md"## Utils"
@@ -94,12 +109,12 @@ end
 
 # ╔═╡ 838e8e93-786b-46a0-9260-e1fc95e1ec30
 function abatementcosts(q, a, producer::Producer)
-	(producer.γ / 2) * a^2 * q
+	max((producer.γ / 2) * a^2 * q, 0)
 end;
 
 # ╔═╡ c86af269-0ff6-4622-a325-3a96aa1f71e4
 function emissions(q, a, producer::Producer)
-	(1 - a) * q * producer.e
+	max((1 - a) * q * producer.e, 0)
 end;
 
 # ╔═╡ 99710b87-77e2-4505-a44e-7baf8375ea94
@@ -133,17 +148,86 @@ end;
 # ╔═╡ 1a5ab8c0-c300-4de1-91dc-0e0ee257009d
 function W(τ, producer::Producer, consumer::Consumer)
 	q = quantity(τ, producer, consumer)
-	a = abatement(τ, consumer)
+	a = abatement(τ, producer)
 
 	consumersurplus(q, consumer) + 
 		profits(q, a, τ, producer, consumer) + τ * emissions(q, a, producer) -
 			damages(q, a, producer, consumer)
 end;
 
+# ╔═╡ 57f552e9-ef5a-4556-a601-a5b37f748aad
+md"## Plotting"
+
+# ╔═╡ 07693960-178d-4ab1-b8c7-63088a130699
+function optimaltax(producer, consumer)
+	gss(τ -> W(τ, producer, consumer), 0., 5.)
+end;
+
+# ╔═╡ e3b0c133-950e-4858-99f5-6525d0496682
+md"## Beliefs"
+
+# ╔═╡ 85cc3d33-0a2d-4079-95ba-d0eec883dffd
+function maxτ(τ, producer, consumer)
+	q = quantity(τ, producer, consumer)
+	a = abatement(τ, producer)
+	emissions = producer.e * (1 - a) * q
+	
+	return profits(q, a, τ, producer, consumer) / emissions
+end;
+
+# ╔═╡ 453822ba-41ef-414d-8bec-7628fac02926
+function optimalannouncement(ρ, producer::Producer, consumer::Consumer)
+	τ̄ = find_zero(τᵃ -> maxτ(ρ * τᵃ, producer, consumer) - τᵃ, (0., 1_000.))
+	_, τᵃ = gss(τᵃ -> W(ρ * τᵃ, producer, consumer), 0., τ̄)
+
+	return τᵃ
+end;
+
+# ╔═╡ 2cf1e0d3-9f0d-4e8c-8a3e-0f3c9b9a6c1d
+md"""
+### Model Controls
+
+- Demand size $\alpha$: $(@bind α Slider(0.0:0.5:100.0, default=20.0, show_value=true))
+- Elasticity $\beta$: $(@bind β Slider(0.1:0.1:5.0, default=1.0, show_value=true))
+- Climate damages $d$: $(@bind d Slider(0.0:0.01:1, default=0.5, show_value=true))
+
+- Emisions $e$: $(@bind e Slider(0.0:0.5:20.0, default=5.0, show_value=true))
+- Marginal abatement costs $\gamma$: $(@bind γ Slider(0.1:0.1:5.0, default=2.5, show_value=true))
+- Marginal costs $c$: $(@bind c Slider(0.0:0.5:20.0, default=1.0, show_value=true))
+"""
+
+# ╔═╡ 7bc2e88e-2d31-4d07-8f59-6b3c7c5f5b35
+consumer = Consumer(α=α, β=β, d=d);
+
+# ╔═╡ b3a4e5a2-3a9b-4a51-8d1a-90e8c9a3b6de
+producer = Producer(e=e, γ=γ, c=c);
+
+# ╔═╡ 1920e214-3723-46db-aa7f-3c23edab10ae
+let
+	τspace = range(0, 1; length = 101)
+
+	plot(τspace, τ -> W(τ, producer, consumer); xlabel = L"\tau")
+	
+	Wmax, τ = optimaltax(producer, consumer)
+	vline!([τ], c = :black, linestyle = :dash)
+end
+
+# ╔═╡ 4d2f8327-c796-4901-ba82-b318c14247ce
+let
+	ρspace = range(0, 1, 501)
+	_, τ = optimaltax(producer, consumer)
+
+	plot(ylims = (0, 10), xlabel = L"\rho", ylabel = L"\tau^a")
+	plot!(ρspace, ρ -> τ / ρ, c = :black, linestyle = :dash)
+	plot!(ρspace, ρ -> optimalannouncement(ρ, producer, consumer), label = "Announced tax")
+	plot!(ρspace, ρ -> optimalannouncement(ρ, producer, consumer) * ρ, label = "Firm expected tax")
+end
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -152,6 +236,7 @@ UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 
 [compat]
 ForwardDiff = "~1.2.2"
+LaTeXStrings = "~1.4.0"
 Optim = "~1.13.2"
 Plots = "~1.41.1"
 PlutoUI = "~0.7.75"
@@ -165,7 +250,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "643e7f6a75acdd4240c431b69069496dd8c5815c"
+project_hash = "8d7d98e06e7e9e71032d26ae6f93de440dce315d"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "27cecae79e5cc9935255f90c53bb831cc3c870d7"
@@ -1654,6 +1739,7 @@ version = "1.9.2+0"
 # ╠═a8d44e79-2eb3-4024-9691-f37f9ba50c86
 # ╠═5cbb2b02-7f3b-4e32-9eb5-6e7295b21d74
 # ╠═45c999af-0913-4dd3-8cc4-7f0d1ae2ad30
+# ╠═d3a8bc9f-928a-4b58-bf29-f11bb9c1867e
 # ╟─ee69b863-2c99-4d06-8591-c50d615feb78
 # ╟─758f42d4-ab6b-4f3d-b9fc-8fbbaec86f03
 # ╟─bf2ffbaf-145b-489b-8140-27397a0a07be
@@ -1670,5 +1756,15 @@ version = "1.9.2+0"
 # ╠═05e078c9-273d-448c-9ab7-09f741a77507
 # ╠═562c0087-1592-4008-bf10-64602c03cad1
 # ╠═1a5ab8c0-c300-4de1-91dc-0e0ee257009d
+# ╟─57f552e9-ef5a-4556-a601-a5b37f748aad
+# ╠═7bc2e88e-2d31-4d07-8f59-6b3c7c5f5b35
+# ╠═b3a4e5a2-3a9b-4a51-8d1a-90e8c9a3b6de
+# ╠═07693960-178d-4ab1-b8c7-63088a130699
+# ╠═1920e214-3723-46db-aa7f-3c23edab10ae
+# ╟─e3b0c133-950e-4858-99f5-6525d0496682
+# ╠═85cc3d33-0a2d-4079-95ba-d0eec883dffd
+# ╠═453822ba-41ef-414d-8bec-7628fac02926
+# ╟─2cf1e0d3-9f0d-4e8c-8a3e-0f3c9b9a6c1d
+# ╠═4d2f8327-c796-4901-ba82-b318c14247ce
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
