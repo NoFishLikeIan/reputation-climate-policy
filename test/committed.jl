@@ -11,8 +11,8 @@ includet("../src/utils.jl")
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
-includet("../src/solver.jl")
-includet("../src/simulation.jl")
+includet("../src/solvers/firm.jl")
+includet("../src/solvers/government.jl")
 
 firm = Firm()
 government = Government()
