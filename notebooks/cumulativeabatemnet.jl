@@ -55,17 +55,22 @@ md"# Definition"
 md"
 ## Firms
 
-The energy sector produces using a polluting technology, with emissions $\overline{e} \: [\textrm{GtCO}_2 / \textrm{time}]$. On each unit of emissions, it pays a government sanctioned taxed $\tau_t \; [\textrm{USD} / \textrm{GtCO}_2]$. It can choose to reduce its emissions by investing $\phi_t \; [\textrm{USD} / \textrm{time}]$ in abatement capital $a_t \; [\textrm{USD}]$, which depreciates at a rate $\delta \; [\mathrm{time}^{-1}]$. The costs of investment $\phi_t$ in abatemnet technology is given by 
+The energy sector produces using a polluting technology, with emissions $\overline{e} \: [\textrm{GtC} / \textrm{time}]$. For each unit of emissions, it pays a government-sanctioned tax $\tau_t \; [\textrm{USD} / \textrm{GtC}]$. It can choose to reduce its emissions by investing $\phi_t \; [\textrm{USD} / \textrm{time}]$ in abatement capital $a_t \; [\textrm{USD}]$, which depreciates at a rate $\delta \; [\mathrm{time}^{-1}]$. The costs of investment $\phi_t$ in abatement technology are given by 
 
-$k(\phi_t) = \frac{\kappa}{2} \frac{\phi_t^2}{1 - a_t}.$
+$k(a_t, \phi_t) = \frac{\kappa}{2} \frac{\phi_t^2}{1 - a_t}.$
+
+Investing yields the evolution of capital 
+
+$a_{t + 1} = f(a_t, \phi_t) \coloneqq \phi_t + (1 - \delta) a_t.$
+
 "
 
 # ╔═╡ 260db42f-833d-4df0-86df-312354b77566
-Base.@kwdef struct Firm{T <: Real}
-	ē::T = 1.
-	κ::T = 1.
-	δ::T = 0.
-	β::T = 0.99
+Base.@kwdef struct Firm{T <: Real} # Initial calibration from Baldwin et al. (2020)
+	ē::T = 9.4
+	κ::T = 2.11 / 2
+	δ::T = 0.04
+	β::T = 1 - 1e-2
 end
 
 # ╔═╡ 1a8d991d-ce92-45b7-865f-c0b74263d458
@@ -81,20 +86,35 @@ f(a, ϕ, firm::Firm) = (1 - firm.δ) * a + ϕ;
 c(a, τ, ϕ, firm::Firm) = k(a, ϕ, firm) + tax(a, τ, firm);
 
 # ╔═╡ 96f8ea3b-0a04-425d-b3a1-f0ec1c754a12
-md"## Government"
+md"
+## Government
+
+The government internalises climate damages and the firm's transition costs. The former are a function of carbon emissions and are given by 
+
+$d(a_t) = \xi \left((1 - a_t) \bar{e}\right)^\nu.$
+
+Total social costs are hence given by
+
+$S(a_t, \phi_t) = k(a_t, \phi_t) + d(a_t) Y.$
+"
 
 # ╔═╡ 4d501330-7e2f-4ec8-9220-c591d3e83a12
 Base.@kwdef struct Government{T <: Real}
-	ν::T = 2.8
-	ξ::T = 0.05
+	ξ₀::T = 0.035
+	ξ₁::T = 0.0018
+	Y::T = 78.
 	β::T = 0.99
 end
 
 # ╔═╡ 180e8cc9-930c-46de-b9d6-bcec15851cf9
-d(a, firm::Firm, government::Government) = government.ξ * (firm.ē * (1 - a))^government.ν;
+function d(a, firm::Firm, government::Government)
+	emissions = firm.ē * (1 - a)
+	
+	return government.ξ₀ * emissions + government.ξ₁ * emissions^2
+end;
 
 # ╔═╡ 6cdde00b-8287-479f-9ce0-a07cd7c2b635
-welfare(a, ϕ, firm::Firm, government::Government) = k(a, ϕ, firm) + d(a, firm, government);
+socialcost(a, ϕ, firm::Firm, government::Government) = k(a, ϕ, firm) + d(a, firm, government) * government.Y;
 
 # ╔═╡ 1cc2e0fd-d7fe-4043-a5b0-8cd8752a7992
 md"# Solver"
@@ -110,45 +130,26 @@ function interpolate(V, x, space::AbstractRange)
 	return V[i + 1] * ω + V[i] * (1 - ω)
 end;
 
-# ╔═╡ 753c4f98-2884-4da6-b7b2-4eb1e169c8b2
-md"
-## Government chooses at $t = 0$ and commits
-
-Restrict the action space of the government to the parametric function 
-
-$\begin{equation}
-	\tau_t = \tau_0 e^{-\theta (t \wedge T)}
-\end{equation}$
-
-Taking the policy $\theta, \tau_0$ and, hence, the sequence of taxes $\{ \tau_t \}^{\infty}_{t = 0}$ as given. The firm solves 
-
-$\begin{equation}
-v_t(a) = \inf_{\phi} \Big\{ c(a, \tau_t, \phi) + \beta \; v_{t + 1}(f(a, \phi)) \Big\}
-\end{equation}$ with terminal condition $v_T = \bar{v}$ where 
-
-$\begin{equation}
-	\bar{v}(a) = \inf_{\phi} \Big\{ c(a, \tau_T, \phi)+ \beta \; \bar{v}(f(a, \phi)) \Big\}.
-\end{equation}$
-"
-
 # ╔═╡ edbe715b-67ef-4ecb-bfd0-17681329ffb4
 md"
 ## Government chooses at $t = 0$ and commits
 
-Restrict the action space of the government to the parametric function 
+Restrict the government's action space to the parametric function
 
 $\begin{equation}
-	\tau_t = \tau_0 e^{-\theta (t \wedge T)}
+	\tau_t = \tau_0 e^{-\theta (t \wedge T)}.
 \end{equation}$
 
-Taking the policy $\theta, \tau_0$ and, hence, the sequence of taxes $\{ \tau_t \}^{\infty}_{t = 0}$ as given. The firm solves 
+Taking the policy $(\theta, \tau_0)$ and, hence, the sequence of taxes $\{ \tau_t \}^{\infty}_{t = 0}$ as given. The firm net present costs are given by 
 
 $\begin{equation}
-v(a, \tau) = \inf_{\phi} \Big\{ c(a, \tau, \phi) + \beta \; v(f(a, \phi), \tau + \Delta \tau) \Big\}
-\end{equation}$ with terminal condition $v_T = \bar{v}$ where 
+v_t(a) = \inf_{\phi} \Big\{ k(a, \phi) + \bar{e} (1 - a) \tau_t +  \beta \; v_{t + 1}(\phi + (1 - \delta) a) \Big\}
+\end{equation}$ 
+
+It assumes a terminal condition at time $T$, such that, for all $t \geq T$, $\tau_t = \tau_T \eqqcolon \overline{\tau}.$ Then the terminal value function satisfies 
 
 $\begin{equation}
-	\bar{v}(a) = \inf_{\phi} \Big\{ c(a, \tau_T, \phi)+ \beta \; \bar{v}(f(a, \phi)) \Big\}.
+	\bar{v}(a) = \inf_{\phi} \Big\{ k(a, \phi) + \bar{e} (1 - a) \overline{\tau} +  \beta \; \bar{v}(\phi + (1 - \delta) a) \Big\}.
 \end{equation}$
 "
 
@@ -278,7 +279,6 @@ function optimalterminalpolicy!(Φ, error::Error, V, τ, A, firm::Firm)
 	@inbounds for i in eachindex(V)
 		a = A[i]
 		_, ϕ′ = gssmin(ϕ -> c(a, τ, ϕ, firm) + firm.β * interpolate(V, f(a, ϕ, firm), A), 0., 1.)
-		ϕ′ = clamp(ϕ′, 0, 1)
 		
 		errorupdate!(error, ϕ′, Φ[i])
 		Φ[i] = ϕ′
@@ -306,48 +306,49 @@ function howard!(V, Φ, τ, A, firm::Firm{S}, valuetolerance::Error{S}, policyto
 end;
 
 # ╔═╡ 471288f2-2d41-48a7-a368-bbd0068e6dd6
-function howard!(valuefunction::FirmValue, τ, A, firm, valuetolerance, policytolerance)
+function howard!(valuefunction::FirmValue, τ, A, firm, valuetolerance, policytolerance; kwargs...)
 	V̄ = @view valuefunction.V[:, end]
 	Φ̄ = @view valuefunction.Φ[:, end]
 	
-	howard!(V̄, Φ̄, τ, A, firm, valuetolerance, policytolerance)
+	howard!(V̄, Φ̄, τ, A, firm, valuetolerance, policytolerance; kwargs...)
 
 	return valuefunction
 end;
 
 # ╔═╡ 07c31726-b41b-41ca-838a-63d1ce52f471
-n = 101; T = 501;
+n = 201; T = 501;
 
 # ╔═╡ 946e9952-a096-4f90-913c-32d7978d380d
 md"
 Firm characteristics:
-- Emissions ``\overline{e}`` $(@bind ē Slider(0:1.:50, show_value = true, default = 30))
-- Marginal abatemnet costs ``\kappa`` $(@bind κ Slider(0:1.:50, show_value = true, default = 45))
-- Depreciation of abatement technology ``\delta`` $(@bind δ Slider(0:0.001:1., show_value = true, default = 1e-2))
+- Emissions ``\overline{e}`` $(@bind ē Slider(0:1.:50, show_value = true, default = 9.4))
+- Marginal abatemnet costs ``\kappa`` $(@bind κ Slider(0:0.01:3, show_value = true, default = 2.11 / 2))
+- Depreciation of abatement technology ``\delta`` $(@bind δ Slider(0:0.001:1., show_value = true, default = 4e-2))
+- Firm discount rate ``\beta`` $(@bind β Slider(0.01:0.01:0.99, show_value = true, default = 0.99))
 "
 
 # ╔═╡ 0a450d09-443d-4f15-a75a-2515eead0e27
-md"Terminal carbon tax ``\overline{\tau} =`` $(@bind τ̄ Slider(0:0.001:0.05, show_value = true, default = 0.002))"
+md"Terminal carbon tax ``\overline{\tau} =`` $(@bind τ̄ Slider(0.1:0.01:0.9, show_value = true, default = 0.3))"
 
 # ╔═╡ 28784cae-af4e-495d-a9ec-271d096bb269
 let
 	valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
-	A = range(0, 1 - 1e-2; length = n);
+	A = range(0, 1; length = n);
 
-	firm = Firm(ē = ē, κ = κ, δ = δ)
+	firm = Firm(ē = ē, κ = κ, δ = δ, β = β)
 
 	tolerance = Error(1e-6, 1e-6)
 
 
-	howard!(valuefunction, τ̄, A, firm, tolerance, tolerance)
+	howard!(valuefunction, τ̄, A, firm, tolerance, tolerance; maxouteriters = 5_000)
 
 
 	fig = plot(xlabel = L"Abatemnet level $a_t$", title = L"Tax level $\overline{\tau} = %$(τ̄)$")
-	plot!(fig, A, valuefunction.V[:, T]; ylabel = L"Terminal costs $\overline{V}$", yguidefontcolor = :darkblue, c = :darkblue, ylims = (0, 20))
+	plot!(fig, A, valuefunction.V[:, T]; ylabel = L"Terminal costs $\overline{V}$", yguidefontcolor = :darkblue, c = :darkblue)
 	plot!(twinx(fig), A, valuefunction.Φ[:, T]; ylabel = L"Investment in abatemnet $\overline{\phi}$", yguidefontcolor = :darkred, c = :darkred, ylims = (0, 1))
 	
-	ā = firm.δ > 0 ? find_zero(a -> interpolate(valuefunction.Φ[:, T], a, A) - a * firm.δ, A) : 1.
-	vline!(fig, [ā]; c = :black, linestyle = :dash)
+	#ā = firm.δ > 0 ? find_zero(a -> interpolate(valuefunction.Φ[:, T], a, A) - a * firm.δ, A) : 1.2
+	#vline!(fig, [ā]; c = :black, linestyle = :dash)
 
 end
 
@@ -406,16 +407,16 @@ begin
 	valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
 	A = range(0, 1 - 1e-2; length = n);
 
-	firm = Firm(ē = ē, κ = κ, δ = δ)
+	firm = Firm(ē = ē, κ = κ, δ = δ, β = β)
 
 	tolerance = Error(1e-6, 1e-6)
 	howard!(valuefunction, τ(T, policy), A, firm, tolerance, tolerance)
 	
 	backwardinduction!(valuefunction, policy, A, firm)
 
-	valuefig = contourf(1:T, A, valuefunction.V; xlabel = L"t", ylabel = L"a", title = L"Firm costs $V_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5, clims = (0, 15))
+	valuefig = contourf(1:T, A, valuefunction.V; xlabel = L"t", ylabel = L"a", title = L"Firm costs $V_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5)
 
-	investmentfig = contourf(1:T, A, valuefunction.Φ; xlabel = L"t", ylabel = L"a", title = L"Investment $\phi_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5, clims = (0, 0.2))
+	investmentfig = contourf(1:T, A, valuefunction.Φ; xlabel = L"t", ylabel = L"a", title = L"Investment $\phi_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5)
 
 	plot(valuefig, investmentfig; size = 500 .* (2√2, 1), margins = 10Plots.mm)
 end
@@ -426,6 +427,7 @@ let
 
 
 	abatement = zeros(T)
+	abatement[1] = 0.
 	ϕ = similar(abatement)
 
 	for t in 1:(T - 1)
@@ -435,8 +437,9 @@ let
 		abatement[t + 1] = f(aₜ, ϕ[t], firm)
 	end
 
-	fig = plot(1:T, abatement; ylabel = L"Abatemnet $a_t$", xlabel = L"t", yguidefontcolor = :darkred, c = :darkred, ylims = (0, 1), xlims = (1, T))
-	plot!(twinx(fig), 1:T, t -> τ(t, (τ₀, θ)); ylabel = L"Carbon tax $\tau$", yguidefontcolor = :darkgreen, c = :darkgreen, xlims = (1, T))
+	Tfigmax = 150
+	fig = plot(1:T, abatement; ylabel = L"Abatemnet $a_t$", xlabel = L"t", yguidefontcolor = :darkred, c = :darkred, ylims = (0, 1), xlims = (1, Tfigmax))
+	plot!(twinx(fig), 1:Tfigmax, t -> τ(t, (τ₀, θ)); ylabel = L"Carbon tax $\tau$", yguidefontcolor = :darkgreen, c = :darkgreen, xlims = (1, Tfigmax))
 end
 
 # ╔═╡ 192dff9b-12c3-46e5-9d2a-06176d5bba11
@@ -447,7 +450,7 @@ The committed type can choose the growth rate of the carbon tax $\theta$ to maxi
 "
 
 # ╔═╡ 55f1a29a-5711-4e92-a2d2-09d6e16eb8b1
-function totalwelfare(τ₀, θ, firm::Firm, government::Government; n = 101, T = 150, tolerance = Error(1e-6, 1e-6), a₀ = 0.)
+function totalsocialcosts(τ₀, θ, firm::Firm, government::Government; n = 101, T = 150, tolerance = Error(1e-6, 1e-6), a₀ = 0.)
 	policy = (τ₀, θ)
 	valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
 	A = range(0, 1 - 1e-2; length = n)
@@ -462,7 +465,7 @@ function totalwelfare(τ₀, θ, firm::Firm, government::Government; n = 101, T 
 	
 	for t in 1:(T - 1)
 		ϕₜ = ϕitp(aₜ, t)
-		w += welfare(aₜ, ϕₜ, firm, government)
+		w += socialcost(aₜ, ϕₜ, firm, government) * government.β^(t - 1)
 		aₜ = f(aₜ, ϕₜ, firm)
 	end
 
@@ -472,29 +475,33 @@ end;
 # ╔═╡ b9a2d50c-0684-4e89-9ef3-81aa5dd8c4b7
 md"
 Climate damages
-- Scale ``\xi =`` $(@bind ξ Slider(0.01:0.01:0.12, show_value = true, default = 0.05))
-- Growth ``\nu =`` $(@bind ν Slider(2:0.05:5, show_value = true, default = 2.8))
+- Scale ``\xi =`` $(@bind ξ Slider(0.001:0.0001:0.002, show_value = true, default = 0.05))
+- Growth ``\nu =`` $(@bind ν Slider(0:0.05:5, show_value = true, default = 2.8))
 "
 
 # ╔═╡ 713f2877-02de-4d7a-9ba0-cca9cfe1dc04
-# ╠═╡ disabled = true
-#=╠═╡
 begin
-	government = Government(ξ = ξ, ν = ν)
-	θspace = range(0, 0.05; length = 21)
-	τspace = range(0, 0.01; length = 20)
+	government = Government(ξ = ξ, ν = ν, β = 0.99)
+	θspace = range(0, 0.1; length = 21)
+	τspace = range(0.01, 0.06; length = 20)
 	
 
-	welfares = [totalwelfare(τ, θ, firm, government) for θ in θspace, τ in τspace]
-end
-  ╠═╡ =#
+	socialcosts = [totalsocialcosts(τ, θ, firm, government) for θ in θspace, τ in τspace]
+end;
 
 # ╔═╡ 19ad4b0c-b39c-4499-a1fd-74ed002fc133
-#=╠═╡
 begin
-	wireframe(θspace, τspace, welfares'; xlabel = L"Growth rate $\theta$", ylabel = L"Initial tax level $\tau$", c = :viridis)
+	surfig = wireframe(θspace, τspace, socialcosts'; xlabel = L"$\theta$", ylabel = L"$\tau_0$", c = :viridis, title = "Social costs", camera = (50, 50), xflip = true)
+	surface!(surfig, θspace, τspace, socialcosts'; c = :viridis, opacity = 0.4)
+
+
+	contourfig = contourf(θspace, τspace, socialcosts'; xlabel = L"$\theta$", ylabel = L"$\tau_0$", c = :viridis, title = "Social costs")
+
+	plot(surfig, contourfig, size = 600 .* (2√2, 1))
 end
-  ╠═╡ =#
+
+# ╔═╡ 3b0b4b27-88d5-4582-a2ee-3302fd261bbf
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -723,10 +730,10 @@ uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
 
 [[deps.DataStructures]]
-deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "4e1fe97fdaed23e9dc21d4d664bea76b65fc50a0"
+deps = ["OrderedCollections"]
+git-tree-sha1 = "e357641bb3e0638d353c4b29ea0e40ea644066a6"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.18.22"
+version = "0.19.3"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -831,21 +838,15 @@ version = "3.4.0+2"
 
 [[deps.GR]]
 deps = ["Artifacts", "Base64", "DelimitedFiles", "Downloads", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Preferences", "Printf", "Qt6Wayland_jll", "Random", "Serialization", "Sockets", "TOML", "Tar", "Test", "p7zip_jll"]
-git-tree-sha1 = "f305bdb91e1f3fcc687944c97f2ede40585b1bd5"
+git-tree-sha1 = "f52c27dd921390146624f3aab95f4e8614ad6531"
 uuid = "28b8d3ca-fb5f-59d9-8090-bfdbd6d07a71"
-version = "0.73.19"
-
-    [deps.GR.extensions]
-    GRIJuliaExt = "IJulia"
-
-    [deps.GR.weakdeps]
-    IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+version = "0.73.18"
 
 [[deps.GR_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "FreeType2_jll", "GLFW_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pixman_jll", "Qt6Base_jll", "Zlib_jll", "libpng_jll"]
-git-tree-sha1 = "de439fbc02b9dc0e639e67d7c5bd5811ff3b6f06"
+git-tree-sha1 = "4b0406b866ea9fdbaf1148bc9c0b887e59f9af68"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
-version = "0.73.19+1"
+version = "0.73.18+0"
 
 [[deps.GettextRuntime_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll"]
@@ -1864,7 +1865,7 @@ version = "1.9.2+0"
 # ╠═d690a361-7815-49b1-9672-7ef7e2d057ab
 # ╠═7e8ac9fc-19e9-479f-a72c-c03e438e73ec
 # ╟─68bd2857-a01f-43ca-bf7f-75ddcd6a87a9
-# ╠═39c56031-6df5-4c10-a51e-a80d6091ae9e
+# ╟─39c56031-6df5-4c10-a51e-a80d6091ae9e
 # ╠═260db42f-833d-4df0-86df-312354b77566
 # ╠═1a8d991d-ce92-45b7-865f-c0b74263d458
 # ╠═054dd1fa-8d23-4730-9909-2e8a44369810
@@ -1875,8 +1876,7 @@ version = "1.9.2+0"
 # ╠═180e8cc9-930c-46de-b9d6-bcec15851cf9
 # ╠═6cdde00b-8287-479f-9ce0-a07cd7c2b635
 # ╟─1cc2e0fd-d7fe-4043-a5b0-8cd8752a7992
-# ╠═87ebc746-36dc-45eb-b759-c83b59be7379
-# ╟─753c4f98-2884-4da6-b7b2-4eb1e169c8b2
+# ╟─87ebc746-36dc-45eb-b759-c83b59be7379
 # ╟─edbe715b-67ef-4ecb-bfd0-17681329ffb4
 # ╟─3a8ea955-a597-47d0-a6ac-00ba3396d4b3
 # ╟─93797a79-2ab2-499e-932b-2b0d1ce6b006
@@ -1896,7 +1896,7 @@ version = "1.9.2+0"
 # ╠═07c31726-b41b-41ca-838a-63d1ce52f471
 # ╟─946e9952-a096-4f90-913c-32d7978d380d
 # ╟─0a450d09-443d-4f15-a75a-2515eead0e27
-# ╟─28784cae-af4e-495d-a9ec-271d096bb269
+# ╠═28784cae-af4e-495d-a9ec-271d096bb269
 # ╟─233a844c-1b00-4255-be51-a5d0acf2a025
 # ╟─8af7285e-8c60-4bc0-a956-417e7dfaccdd
 # ╠═d89b31f1-f2a1-4334-af20-9ee0133ab4ac
@@ -1905,12 +1905,13 @@ version = "1.9.2+0"
 # ╟─7c224f2e-1245-4ca9-b934-39e4ab084c32
 # ╠═55179fff-175e-4314-b7d3-dc5fa9c8505f
 # ╟─b466bf3b-4e97-4e99-adaf-49389dad800d
-# ╠═ddb11742-e9a9-41ee-9567-2ffec9ffedab
-# ╟─8ab7a666-6b81-4b18-b072-ea00900c2a0c
+# ╟─ddb11742-e9a9-41ee-9567-2ffec9ffedab
+# ╠═8ab7a666-6b81-4b18-b072-ea00900c2a0c
 # ╟─192dff9b-12c3-46e5-9d2a-06176d5bba11
 # ╠═55f1a29a-5711-4e92-a2d2-09d6e16eb8b1
 # ╟─b9a2d50c-0684-4e89-9ef3-81aa5dd8c4b7
 # ╠═713f2877-02de-4d7a-9ba0-cca9cfe1dc04
 # ╠═19ad4b0c-b39c-4499-a1fd-74ed002fc133
+# ╠═3b0b4b27-88d5-4582-a2ee-3302fd261bbf
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
