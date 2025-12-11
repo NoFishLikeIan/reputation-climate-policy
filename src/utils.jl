@@ -69,3 +69,41 @@ function gssmin(f, a, b; tol = (b - a) / 100)
         return yd, (c + b) / 2
     end
 end
+
+mutable struct Error{S <: Real}
+    relative::S
+    absolute::S
+end
+
+struct FirmValue{S <: Real}
+    V::Matrix{S}
+    Φ::Matrix{S}
+end
+
+# Error utilities
+function zero!(error::Error{S}) where S
+    error.absolute = zero(S)
+    error.relative = zero(S)
+    return error
+end
+function typemax!(error)
+    error.absolute = typemax(S)
+    error.relative = typemax(S)
+    return error
+end
+
+function Base.isless(error::Error{S}, tolerance::Error{S}) where S
+    (error.absolute < tolerance.absolute) && (error.relative < tolerance.relative)
+end
+
+function errorupdate!(error::Error{S}, x::S, y::S) where S
+    a = abs(x - y)
+    if a > error.absolute error.absolute = a end
+    
+    r = abs(x / y) - 1
+    if r > error.relative error.relative = r end
+end
+
+function Base.show(io::IO, error::Error{S}) where S
+    Printf.@printf io "Error(abs=%.2e, rel=%.2e)" error.absolute error.relative
+end

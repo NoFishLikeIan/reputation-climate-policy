@@ -3,11 +3,11 @@ function totalsocialcosts(τ₀, θ, firm::Firm, government::Government, dimensi
     firmvaluefunction = FirmValue(ones(n, T), ones(n, T) ./ 2)
     return totalsocialcosts(τ₀, θ, firm, government, firmvaluefunction; kwargs...)
 end
-function totalsocialcosts(τ₀, θ::S, firm::Firm, government::Government, firmvaluefunction::FirmValue; tolerance = Error{S}(1e-6, 1e-6), a₀ = zero(S), howardkwargs...) where {S <: Real}
+function totalsocialcosts(τ₀, θ::S, firm::Firm, government::Government, firmvaluefunction::FirmValue; a₀ = zero(S)) where {S <: Real}
     n, T = size(firmvaluefunction.V)
     A = range(zero(S), one(S); length = n)
     
-    howard!(firmvaluefunction, τ(T, τ₀, θ), A, firm, tolerance, tolerance; howardkwargs...)
+    steadystate!(firmvaluefunction, τ(T, τ₀, θ), A, firm)
     backwardinduction!(firmvaluefunction, τ₀, θ, A, firm)
     
     aₜ = copy(a₀)
