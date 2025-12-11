@@ -19,7 +19,7 @@ government = Government()
 
 # Steady state magnitude check
 begin
-    n = 101
+    n = 301
     A = range(0, 1; length = n)
 
     fig = plot(A, a -> k(a, firm.δ * a, firm),
@@ -37,7 +37,7 @@ end
 
 # Steady state total costs
 begin
-    τ₀ = (83 * 3667 / 1_000_000) # ETS price
+    τ₀ = 80 * (3667 / 1_000_000) # ETS price
     
     plot(A, a -> c(a, firm.δ * a, τ₀, firm),
         label = L"Steady state firm's costs $c(a,, δ a, \tau_0)$",
@@ -49,9 +49,9 @@ begin
 end
 
 # Firm optimisation
-T = 151; θ = 0.0
+T = 151; θ = 0.01
 valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
-steadystate!(valuefunction, τ(T, τ₀, θ), A, firm)
+steadystate!(valuefunction, τ(T, τ₀, θ), A, firm; optimisationstep = 1)
 
 begin
     fig = plot(xlabel = L"Abatemnet level $a_t$", title = L"Tax level $\overline{\tau} = %$(τ₀)$")
@@ -70,6 +70,6 @@ let
 end
 
 # Government optimisation
-θspace = range(0, 0.05; length = 101)
+θspace = range(-0.05, 0.05; length = 101)
 socialcostcurve = [totalsocialcosts(τ₀, θ, firm, government, valuefunction) for θ in θspace];
-
+plot(θspace, socialcostcurve)

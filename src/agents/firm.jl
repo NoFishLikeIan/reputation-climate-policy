@@ -11,6 +11,10 @@ function k(a, ϕ, firm::Firm)
     (firm.κ / 2) * (1 + a)^firm.b * ϕ^2
 end
 
+function k′(a, ϕ, firm)
+    firm.κ * (1 + a)^firm.b * ϕ
+end
+
 "Firm's total emissions."
 function emissions(a, firm::Firm)
     firm.ē * (1 - a)

@@ -1,35 +1,41 @@
 "Interpolate vector `V` at `x` assuming `space` range."
 function interpolate(V::TV, x, space::TR) where {X, S, TV <: AbstractVector{S}, TR <: AbstractRange{X}}
-    if x ≥ space[end] return V[end] end
-    if x ≤ space[1] return V[1] end
-    
+    # Clamp outside boundaries
+    if x ≤ space[1]
+        return V[1]
+    elseif x ≥ space[end]
+        return V[end]
+    end
+
+    # Linear interpolation inside
     i = searchsortedfirst(space, x) - 1
-    ω = (x - space[i]) / step(space)
-    
-    return V[i + 1] * ω + V[i] * (1 - ω)
+    x₀ = space[i]
+    x₁ = space[i + 1]
+    ω = (x - x₀) / (x₁ - x₀)
+    return V[i] * (1 - ω) + V[i + 1] * ω
 end
 function interpolate(V::TV, point, spaces::TR) where {S, X, Y, TV <: AbstractMatrix{S}, TR <: Tuple{AbstractRange{X}, AbstractRange{Y}}}
     x, y = point
     xspace, yspace = spaces
+    # Clamp in y to edge columns if outside
+    if y ≤ yspace[1]
+        edge = @view V[:, 1]
+        return interpolate(edge, x, xspace)
+    elseif y ≥ yspace[end]
+        edge = @view V[:, end]
+        return interpolate(edge, x, xspace)
+    end
 
-    xclamp = clamp(x, xspace[1], xspace[end])
-    yclamp = clamp(y, yspace[1], yspace[end])
-
-    ix = clamp(searchsortedfirst(xspace, xclamp) - 1, 1, length(xspace) - 1)
-    iy = clamp(searchsortedfirst(yspace, yclamp) - 1, 1, length(yspace) - 1)
-
-    ωx = (xclamp - xspace[ix]) / step(xspace)
-    ωy = (yclamp - yspace[iy]) / step(yspace)
-
-    v00 = V[iy, ix]
-    v10 = V[iy, ix + 1]
-    v01 = V[iy + 1, ix]
-    v11 = V[iy + 1, ix + 1]
-
-    return v00 * (1 - ωx) * (1 - ωy) +
-           v10 * ωx * (1 - ωy) +
-           v01 * (1 - ωx) * ωy +
-           v11 * ωx * ωy
+    # Bilinear interpolation inside
+    j = searchsortedfirst(yspace, y) - 1
+    y₀ = yspace[j]
+    y₁ = yspace[j + 1]
+    lower = @view V[:, j]
+    upper = @view V[:, j + 1]
+    f₀ = interpolate(lower, x, xspace)
+    f₁ = interpolate(upper, x, xspace)
+    ω = (y - y₀) / (y₁ - y₀)
+    return f₀ * (1 - ω) + f₁ * ω
 end
 
 const ϕ⁻¹ = (√(5.) - 1.) / 2.
