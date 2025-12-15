@@ -1,7 +1,7 @@
 Base.@kwdef struct Firm{T <: Real}
     β::T = 1 - 1e-2 # discount factor [-]
     ē::T = 9.4 # emissions [GtC/year]
-    κ::T = 2.11 / 2 # investment cost parameter [USD]
+    κ::T = 12.11 # investment cost parameter [USD]
     b::T = 2.8 # Steepness of MAC
     δ::T = 0.04 # depreciation rate [1/year]
 end

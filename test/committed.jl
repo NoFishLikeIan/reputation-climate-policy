@@ -14,7 +14,7 @@ includet("../src/agents/government.jl")
 includet("../src/solvers/firm.jl")
 includet("../src/solvers/government.jl")
 
-firm = Firm()
+firm = Firm(κ = 12.11)
 government = Government()
 
 # Steady state magnitude check
@@ -49,12 +49,12 @@ begin
 end
 
 # Firm optimisation
-T = 151; θ = 0.01
+T = 501; θ = 0.0
 valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
-steadystate!(valuefunction, τ(T, τ₀, θ), A, firm; optimisationstep = 1)
+steadystate!(valuefunction, τ(T, τ₀, θ), A, firm; iterations = 1_000)
 
 begin
-    fig = plot(xlabel = L"Abatemnet level $a_t$", title = L"Tax level $\overline{\tau} = %$(τ₀)$")
+    fig = plot(xlabel = L"Abatemnet level $a_t$", title = L"Tax level $\overline{\tau} = %$(τ(T, τ₀, θ))$")
 	plot!(fig, A, valuefunction.V[:, end]; ylabel = L"Terminal costs $\overline{V} \; [\mathrm{tUSD}]$", yguidefontcolor = :darkblue, c = :darkblue, xlims = (0, 1), linestyle = :dash)
 	plot!(twinx(fig), A, valuefunction.Φ[:, end]; ylabel = L"Investment in abatemnet $\overline{\phi}$", yguidefontcolor = :darkred, c = :darkred, ylims = (0, 1), xlims = (0, 1))
 end
@@ -62,14 +62,14 @@ end
 # Backard induction
 backwardinduction!(valuefunction, τ₀, θ, A, firm)
 let
-	valuefig = contourf(1:T, A, valuefunction.V; xlabel = L"t", ylabel = L"a", title = L"Firm costs $V_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5)
+	valuefig = contourf(1:T, A, valuefunction.V; xlabel = L"t", ylabel = L"a", title = L"Firm costs $V_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5, c = :viridis)
 
-	investmentfig = contourf(1:T, A, valuefunction.Φ; xlabel = L"t", ylabel = L"a", title = L"Investment $\phi_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5)
+	investmentfig = contourf(1:T, A, valuefunction.Φ; xlabel = L"t", ylabel = L"a", title = L"Investment $\phi_t(a)$", camera = (15, 30), opacity = 1, xlims = (1, T), ylims = extrema(A), linewidth = 0.5, clims = (0, 1), c = :Greens)
 
 	plot(valuefig, investmentfig; size = 500 .* (2√2, 1), margins = 10Plots.mm)
 end
 
 # Government optimisation
-θspace = range(-0.05, 0.05; length = 101)
+θspace = range(0, 0.01; length = 101)
 socialcostcurve = [totalsocialcosts(τ₀, θ, firm, government, valuefunction) for θ in θspace];
 plot(θspace, socialcostcurve)

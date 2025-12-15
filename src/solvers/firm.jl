@@ -10,7 +10,7 @@ function backwardstep!(Vₜ, Φₜ, τₜ, Vₜ₊₁, A, firm::Firm)
     @inbounds @threads for i in eachindex(Vₜ)
         aᵢ = A[i]
         
-        vₜ, ϕₜ = gssmin(ϕ -> c(aᵢ, ϕ, τₜ, firm) + firm.β * interpolate(Vₜ₊₁, f(aᵢ, ϕ, firm), A), 0., 1.)
+        vₜ, ϕₜ = gssmin(ϕ -> c(aᵢ, ϕ, τₜ, firm) + firm.β * interpolate(Vₜ₊₁, f(aᵢ, ϕ, firm), A), 0., 1.; tol = 1e-4)
         
         Vₜ[i] = vₜ
         Φₜ[i] = ϕₜ
