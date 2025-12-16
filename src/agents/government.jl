@@ -13,7 +13,7 @@ function d(a, firm::Firm, government::Government)
 end
 
 function socialcost(a, ϕ, firm::Firm, government::Government)
-    k(a, ϕ, firm) + d(a, firm, government) * government.Y
+    c(a, ϕ, firm) + d(a, firm, government) * government.Y
 end
 
 function τ(t, τ₀, θ)

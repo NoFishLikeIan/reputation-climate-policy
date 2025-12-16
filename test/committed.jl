@@ -14,16 +14,16 @@ includet("../src/agents/government.jl")
 includet("../src/solvers/firm.jl")
 includet("../src/solvers/government.jl")
 
-firm = Firm(κ = 12.11)
+firm = Firm()
 government = Government()
 
 # Steady state magnitude check
 begin
     n = 301
-    A = range(0, 1; length = n)
+    A = range(0, 1 - 1e-2; length = n)
 
-    fig = plot(A, a -> k(a, firm.δ * a, firm),
-        label = L"Steady state investment costs $k(a,, δ a)$",
+    fig = plot(A, a -> c(a, firm.δ * a, firm),
+        label = L"Steady state investment costs $c(a,, δ a)$",
         xlabel = L"Abatement level $a$",
         ylabel = L"\mathrm{trUSD} / \mathrm{year}",
         color = :darkblue,
@@ -39,7 +39,7 @@ end
 begin
     τ₀ = 80 * (3667 / 1_000_000) # ETS price
     
-    plot(A, a -> c(a, firm.δ * a, τ₀, firm),
+    plot(A, a -> c(a, firm.δ * a, firm) + τ₀ * emissions(a, firm),
         label = L"Steady state firm's costs $c(a,, δ a, \tau_0)$",
         xlabel = L"Abatement level $a$",
         ylabel = L"\mathrm{trUSD} / \mathrm{year}",
