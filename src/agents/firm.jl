@@ -1,33 +1,29 @@
 Base.@kwdef struct Firm{T <: Real}
     β::T = 1 - 1e-2 # discount factor [-]
 
-    δ::T = 0.05 # depreciation rate [1/year]
     ē::T = 9.4 # emissions [GtC/year]
 
-    κ::T = 2.11 # base investment cost [t$]
-    θ::T = 1.0 # marginal investment difficulty
+    κ::T = 1.05 # base investment cost [tEur]
+    ω::T = 0.0 # marginal investment difficulty
     ν::T = 0.5 # adjustment costs [year]
-    α::T = 0.03 # investment effectiveness [1 / t$]
+    α::T = 0.03 # investment effectiveness [1 / tEur]
 end
 
 function p(a, firm::Firm)
-    firm.κ * (1 + firm.θ * a / (1 - a))
+    if firm.ω > 0
+        firm.κ * (1 + firm.ω  / (inv(a) - 1))
+    else
+        firm.κ
+    end
 end
-function p′(a, firm::Firm)
-    firm.κ * firm.θ / (1 - a)^2
-end
+p′(a, firm::Firm) = ForwardDiff.derivative(a -> p(a, firm), a)
 
 "Firm's abatement investment cost."
 function c(a, φ, firm::Firm) 
     p(a, firm) * φ + (firm.ν / 2) * φ^2
 end
-function cₐ(a, φ, firm)
-    p′(a, firm) * φ
-end
-function cᵩ(φ, firm::Firm)
-    firm.ν * φ
-end
-cᵩ(a, φ, firm) = cᵩ(φ, firm)
+cₐ(a, φ, firm) = ForwardDiff.derivative(a -> c(a, φ, firm), a)
+cᵩ(a, φ, firm) = ForwardDiff.derivative(φ -> c(a, φ, firm), φ)
 
 "Firm's total emissions."
 function emissions(a, firm::Firm)
@@ -36,22 +32,7 @@ end
 
 "Capital dynamics `aₜ₊₁ = f(aₜ, φₜ)`"
 function f(a, φ, firm::Firm)
-    (1 - firm.δ) * a + (1 - a) * firm.α * φ
+    a + (1 - a) * firm.α * φ
 end
-function fₐ(φ, firm::Firm)
-    1 - firm.δ - firm.α * φ
-end
-fₐ(a, φ, firm::Firm) = fₐ(φ, firm)
-
-function fᵩ(a, firm::Firm)
-    (1 - a) * firm.α
-end
-fᵩ(a, φ, firm) = fᵩ(a, firm)
-
-function impliciteuler(xₜ, xₜ₊₁, firm::Firm)
-    aₜ, φₜ = xₜ
-    aₜ₊₁, φₜ₊₁ = xₜ₊₁
-
-    
-
-end
+fₐ(a, φ, firm::Firm) = ForwardDiff.derivative(a -> f(a, φ, firm), a)
+fᵩ(a, φ, firm::Firm) = ForwardDiff.derivative(φ -> f(a, φ, firm), φ)

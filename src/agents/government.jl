@@ -2,8 +2,8 @@ Base.@kwdef struct Government{T <: Real}
     β::T = 1 - 1e-2   # discount factor [-]
     ξ₀::T = 0.035 # linear damage coefficient [-]
     ξ₁::T = 0.0018 # quadratic damage coefficient [1/GtC]
-    Y::T = 78.0 # output/GDP [trillion USD/year]
-    tcre::T = 0.45e-3 # transient climate response to cumulative emissions [°C/GtC]
+    Y::T = 15.231 # output/GDP [trillion Eur/year]
+    tcre::T = 2e-3 # transient climate response to cumulative emissions [°C/GtC]
 end
 
 # Climate damages
