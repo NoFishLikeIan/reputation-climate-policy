@@ -2,7 +2,7 @@ using Revise
 using BenchmarkTools
 using FastClosures
 using Base.Threads
-using ForwardDiff
+using ForwardDiff, Roots
 
 using Plots, LaTeXStrings, Printf
 
@@ -16,7 +16,7 @@ includet("../src/agents/government.jl")
 includet("../src/solvers/firm.jl")
 includet("../src/solvers/government.jl")
 
-firm = Firm(α = 0.0032, ν = 2.5)
+firm = Firm()
 government = Government()
 
 n = 301
@@ -25,7 +25,7 @@ A = range(0, 1; length = n)
 # Firm optimisation
 T = 501
 τ₀ = 3 * (3.67 * 1e9 * 1e-12)
-θspace = range(0., 0.01, 6)
+θspace = range(-0.01, 0.01; length = 3)
 
 atrajectories = Dict{Float64, Vector{Float64}}()
 ϕtrajectories = Dict{Float64, Vector{Float64}}()
@@ -35,12 +35,12 @@ wtrajectories = Dict{Float64, Vector{Float64}}()
 
 for θ in θspace
 	valuefunction = FirmValue(ones(n, T), ones(n, T) ./ 2);
-    steadystate!(valuefunction, τ(T, τ₀, θ), A, firm; iterations = 10_000, optimisationstep = 1, tol = 1e-9)
+    steadystate!(valuefunction, τ(T, τ₀, θ), A, firm; iterations = 10_000, optimisationstep = 1)
 
     let
         fig = plot(xlabel = L"Abatemnet level $a_t$", title = L"Tax level $\overline{\tau} = %$(τ(T, τ₀, θ))$")
         plot!(fig, A, valuefunction.V[:, end]; ylabel = L"Terminal costs $\overline{V} \; [\mathrm{tUSD}]$", yguidefontcolor = :darkblue, c = :darkblue, xlims = (0, 1), linestyle = :dash)
-        plot!(twinx(fig), A, valuefunction.Φ[:, end]; ylabel = L"Investment in abatemnet $\overline{\phi}$", yguidefontcolor = :darkred, c = :darkred, xlims = (0, 1))
+        plot!(twinx(fig), A, valuefunction.Φ[:, end]; ylabel = L"Investment in abatemnet $\overline{\phi}$", yguidefontcolor = :darkred, c = :darkred, xlims = (0, 1), ylims = (0., Inf))
 
         figpath = joinpath(plotpath, "committed", "steadystate"); if !ispath(figpath) mkpath(figpath) end
         filename = joinpath(figpath, "tau$(τ₀)_theta$(θ).png")
@@ -95,7 +95,9 @@ end
 
 # Plot all trajectories together
 let
-    fig = plot(xlabel = L"$t$", margins = 5Plots.mm, ylabel = L"State $a_t$")
+    horizon = 80
+    xticks = 0:10:horizon
+    fig = plot(xlabel = "Year", margins = 5Plots.mm, ylabel = L"Fraction of abated emissions $a_t$", xlims = (1, horizon), xticks = (xticks, xticks .+ 2020))
 
     for (i, θ) in enumerate(θspace)
         plot!(fig, 1:T, atrajectories[θ]; label = L"$\theta = %$(θ)$")
@@ -120,9 +122,8 @@ end
 
 let
     fig = plot(xlabel = L"$t$", margins = 5Plots.mm, ylabel = "Investment costs - Damage costs")
-    colors = range(RGB(0.5, 0.5, 0.5), RGB(0, 1, 0); length = length(θspace))
     for (i, θ) in enumerate(θspace)
-        plot!(fig, 1:(T-1), investmentcosttrajectories[θ] - damagecosttrajectories[θ]; label = L"$\theta = %$(θ)$", c = colors[i])
+        plot!(fig, 1:(T-1), investmentcosttrajectories[θ] - damagecosttrajectories[θ]; label = L"$\theta = %$(θ)$")
     end
     figpath = joinpath(plotpath, "committed", "paths"); if !ispath(figpath) mkpath(figpath) end
     filename = joinpath(figpath, "tau$(τ₀)_costdifferences.png")
@@ -132,9 +133,8 @@ end
 
 let
     fig = plot(xlabel = L"$t$", margins = 5Plots.mm, ylabel = "Cumulative social costs")
-    colors = range(RGB(0.5, 0.5, 0.5), RGB(0, 1, 0); length = length(θspace))
     for (i, θ) in enumerate(θspace)
-        plot!(fig, 1:T, wtrajectories[θ]; label = L"$\theta = %$(θ)$", c = colors[i])
+        plot!(fig, 1:T, wtrajectories[θ]; label = L"$\theta = %$(θ)$")
     end
     figpath = joinpath(plotpath, "committed", "paths"); if !ispath(figpath) mkpath(figpath) end
     filename = joinpath(figpath, "tau$(τ₀)_cumulativewelfare.png")
