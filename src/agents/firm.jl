@@ -3,18 +3,16 @@ Base.@kwdef struct Firm{T <: Real}
 
     ē::T = 9.4 # emissions [GtC/year]
 
-    κ::T = 1.05 # base investment cost [tEur]
+    κ::T = 0.2 # base investment cost [tEur]
     ω::T = 0.0 # marginal investment difficulty
-    ν::T = 0.5 # adjustment costs [year]
-    α::T = 0.03 # investment effectiveness [1 / tEur]
+
+    α::T = 0.17 # investment effectiveness [1 / tEur]
+    ν::T = 0.55 # adjustment costs [year / tEur²]
 end
 
 function p(a, firm::Firm)
-    if firm.ω > 0
-        firm.κ * (1 + firm.ω  / (inv(a) - 1))
-    else
-        firm.κ
-    end
+    δ = firm.ω > 0 ? firm.ω  / (inv(a) - 1) : firm.ω
+    return firm.κ * (1 + δ)
 end
 p′(a, firm::Firm) = ForwardDiff.derivative(a -> p(a, firm), a)
 

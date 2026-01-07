@@ -1,5 +1,9 @@
 "Interpolate vector `V` at `x` assuming `space` range."
-function interpolate(V::TV, x, space::TR) where {X, S, TV <: AbstractVector{S}, TR <: AbstractVector{X}}
+function interpolate(V::TV, x::X, space::TR) where {X, S, TV <: AbstractVector{S}, TR <: AbstractVector{X}}
+    if length(V) != length(space)
+        error("Length of V ($(length(V))) does not match length of space ($(length(space)))")
+    end
+    
     # Clamp outside boundaries
     if x ≤ space[1]
         return V[1]
@@ -14,6 +18,10 @@ function interpolate(V::TV, x, space::TR) where {X, S, TV <: AbstractVector{S}, 
     ω = (x - x₀) / (x₁ - x₀)
     return V[i] * (1 - ω) + V[i + 1] * ω
 end
+function interpolate(V::TV, xs::TX, space::TR) where {X, S, TV <: AbstractVector{S}, TX <: AbstractVector{X}, TR <: AbstractVector{X}}
+    map(x -> interpolate(V, x, space), xs)
+end
+
 function interpolate(V::TV, point, spaces::TR) where {S, X, Y, TV <: AbstractMatrix{S}, TR <: Tuple{AbstractVector{X}, AbstractVector{Y}}}
     x, y = point
     xspace, yspace = spaces

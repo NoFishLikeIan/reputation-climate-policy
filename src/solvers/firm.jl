@@ -1,18 +1,25 @@
+function objective(ϕ, aᵢ, Vₜ₊₁, τₜ, A, firm::Firm)
+    c(aᵢ, ϕ, firm) + τₜ * emissions(aᵢ, firm) + 
+        firm.β * interpolate(Vₜ₊₁, f(aᵢ, ϕ, firm), A)
+end
+
+function optimalinvestment(aᵢ, Vₜ₊₁, τₜ, A, firm::Firm; ϕmin = 0., ϕmax = 100., tol = 1e-8)
+    g = @closure ϕ -> objective(ϕ, aᵢ, Vₜ₊₁, τₜ, A, firm)
+    return gssmin(g, ϕmin, ϕmax; tol = tol)
+end
+
 function crudebackwardstep!(Vₜ, Φₜ, τₜ, Vₜ₊₁, A, firm::Firm)
     @inbounds @threads for i in eachindex(Vₜ)
         aᵢ = A[i]
         ϕ = Φₜ[i]
-        Vₜ[i] = c(aᵢ, ϕ, firm) + τₜ * emissions(aᵢ, firm) + firm.β * interpolate(Vₜ₊₁, f(aᵢ, ϕ, firm), A)
+        Vₜ[i] = objective(ϕ, aᵢ, Vₜ₊₁, τₜ, A, firm)
     end
 end
 
-function backwardstep!(Vₜ, Φₜ, τₜ, Vₜ₊₁, A, firm::Firm; ϕmax = 10., tol = 1e-8)
+function backwardstep!(Vₜ, Φₜ, τₜ, Vₜ₊₁, A, firm::Firm; optkwargs...)
     @inbounds @threads for i in eachindex(Vₜ)
         aᵢ = A[i]
-
-        g = @closure ϕ -> c(aᵢ, ϕ, firm) + τₜ * emissions(aᵢ, firm) + firm.β * interpolate(Vₜ₊₁, f(aᵢ, ϕ, firm), A)
-        
-        vₜ, ϕₜ = gssmin(g, 0., ϕmax; tol = tol)
+        vₜ, ϕₜ = optimalinvestment(aᵢ, Vₜ₊₁, τₜ, A, firm; optkwargs...)
         
         Vₜ[i] = vₜ
         Φₜ[i] = ϕₜ
@@ -20,10 +27,10 @@ function backwardstep!(Vₜ, Φₜ, τₜ, Vₜ₊₁, A, firm::Firm; ϕmax = 10
 end
 
 function steadystate!(valuefunction::FirmValue, τ, A, firm::Firm; kwargs...)
-    V̄ = @view valuefunction.V[:, end]
-    Φ̄ = @view valuefunction.Φ[:, end]
+    V = @view valuefunction.V[:, end]
+    Φ = @view valuefunction.Φ[:, end]
 
-    steadystate!(V̄, Φ̄ , τ, A, firm; kwargs...)
+    steadystate!(V, Φ, τ, A, firm; kwargs...)
 
     return valuefunction
 end
