@@ -3,13 +3,17 @@ Base.@kwdef struct Government{T <: Real}
     ξ₀::T = 0.035 # linear damage coefficient [-]
     ξ₁::T = 0.0018 # quadratic damage coefficient [1/GtC]
     Y::T = 15.231 # output/GDP [trillion Eur/year]
-    tcre::T = 2e-3 # transient climate response to cumulative emissions [°C/GtC]
+    tcre::T = 3.52e-4 # transient climate response to cumulative emissions [°C/GtC]
 end
 
 # Climate damages
+function warming(a, firm::Firm, government::Government)
+    firm.ē * (1 - a) * government.tcre
+end
+
 function d(a, firm::Firm, government::Government)
-    warming = firm.ē * (1 - a) * government.tcre
-    return government.ξ₀ * warming + government.ξ₁ * warming^2
+    T = warming(a, firm, government)
+    return government.ξ₀ * T + government.ξ₁ * T^2
 end
 
 function socialcost(a, ϕ, firm::Firm, government::Government)
@@ -17,5 +21,5 @@ function socialcost(a, ϕ, firm::Firm, government::Government)
 end
 
 function τ(t, τ₀, θ)
-    τ₀ * exp(θ * t)
+    τ₀ + θ * t
 end

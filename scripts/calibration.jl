@@ -63,7 +63,7 @@ begin # Construct scenarios dataframes
     nmodels = length(dfs)
 end
 
-begin # Fill in data coefficients
+begin # Firms' investment parameters
     αs = Float64[]
     κs = Float64[]
     νs = Float64[]
@@ -99,6 +99,7 @@ begin # Fill in data coefficients
         impulseabatement = @. (abated[t + 1] - abated[t]) / (1 - abated[t])
         yearlytime = range(extrema(df.Year[t])..., step = 5.) # Interpolate data every five years
 
+        # FIXME: Work out whether linearly interpolating makes sense.
         Aₜ = interpolate(impulseabatement, yearlytime, df.Year[t])
         φₜ = interpolate(excessedinstalledcapacity[t], yearlytime, df.Year[t])
         
@@ -118,9 +119,9 @@ begin # Fill in data coefficients
         push!(νs, ν)
     end
 
-    @printf "Estimated α ≈ %.2f (%.2f)\n" mean(αs) std(αs)
-    @printf "Estimated κ ≈ %.2f (%.2f)\n" mean(κs) std(κs)
-    @printf "Estimated ν ≈ %.2f (%.2f)\n" mean(νs) std(νs)
+    @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs) std(αs) median(αs)
+    @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs) std(κs) median(κs)
+    @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs) std(νs) median(νs)
 end
 
 let # Plot histograms
@@ -135,3 +136,27 @@ let # Plot histograms
     estfig
 end
 
+begin
+    temperaturelabel = percentile -> @sprintf "AR6 climate diagnostics|Surface Temperature (GSAT)|FaIRv1.6.2|%.1fth Percentile" percentile;
+
+    Δt = diff(dfnp.Year)
+    ΔE = similar(Δt)
+    for (i, Δtᵢ) in enumerate(Δt)
+        ΔEᵢ = mean(dfnp[[i, i + 1], variablemap[:E]]) / 1000
+        ΔE[i] = ΔEᵢ * Δtᵢ
+    end
+
+
+    TCRs = Float64[]
+
+    percentiles = [5.0, 10.0, 16.7, 33.0, 50.0, 67.0, 83.3, 90.0, 95.0]
+
+    for percentile in percentiles
+        ΔT = diff(dfnp[:, temperaturelabel(percentile)])
+        TCR = (ΔE'ΔE) \ (ΔE'ΔT)
+
+        @printf "TCR (%.1f percentile) ≈ %.4e\n" percentile TCR
+
+        push!(TCRs, TCR)
+    end
+end
