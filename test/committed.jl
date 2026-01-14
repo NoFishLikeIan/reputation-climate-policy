@@ -25,7 +25,7 @@ A = range(0, 1; length = n)
 # Firm optimisation
 T = 501
 τ₀ = 3 * (3.67 * 1e9 * 1e-12)
-θspace = range(-0.001, 0.001; length = 6)
+θspace = range(0., 0.001; length = 3)
 
 begin
     atrajectories = Dict{Float64, Vector{Float64}}()

@@ -1,7 +1,7 @@
 Base.@kwdef struct Firm{T <: Real}
     β::T = 1 - 1e-2 # discount factor [-]
 
-    ē::T = 9.4 # emissions [GtC/year]
+    ē::T = 4.2660429 # emissions [GtC/year]
 
     κ::T = 0.2 # base investment cost [tEur]
     ω::T = 0.0 # marginal investment difficulty
