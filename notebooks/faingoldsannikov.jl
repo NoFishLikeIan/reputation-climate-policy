@@ -10,8 +10,20 @@ using Plots, LaTeXStrings
 # ╔═╡ 8c7ebeb2-fd73-4872-ac0b-190f9eb5462b
 using PlutoUI
 
+# ╔═╡ bfd65b1b-5f8a-47ad-bdfc-a52b3b2e5685
+html"""
+<style>
+	main {
+		margin: 0 auto;
+		max-width: 2000px;
+    	padding-left: max(160px, 20%);
+    	padding-right: max(160px, 20%);
+	}
+</style>
+"""
+
 # ╔═╡ a9de090c-090f-4930-be8d-02c2a107510f
-default(dpi = 180, linewidth = 2., label = false)
+default(dpi = 180, linewidth = 2.5, label = false)
 
 # ╔═╡ edca9b01-5497-46c4-9879-4a1e5c2f87ec
 md"
@@ -78,9 +90,12 @@ $\begin{equation}
 is a deadweight loss from carbon taxation.
 "
 
+# ╔═╡ f5c5fcd0-c43b-4abf-886f-5a3022affea6
+const matchscc = 66 / 1000;
+
 # ╔═╡ 855f60fe-a2be-4baa-8456-132de601b01a
 Base.@kwdef struct Gov{T}
-	ξ::T = 0.2 / firm.e₀ # linear damage coefficient [-]
+	ξ::T = matchscc / firm.e₀ # linear damage coefficient [-]
     y₀::T = 15.231 # output/GDP [trillion Eur/year]
 	δ::T = 1.
 end
@@ -90,16 +105,36 @@ function d(e, gov::Gov, firm::Firm)
 	(gov.ξ / 2) * e^2
 end;
 
+# ╔═╡ bd4538ef-9fbe-4a51-a3d7-1655b08935b6
+function l(τ, gov::Gov)
+	gov.δ * τ / 2
+end;
+
 # ╔═╡ 2455a855-b249-454f-ae9d-3c7794b96b5e
 gov = Gov();
 
 # ╔═╡ 145c4934-4ce9-4d7a-bcc6-fba053f78eea
 let
+	A = 0:0.01:1
 	xticks = 0:0.2:1
 	xticklabels = [L"%$(floor(Int, 100x)) \%" for x in xticks]
 	
-	plot(0:0.01:1, a -> gov.y₀ * d(e(a, firm), gov, firm); c = :black, xlabel = L"Abatement rate $a$", xlims = (0, 1), ylabel = L"Damages $\mathrm{tUSD /year}$", ylims = (0, Inf), label = L"d(a) y_0", xticks = (xticks, xticklabels))
+	fig = plot(xlabel = L"Abatement rate $a$", xlims = (0, 1), ylabel = L"Damages $\mathrm{tUSD /year}$", ylims = (0, Inf), xticks = (xticks, xticklabels))
+	plot!(A, a -> gov.y₀ * d(e(a, firm), gov, firm); c = :darkgreen, label = L"d(a) y_0")
+	plot!(A, a -> c(a, firm); c = :darkred, label = L"c(a)")
+	
 end
+
+# ╔═╡ 2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
+md"
+## Signal
+
+Firms do not observe $\tau_t$ directly, but a signal $s_t$ following 
+
+$\begin{equation}
+	\mathrm{d}s_t = \mu(\tau_t, \bar{a}_t) \mathrm{d} t + \sigma(\bar{a}_t) \mathrm{d}Z_t
+\end{equation}$
+"
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -118,7 +153,7 @@ PlutoUI = "~0.7.75"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.1"
+julia_version = "1.12.4"
 manifest_format = "2.0"
 project_hash = "e3eb74bf8227855c3aca6e58a6862ef568470953"
 
@@ -255,7 +290,7 @@ version = "0.9.5"
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.EpollShim_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -439,9 +474,9 @@ version = "1.3.0"
 
 [[deps.JpegTurbo_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "4255f0032eafd6451d707a51d5f0248b8a165e4d"
+git-tree-sha1 = "b6893345fd6658c8e475d40155789f4860ac3b21"
 uuid = "aacddb02-875f-59d6-b918-886e6ef4fbf8"
-version = "3.1.3+0"
+version = "3.1.4+0"
 
 [[deps.JuliaSyntaxHighlighting]]
 deps = ["StyledStrings"]
@@ -503,7 +538,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.11.1+1"
+version = "8.15.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -614,9 +649,9 @@ version = "1.1.9"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "3cce3511ca2c6f87b19c34ffc623417ed2798cbd"
+git-tree-sha1 = "ff69a2b1330bcb730b9ac1ab7dd680176f5896b8"
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.10+0"
+version = "2.28.1010+0"
 
 [[deps.Measures]]
 git-tree-sha1 = "b513cedd20d9c914783d8ad83d08120702bf2c77"
@@ -635,7 +670,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -665,14 +700,14 @@ version = "0.8.7+0"
 
 [[deps.OpenSSL]]
 deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "NetworkOptions", "OpenSSL_jll", "Sockets"]
-git-tree-sha1 = "386b47442468acfb1add94bf2d85365dea10cbab"
+git-tree-sha1 = "1d1aaa7d449b58415f97d2839c318b70ffb525a0"
 uuid = "4d8831e6-92b7-49fb-bdf8-b643e874388c"
-version = "1.6.0"
+version = "1.6.1"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.1+0"
+version = "3.5.4+0"
 
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -711,7 +746,7 @@ version = "0.44.2+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.0"
+version = "1.12.1"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -731,9 +766,9 @@ version = "1.4.4"
 
 [[deps.Plots]]
 deps = ["Base64", "Contour", "Dates", "Downloads", "FFMPEG", "FixedPointNumbers", "GR", "JLFzf", "JSON", "LaTeXStrings", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "Pkg", "PlotThemes", "PlotUtils", "PrecompileTools", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "RelocatableFolders", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "TOML", "UUIDs", "UnicodeFun", "Unzip"]
-git-tree-sha1 = "7b990898534ea9797bf9bf21bd086850e5d9f817"
+git-tree-sha1 = "459d8913a8b83c7222eb629664283653dadfe2b6"
 uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-version = "1.41.2"
+version = "1.41.3"
 
     [deps.Plots.extensions]
     FileIOExt = "FileIO"
@@ -750,10 +785,10 @@ version = "1.41.2"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "db8a06ef983af758d285665a0398703eb5bc1d66"
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "0d751d4ceb9dbd402646886332c2f99169dc1cfd"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.75"
+version = "0.7.76"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -763,9 +798,9 @@ version = "1.3.3"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "522f093a29b31a93e34eaea17ba055d850edea28"
+git-tree-sha1 = "0f27480397253da18fe2c12a4ba4eb9eb208bf3d"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.5.1"
+version = "1.5.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -1231,9 +1266,9 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.p7zip_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.5.0+2"
+version = "17.7.0+0"
 
 [[deps.x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1255,6 +1290,7 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
+# ╟─bfd65b1b-5f8a-47ad-bdfc-a52b3b2e5685
 # ╠═d843633c-f12e-11f0-8e75-d943d67c24f5
 # ╠═a9de090c-090f-4930-be8d-02c2a107510f
 # ╠═8c7ebeb2-fd73-4872-ac0b-190f9eb5462b
@@ -1265,9 +1301,12 @@ version = "1.13.0+0"
 # ╠═49daa43b-65a9-44cf-9204-5c1b9487254c
 # ╠═e1cf6b4c-744b-44ec-92a3-d18af362bb68
 # ╟─3ba4fb2e-b3ca-49bc-a73e-2a2bccdb3af2
+# ╠═f5c5fcd0-c43b-4abf-886f-5a3022affea6
 # ╠═855f60fe-a2be-4baa-8456-132de601b01a
 # ╠═146425a3-008b-4c49-b974-611558563c32
+# ╠═bd4538ef-9fbe-4a51-a3d7-1655b08935b6
 # ╠═2455a855-b249-454f-ae9d-3c7794b96b5e
 # ╟─145c4934-4ce9-4d7a-bcc6-fba053f78eea
+# ╟─2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

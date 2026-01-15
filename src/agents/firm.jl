@@ -3,11 +3,11 @@ Base.@kwdef struct Firm{T <: Real}
 
     ē::T = 4.2660429 # emissions [GtC/year]
 
-    κ::T = 0.2 # base investment cost [tEur]
+    κ::T = 0.1621 # base investment cost [tEur]
     ω::T = 0.0 # marginal investment difficulty
 
-    α::T = 0.17 # investment effectiveness [1 / tEur]
-    ν::T = 0.55 # adjustment costs [year / tEur²]
+    α::T = 2.0779 # investment effectiveness [y / tW]
+    ν::T = 5.4315 # adjustment costs [year / tEur²]
 end
 
 function p(a, firm::Firm)

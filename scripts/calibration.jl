@@ -94,10 +94,94 @@ begin
         push!(νs_eu, ν)
     end
 
-    println("EU estimation")
+    println("\nEU estimation")
     @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_eu) std(αs_eu) median(αs_eu)
     @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_eu) std(κs_eu) median(κs_eu)
     @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_eu) std(νs_eu) median(νs_eu)
+end
+
+scenarios_na = @chain ar6data begin
+    @filter(Region == "R10NORTH_AM")
+    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
+    @group_by(Model, Scenario)
+end
+
+begin
+    parsefloat(year) = parse(Float64, year)
+
+    dfs_na = Dict{String, DataFrame}()
+    for (key, scenario) in pairs(scenarios_na)
+        df = @chain DataFrame(scenario) begin
+            @select(!(:Model, :Scenario, :Region, :Unit))
+            stack(Not(:Variable), variable_name="Year", value_name="Value")
+            unstack(:Variable, :Value, combine=mean)
+            dropmissing!()
+            @mutate(Year = parsefloat(Year))
+            @filter(Year ≥ 2020.)
+        end
+
+        dfs_na[key.Scenario] = df
+    end
+
+    dfnp_na = dfs_na[npscenario]
+    filter!(((scenario, df), ) -> scenario != npscenario, dfs_na)
+end
+
+begin
+    αs_na = Float64[]
+    κs_na = Float64[]
+    νs_na = Float64[]
+    for (k, (scenario, df)) in enumerate(dfs_na)
+        emissionsfactor = 1e-3
+        E = df[:, "Emissions|Kyoto Gases"] * emissionsfactor
+        Eⁿᵖ = interpolate(dfnp_na[:, "Emissions|Kyoto Gases"] * emissionsfactor, df.Year, dfnp_na.Year)
+        abated = @. 1 - E / Eⁿᵖ
+
+        abidx = eachindex(abated)[@. (0 < abated < 1)]
+        abated = abated[abidx]
+        
+        capacityfactor = 1e-3
+
+        installedcapacity = zeros(size(df, 1))
+        installedcapacityⁿᵖ = zeros(size(df, 1))
+
+        for renewable in renewables
+            variable = "Capacity Additions|Electricity|$renewable"
+            installedcapacity .+= df[:, variable] .* capacityfactor
+            installedcapacityⁿᵖ .+= interpolate(dfnp_na[:, variable] .* capacityfactor, df.Year, dfnp_na.Year)
+        end
+
+        excessedinstalledcapacity = installedcapacity - installedcapacityⁿᵖ
+
+        sccfactor = 1e-3
+        scc = df[:, "Price|Carbon"] * sccfactor
+
+        t = abidx[1:(end - 1)]
+        impulseabatement = @. (abated[t + 1] - abated[t]) / (1 - abated[t])
+        yearlytime = range(extrema(df.Year[t])..., step = 5.)
+
+        Aₜ = interpolate(impulseabatement, yearlytime, df.Year[t])
+        φₜ = interpolate(excessedinstalledcapacity[t], yearlytime, df.Year[t])
+        
+        α = (φₜ'φₜ) \ (φₜ'Aₜ)
+        
+        pₜ = interpolate(scc[t], yearlytime, df.Year[t])
+        Eₜⁿᵖ = interpolate(Eⁿᵖ[t], yearlytime, df.Year[t])
+        aₜ = interpolate(abated[t], yearlytime, df.Year[t])
+
+        λₜ = @. pₜ * Eₜⁿᵖ * α * (1 - aₜ)
+        x = [ones(length(φₜ)) φₜ]
+        κ, ν = (x'x) \ (x'λₜ)
+
+        push!(αs_na, α)
+        push!(κs_na, κ)
+        push!(νs_na, ν)
+    end
+
+    println("\nNorth America estimation")
+    @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_na) std(αs_na) median(αs_na)
+    @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_na) std(κs_na) median(κs_na)
+    @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_na) std(νs_na) median(νs_na)
 end
 
 ar6filepath_world = "data/AR6_Scenarios_Database_World_v1.1.csv"; @assert isfile(ar6filepath_world)
@@ -176,24 +260,28 @@ begin
         push!(νs_world, ν)
     end
 
+    println("\nWorld estimation")
     @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_world) std(αs_world) median(αs_world)
     @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_world) std(κs_world) median(κs_world)
     @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_world) std(νs_world) median(νs_world)
 end
 
 let
-    αbins = range(min(minimum(αs_eu), minimum(αs_world)), max(maximum(αs_eu), maximum(αs_world)), length=13)
-    κbins = range(min(minimum(κs_eu), minimum(κs_world)), max(maximum(κs_eu), maximum(κs_world)), length=13)
-    νbins = range(min(minimum(νs_eu), minimum(νs_world)), max(maximum(νs_eu), maximum(νs_world)), length=13)
+    αbins = range(min(minimum(αs_eu), minimum(αs_na), minimum(αs_world)), max(maximum(αs_eu), maximum(αs_na), maximum(αs_world)), length=18)
+    κbins = range(min(minimum(κs_eu), minimum(κs_na), minimum(κs_world)), max(maximum(κs_eu), maximum(κs_na), maximum(κs_world)), length=18)
+    νbins = range(min(minimum(νs_eu), minimum(νs_na), minimum(νs_world)), max(maximum(νs_eu), maximum(νs_na), maximum(νs_world)), length=18)
     
-    p1 = histogram(αs_eu, bins=αbins, alpha=0.6, xlabel=L"\alpha \; [\mathrm{year/tW}]", legend=true, c=:darkblue, linewidth = 0., title = "Abatement efficiency")
-    histogram!(p1, αs_world, bins=αbins, alpha=0.6, c=:darkorange, linewidth = 0.)
+    p1 = histogram(αs_eu, bins=αbins, alpha=0.6, xlabel=L"\alpha \; [\mathrm{year/tW}]", legend=true, c=:darkblue, title = "Abatement efficiency")
+    histogram!(p1, αs_na, bins=αbins, alpha=0.6, c=:darkgreen)
+    histogram!(p1, αs_world, bins=αbins, alpha=0.6, c=:darkorange)
     
     p2 = histogram(κs_eu, bins=κbins, alpha=0.6, xlabel=L"\kappa \; [\mathrm{trUSD/tW}]", legend=true, c=:darkblue, title = "Price")
-    histogram!(p2, κs_world, bins=κbins, alpha=0.6, c=:darkorange, linewidth = 0.)
+    histogram!(p2, κs_na, bins=κbins, alpha=0.6, c=:darkgreen)
+    histogram!(p2, κs_world, bins=κbins, alpha=0.6, c=:darkorange)
     
-    p3 = histogram(νs_eu, bins=νbins, label="EU", alpha=0.6, xlabel=L"\nu \; [\mathrm{trUSD/tW}^2]", legend=true, c=:darkblue, linewidth = 0., title = "Adjustment costs")
-    histogram!(p3, νs_world, bins=νbins, label="World", alpha=0.6, c=:darkorange, linewidth = 0.)
+    p3 = histogram(νs_eu, bins=νbins, label="EU", alpha=0.6, xlabel=L"\nu \; [\mathrm{trUSD/tW}^2]", legend=true, c=:darkblue, title = "Adjustment costs")
+    histogram!(p3, νs_na, bins=νbins, label="North America", alpha=0.6, c=:darkgreen)
+    histogram!(p3, νs_world, bins=νbins, label="World", alpha=0.6, c=:darkorange)
     
     estfig = plot(p1, p2, p3, layout=(1,3), size=(1400, 400), margins = 10Plots.mm)
 
