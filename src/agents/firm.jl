@@ -1,7 +1,7 @@
 Base.@kwdef struct Firm{T <: Real}
     β::T = 1 - 1e-2 # discount factor [-]
 
-    ē::T = 4.2660429 # emissions [GtC/year]
+    e₀::T = 4.2660429 # emissions [GtC/year]
 
     κ::T = 0.1621 # base investment cost [tEur]
     ω::T = 0.0 # marginal investment difficulty
@@ -25,7 +25,7 @@ cᵩ(a, φ, firm) = ForwardDiff.derivative(φ -> c(a, φ, firm), φ)
 
 "Firm's total emissions."
 function emissions(a, firm::Firm)
-    firm.ē * (1 - a)
+    firm.e₀ * (1 - a)
 end
 
 "Capital dynamics `aₜ₊₁ = f(aₜ, φₜ)`"

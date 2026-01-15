@@ -60,7 +60,7 @@ $a_{t + 1} = f(a_t, \phi_t) \coloneqq a_t + (1 - a_t) \alpha \phi_t.$
 Base.@kwdef struct Firm{T <: Real}
     β::T = 1 - 1e-2 # discount factor [-]
 
-    ē::T = 9.4 # emissions [GtC/year]
+    e₀::T = 9.4 # emissions [GtC/year]
 
     κ::T = 0.1 # base investment cost [t$]
     ω::T = 0.0 # marginal investment difficulty
@@ -97,7 +97,7 @@ end;
 begin
 	"Firm's total emissions."
 	function emissions(a, firm::Firm)
-	    firm.ē * (1 - a)
+	    firm.e₀ * (1 - a)
 	end
 	
 	"Capital dynamics `aₜ₊₁ = f(aₜ, φₜ)`"
@@ -143,7 +143,7 @@ end
 
 # ╔═╡ e282984a-da20-49a3-8756-0591587ba7ae
 function d(a, firm::Firm, government::Government)
-    warming = firm.ē * (1 - a) * government.tcre
+    warming = firm.e₀ * (1 - a) * government.tcre
     return government.ξ₀ * warming + government.ξ₁ * warming^2
 end;
 
