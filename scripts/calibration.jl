@@ -2,27 +2,29 @@ using Revise
 
 using DotEnv, UnPack
 using CSV, JLD2
+using LinearAlgebra
 using DataFrames, TidierData
 using Printf
 using Plots, LaTeXStrings
 
 include("../src/utils.jl")
 
-Plots.default(linewidth = 2, dpi = 180, label = false)
+Plots.default(linewidth = 2, dpi = 180, label = false, background_color = :transparent)
 plotpath = "figures/calibration"; if !ispath(plotpath) mkpath(plotpath) end
 
 ar6filepath = "data/AR6_Scenarios_Database_R10_regions_v1.1.csv"; @assert isfile(ar6filepath)
 ar6data = CSV.read(ar6filepath, DataFrame);
+parsefloat(year) = parse(Float64, year)
 
-scenarios = @chain ar6data begin
-    @filter(Region == "R10EUROPE")
-    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
-    @group_by(Model, Scenario)
+struct Measurement <: Number
+    val::Float64
+    err::Float64
 end
 
-begin
-    parsefloat(year) = parse(Float64, year)
+value(m::Measurement) = m.val
+uncertainty(m::Measurement) = m.err
 
+function makedf(scenarios)
     dfs = Dict{String, DataFrame}()
     for (key, scenario) in pairs(scenarios)
         df = @chain DataFrame(scenario) begin
@@ -37,255 +39,189 @@ begin
         dfs[key.Scenario] = df
     end
 
-    npscenario = "EN_NoPolicy"
     dfnp = dfs[npscenario]
     filter!(((scenario, df), ) -> scenario != npscenario, dfs)
+
+    return dfnp, dfs
 end
 
-renewables = [ "Hydro", "Nuclear", "Solar", "Storage Capacity", "Wind" ]
-begin
-    αs_eu = Float64[]
-    κs_eu = Float64[]
-    νs_eu = Float64[]
-    for (k, (scenario, df)) in enumerate(dfs)
-        emissionsfactor = 1e-3
+function calibrate(scenarios; emissionsfactor = 1e-3, capacityfactor = 1e-3, sccfactor = 1e-3, renewables = ("Hydro", "Nuclear", "Solar", "Storage Capacity", "Wind"), labels = ("β (t)", "α₁ (aₜ)", "α₂ (φₜ)", "α₃ (φₜ×aₜ)"), mclabels = ("κ (φₜ)", "ν (φₜ²)"))
+    dfnp, dfs = makedf(scenarios)
+
+    aₜvec = Float64[]
+    aₜ₊₁vec = Float64[]
+
+    φvec = Float64[]
+    tvec = Float64[]
+
+    pvec = Float64[]
+    Evec = Float64[]
+
+    for (_, df) in dfs
         E = df[:, "Emissions|Kyoto Gases"] * emissionsfactor
         Eⁿᵖ = interpolate(dfnp[:, "Emissions|Kyoto Gases"] * emissionsfactor, df.Year, dfnp.Year)
         abated = @. 1 - E / Eⁿᵖ
 
-        abidx = eachindex(abated)[@. (0 < abated < 1)]
-        abated = abated[abidx]
-        
-        capacityfactor = 1e-3
-
-        installedcapacity = zeros(size(df, 1))
-        installedcapacityⁿᵖ = zeros(size(df, 1))
-
+        excessedinstalledcapacity = zeros(size(df, 1))
         for renewable in renewables
             variable = "Capacity Additions|Electricity|$renewable"
-            installedcapacity .+= df[:, variable] .* capacityfactor
-            installedcapacityⁿᵖ .+= interpolate(dfnp[:, variable] .* capacityfactor, df.Year, dfnp.Year)
+            installedcapacity = df[:, variable] .* capacityfactor
+            installedcapacityⁿᵖ = interpolate(dfnp[:, variable] .* capacityfactor, df.Year, dfnp.Year)
+
+            @. excessedinstalledcapacity +=  installedcapacity - installedcapacityⁿᵖ
         end
 
-        excessedinstalledcapacity = installedcapacity - installedcapacityⁿᵖ
-
-        sccfactor = 1e-3
         scc = df[:, "Price|Carbon"] * sccfactor
 
-        t = abidx[1:(end - 1)]
-        impulseabatement = @. (abated[t + 1] - abated[t]) / (1 - abated[t])
-        yearlytime = range(extrema(df.Year[t])..., step = 5.)
-
-        Aₜ = interpolate(impulseabatement, yearlytime, df.Year[t])
-        φₜ = interpolate(excessedinstalledcapacity[t], yearlytime, df.Year[t])
+        t = 1:(length(abated) - 1)
+        yearlytime = range(df.Year[1], df.Year[end]; step = 5.)
         
-        α = (φₜ'φₜ) \ (φₜ'Aₜ)
-        
-        pₜ = interpolate(scc[t], yearlytime, df.Year[t])
-        Eₜⁿᵖ = interpolate(Eⁿᵖ[t], yearlytime, df.Year[t])
-        aₜ = interpolate(abated[t], yearlytime, df.Year[t])
+        φ = interpolate(excessedinstalledcapacity, yearlytime, df.Year)
+        a = interpolate(abated, yearlytime, df.Year)
+        p = interpolate(scc, yearlytime, df.Year)
+        emissions = interpolate(E, yearlytime, df.Year)
 
-        λₜ = @. pₜ * Eₜⁿᵖ * α * (1 - aₜ)
-        x = [ones(length(φₜ)) φₜ]
-        κ, ν = (x'x) \ (x'λₜ)
-
-        push!(αs_eu, α)
-        push!(κs_eu, κ)
-        push!(νs_eu, ν)
+        push!(aₜvec, a[t]...)
+        push!(aₜ₊₁vec, a[t .+ 1]...)
+        push!(φvec, φ[t]...)
+        push!(tvec, yearlytime[t]...)
+        push!(Evec, emissions[t]...)
+        push!(pvec, p[t]...)
     end
 
-    println("\nEU estimation")
-    @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_eu) std(αs_eu) median(αs_eu)
-    @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_eu) std(κs_eu) median(κs_eu)
-    @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_eu) std(νs_eu) median(νs_eu)
+    X = [tvec aₜvec φvec φvec.*aₜvec]
+    coeff = (X'X) \ (X'aₜ₊₁vec)
+    β, α... = coeff
+    n, k = size(X)
+    
+    residuals = (aₜ₊₁vec - X * coeff)
+    σ² = (residuals'residuals) / (n - k)
+    Σ = σ² * inv(X'X)
+    se = sqrt.(diag(Σ))
+
+    αmes = Measurement[]
+    for (i, c) in enumerate(coeff)
+        push!(αmes, Measurement(c, se[i]))
+        @printf "%s = %.2e (%.2e)\n" labels[i] c se[i]
+    end
+
+    mb = @. pvec * Evec * (α[2] + α[3] * aₜvec)
+    Z = [ ones(n) φvec ]
+
+    mc = (Z'Z) \ (Z'mb)
+    mcresiduals = mb - Z * mc
+    mcσ² = (mcresiduals'mcresiduals) / (n - 2)
+    mcΣ = mcσ² * inv(Z'Z)
+    mcse = sqrt.(diag(mcΣ))
+
+    mcmes = Measurement[]
+    for (i, c) in enumerate(mc)
+        push!(mcmes, Measurement(c, mcse[i]))
+        @printf "%s = %.2e (%.2e)\n" mclabels[i] c mcse[i]
+    end
+
+    return αmes, mcmes
 end
+
+scenarios_eu = @chain ar6data begin
+    @filter(Region == "R10EUROPE")
+    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
+    @group_by(Model, Scenario)
+end;
+
+println("\n=== EU Estimation ===")
+αs_eu, mcs_eu = calibrate(scenarios_eu);
 
 scenarios_na = @chain ar6data begin
     @filter(Region == "R10NORTH_AM")
     @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
-end
+end;
 
-begin
-    parsefloat(year) = parse(Float64, year)
+println("\n=== North America Estimation ===")
+αs_na, mcs_na = calibrate(scenarios_na);
 
-    dfs_na = Dict{String, DataFrame}()
-    for (key, scenario) in pairs(scenarios_na)
-        df = @chain DataFrame(scenario) begin
-            @select(!(:Model, :Scenario, :Region, :Unit))
-            stack(Not(:Variable), variable_name="Year", value_name="Value")
-            unstack(:Variable, :Value, combine=mean)
-            dropmissing!()
-            @mutate(Year = parsefloat(Year))
-            @filter(Year ≥ 2020.)
-        end
-
-        dfs_na[key.Scenario] = df
-    end
-
-    dfnp_na = dfs_na[npscenario]
-    filter!(((scenario, df), ) -> scenario != npscenario, dfs_na)
-end
-
-begin
-    αs_na = Float64[]
-    κs_na = Float64[]
-    νs_na = Float64[]
-    for (k, (scenario, df)) in enumerate(dfs_na)
-        emissionsfactor = 1e-3
-        E = df[:, "Emissions|Kyoto Gases"] * emissionsfactor
-        Eⁿᵖ = interpolate(dfnp_na[:, "Emissions|Kyoto Gases"] * emissionsfactor, df.Year, dfnp_na.Year)
-        abated = @. 1 - E / Eⁿᵖ
-
-        abidx = eachindex(abated)[@. (0 < abated < 1)]
-        abated = abated[abidx]
-        
-        capacityfactor = 1e-3
-
-        installedcapacity = zeros(size(df, 1))
-        installedcapacityⁿᵖ = zeros(size(df, 1))
-
-        for renewable in renewables
-            variable = "Capacity Additions|Electricity|$renewable"
-            installedcapacity .+= df[:, variable] .* capacityfactor
-            installedcapacityⁿᵖ .+= interpolate(dfnp_na[:, variable] .* capacityfactor, df.Year, dfnp_na.Year)
-        end
-
-        excessedinstalledcapacity = installedcapacity - installedcapacityⁿᵖ
-
-        sccfactor = 1e-3
-        scc = df[:, "Price|Carbon"] * sccfactor
-
-        t = abidx[1:(end - 1)]
-        impulseabatement = @. (abated[t + 1] - abated[t]) / (1 - abated[t])
-        yearlytime = range(extrema(df.Year[t])..., step = 5.)
-
-        Aₜ = interpolate(impulseabatement, yearlytime, df.Year[t])
-        φₜ = interpolate(excessedinstalledcapacity[t], yearlytime, df.Year[t])
-        
-        α = (φₜ'φₜ) \ (φₜ'Aₜ)
-        
-        pₜ = interpolate(scc[t], yearlytime, df.Year[t])
-        Eₜⁿᵖ = interpolate(Eⁿᵖ[t], yearlytime, df.Year[t])
-        aₜ = interpolate(abated[t], yearlytime, df.Year[t])
-
-        λₜ = @. pₜ * Eₜⁿᵖ * α * (1 - aₜ)
-        x = [ones(length(φₜ)) φₜ]
-        κ, ν = (x'x) \ (x'λₜ)
-
-        push!(αs_na, α)
-        push!(κs_na, κ)
-        push!(νs_na, ν)
-    end
-
-    println("\nNorth America estimation")
-    @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_na) std(αs_na) median(αs_na)
-    @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_na) std(κs_na) median(κs_na)
-    @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_na) std(νs_na) median(νs_na)
-end
-
-ar6filepath_world = "data/AR6_Scenarios_Database_World_v1.1.csv"; @assert isfile(ar6filepath_world)
-ar6data_world = CSV.read(ar6filepath_world, DataFrame);
-
-scenarios_world = @chain ar6data_world begin
+scenarios_china = @chain ar6data begin
+    @filter(Region == "R10CHINA+")
     @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
+end;
+
+println("\n=== China Estimation ===")
+αs_china, mcs_china = calibrate(scenarios_china);
+
+scenarios_india = @chain ar6data begin
+    @filter(Region == "R10INDIA+")
+    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
+    @group_by(Model, Scenario)
+end;
+
+println("\n=== India Estimation ===");
+αs_india, mcs_india = calibrate(scenarios_india);
+
+@recipe function f(::Type{T}, m::T) where T <: AbstractArray{<:Measurement}
+    if !(get(plotattributes, :seriestype, :path) in (:contour, :contourf, :contour3d, :heatmap, :surface, :wireframe, :image))
+        error_sym = Symbol(plotattributes[:letter], :error)
+        plotattributes[error_sym] = uncertainty.(m)
+    end
+    value.(m)
 end
 
 begin
-    parsefloat(year) = parse(Float64, year)
-
-    dfs_world = Dict{String, DataFrame}()
-    for (k, scenario) in pairs(scenarios_world)
-        df = @chain DataFrame(scenario) begin
-            @select(!(:Model, :Scenario, :Region, :Unit))
-            stack(Not(:Variable), variable_name="Year", value_name="Value")
-            unstack(:Variable, :Value, combine=first)
-            dropmissing!()
-            @mutate(Year = parsefloat(Year))
-            @filter(Year ≥ 2020.)
-        end
-
-        dfs_world[k.Scenario] = df
+    regions = ["EU", "NA", "China", "India"]
+    colors = [:darkblue, :darkgreen, :darkorange, :darkred]
+    nregions = length(regions)
+    
+    αs_all = [αs_eu, αs_na, αs_china, αs_india]
+    mcs_all = [mcs_eu, mcs_na, mcs_china, mcs_india]
+    
+    # Create one plot per α coefficient
+    α_names = [L"$\alpha_1 \; [.] \; (a_t)$", L"$\alpha_2 \; [\mathrm{yr} / \mathrm{TW}] \; (\phi_t)$", L"$\alpha_3 \; [\mathrm{yr} / \mathrm{TW}] \; ( \phi_t \times \alpha_2 )$"]
+    α_plots = []
+    
+    for (i, α_name) in enumerate(α_names)
+        vals = [value(αs[i+1]) for αs in αs_all]  # Skip β (index 1)
+        errs = [uncertainty(αs[i+1]) for αs in αs_all]
+        
+        p = scatter(1:nregions, vals,
+                   yerror = errs,
+                   xticks = (1:nregions, regions),
+                   title = α_name,
+                   color = colors,
+                   markersize = 8,
+                   legend = false,
+                   framestyle = :box,
+                   size = (600, 300))
+        
+        push!(α_plots, p)
     end
-
-    dfnp_world = dfs_world[npscenario]
-    filter!(((scenario, df), ) -> scenario != npscenario, dfs_world)
-end
-
-begin
-    αs_world = Float64[]
-    κs_world = Float64[]
-    νs_world = Float64[]
-    for (k, (scenario, df)) in enumerate(dfs_world)
-        emissionsfactor = 1e-3
-        E = df[:, "AR6 climate diagnostics|Infilled|Emissions|Kyoto Gases (AR6-GWP100)"] * emissionsfactor
-        Eⁿᵖ = interpolate(dfnp_world[:, "AR6 climate diagnostics|Infilled|Emissions|Kyoto Gases (AR6-GWP100)"] * emissionsfactor, df.Year, dfnp_world.Year)
-        abated = @. 1 - E / Eⁿᵖ
-
-        abidx = eachindex(abated)[@. (0 < abated < 1)]
-        abated = abated[abidx]
+    
+    αfig = plot(α_plots..., layout = (1, 3), size = (1200, 400))
+    savefig(αfig, joinpath(plotpath, "alpha-coefficients.png"))
+    
+    # Create one plot per marginal cost coefficient
+    mc_names = [L"\kappa \; [\mathrm{TW} / \mathrm{tUSD}] \; (\phi_t)", L"\nu \; [\mathrm{TW}^2 / \mathrm{tUSD}^2] \; (\phi_t^2)"]
+    mc_plots = []
+    
+    for (i, mc_name) in enumerate(mc_names)
+        vals = [value(mcs[i]) for mcs in mcs_all]
+        errs = [uncertainty(mcs[i]) for mcs in mcs_all]
         
-        capacityfactor = 1e-3
-        installedcapacity = df[:, "Capacity Additions|Electricity|Renewables (incl. Biomass)"] .* capacityfactor
-        installedcapacityⁿᵖ = interpolate(dfnp_world[:, "Capacity Additions|Electricity|Renewables (incl. Biomass)"] .* capacityfactor, df.Year, dfnp_world.Year)
-        excessedinstalledcapacity = installedcapacity - installedcapacityⁿᵖ
-
-        if !("Price|Carbon" in names(df))
-            continue 
-        end
-
-        sccfactor = 1e-3
-        scc = df[:, "Price|Carbon"] * sccfactor
-
-        t = abidx[1:(end - 1)]
-        impulseabatement = @. (abated[t + 1] - abated[t]) / (1 - abated[t])
-        yearlytime = range(extrema(df.Year[t])..., step = 5.)
-
-        Aₜ = interpolate(impulseabatement, yearlytime, df.Year[t])
-        φₜ = interpolate(excessedinstalledcapacity[t], yearlytime, df.Year[t])
+        p = scatter(1:nregions, vals,
+                   yerror = errs,
+                   xticks = (1:nregions, regions),
+                   title = mc_name,
+                   color = colors,
+                   markersize = 8,
+                   legend = false,
+                   framestyle = :box,
+                   left_margin = 10Plots.mm,
+                   right_margin = 10Plots.mm,
+                   size = (600, 300))
         
-        α = (φₜ'φₜ) \ (φₜ'Aₜ)
-        
-        pₜ = interpolate(scc[t], yearlytime, df.Year[t])
-        Eₜⁿᵖ = interpolate(Eⁿᵖ[t], yearlytime, df.Year[t])
-        aₜ = interpolate(abated[t], yearlytime, df.Year[t])
-
-        λₜ = @. pₜ * Eₜⁿᵖ * α * (1 - aₜ)
-        x = [ones(length(φₜ)) φₜ]
-        κ, ν = (x'x) \ (x'λₜ)
-
-        push!(αs_world, α)
-        push!(κs_world, κ)
-        push!(νs_world, ν)
+        push!(mc_plots, p)
     end
-
-    println("\nWorld estimation")
-    @printf "α, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(αs_world) std(αs_world) median(αs_world)
-    @printf "κ, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(κs_world) std(κs_world) median(κs_world)
-    @printf "ν, Average ≈ %.4f (%.4f), median ≈ %.4f\n" mean(νs_world) std(νs_world) median(νs_world)
-end
-
-let
-    αbins = range(min(minimum(αs_eu), minimum(αs_na), minimum(αs_world)), max(maximum(αs_eu), maximum(αs_na), maximum(αs_world)), length=18)
-    κbins = range(min(minimum(κs_eu), minimum(κs_na), minimum(κs_world)), max(maximum(κs_eu), maximum(κs_na), maximum(κs_world)), length=18)
-    νbins = range(min(minimum(νs_eu), minimum(νs_na), minimum(νs_world)), max(maximum(νs_eu), maximum(νs_na), maximum(νs_world)), length=18)
     
-    p1 = histogram(αs_eu, bins=αbins, alpha=0.6, xlabel=L"\alpha \; [\mathrm{year/tW}]", legend=true, c=:darkblue, title = "Abatement efficiency")
-    histogram!(p1, αs_na, bins=αbins, alpha=0.6, c=:darkgreen)
-    histogram!(p1, αs_world, bins=αbins, alpha=0.6, c=:darkorange)
-    
-    p2 = histogram(κs_eu, bins=κbins, alpha=0.6, xlabel=L"\kappa \; [\mathrm{trUSD/tW}]", legend=true, c=:darkblue, title = "Price")
-    histogram!(p2, κs_na, bins=κbins, alpha=0.6, c=:darkgreen)
-    histogram!(p2, κs_world, bins=κbins, alpha=0.6, c=:darkorange)
-    
-    p3 = histogram(νs_eu, bins=νbins, label="EU", alpha=0.6, xlabel=L"\nu \; [\mathrm{trUSD/tW}^2]", legend=true, c=:darkblue, title = "Adjustment costs")
-    histogram!(p3, νs_na, bins=νbins, label="North America", alpha=0.6, c=:darkgreen)
-    histogram!(p3, νs_world, bins=νbins, label="World", alpha=0.6, c=:darkorange)
-    
-    estfig = plot(p1, p2, p3, layout=(1,3), size=(1400, 400), margins = 10Plots.mm)
-
-    savefig(estfig, joinpath(plotpath, "investment-combined.png"))
-
-    estfig
+    mcfig = plot(mc_plots..., layout = (1, 2), size = (1000, 400))
+    savefig(mcfig, joinpath(plotpath, "mc-coefficients.png"))
 end
