@@ -4,13 +4,28 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    return quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
 # ╔═╡ d843633c-f12e-11f0-8e75-d943d67c24f5
 using Plots, LaTeXStrings
 
 # ╔═╡ 8c7ebeb2-fd73-4872-ac0b-190f9eb5462b
 using PlutoUI
 
-# ╔═╡ bfd65b1b-5f8a-47ad-bdfc-a52b3b2e5685
+# ╔═╡ 3ba13a81-ac25-4cd9-851f-26ac21b4fe33
+using Optim, FastClosures
+
+# ╔═╡ bd19032e-02e1-4fe4-aecd-b54a3f0feafc
 html"""
 <style>
 	main {
@@ -23,11 +38,53 @@ html"""
 """
 
 # ╔═╡ a9de090c-090f-4930-be8d-02c2a107510f
-default(dpi = 180, linewidth = 2.5, label = false)
+default(dpi = 180, linewidth = 2.5, label = false, background_color = :transparent)
+
+# ╔═╡ 74f7a92d-f820-497f-af41-3aa6f534b55d
+TableOfContents()
+
+# ╔═╡ 8fae1b6b-015e-43c6-ad5b-890c8a65305c
+md"
+# Utils
+## Plotting utils
+"
+
+# ╔═╡ b58e1d2e-e218-4d58-9c2d-c47cab866560
+begin
+	τspace = 0:1:120
+	τticks = 0:40:120
+	τticklabels = [L"%$x" for x in τticks]
+	τlabel =  L"Carbon tax $\tau \; \textrm{USD} / \textrm{tC}$"
+	
+	A = 0:0.01:1
+	aticks = 0:0.2:1
+	aticklabels = [L"%$(floor(Int, 100x)) \%" for x in aticks]
+	alabel = L"Abatement rate $a$"
+end;
+
+# ╔═╡ efed6f54-eb6b-4f98-9507-c8d601d45e76
+md"## Constants"
+
+# ╔═╡ 5602e190-2d3b-4ae2-9ee9-58a9cb3b73c1
+begin
+	const CO₂toC = 44 / 12
+	const e₀ = 10.3
+	const y₀ = 15.231
+	const dicescc = 66 / 1000
+	const dietzφ = 3e-5
+end;
+
+# ╔═╡ ca2c45d8-393b-415e-baaa-d38306664dca
+md"
+# Reputation in continuous time
+
+This is an attempt to employ the framework by [Faingold & Sannikov (Econometrica, 2011)](https://doi.org/10.3982/ECTA7377).
+"
 
 # ╔═╡ edca9b01-5497-46c4-9879-4a1e5c2f87ec
 md"
-## Firms
+## Model
+### Firms
 
 A continuum of polluting energy firms $i \in [0, 1]$ are endowed with a production technology emitting $e_{0}$. Firms can choose to invest in abatement efforts $a_{i, t}$, at a cost $c(a_{i, t})$, to reduce their emissions 
 
@@ -37,15 +94,15 @@ $\begin{equation}
 
 $\begin{equation}
     k(a_{i, t}, \tau_t) = \underbrace{(1 - a_{i, t}) e_{0}}_{e_{i, t}} \tau_t + c(a_{i, t}),
-\end{equation}$ where $c(a) = \nu a^2 / 2.$
+\end{equation}$ where $c(a) = \nu \frac{a^2}{2}.$
 
 Aggregate emissions are given by $e_t = \int_0^\infty e_{i, t} \mathrm{d}i = (1 - a_t) e_0$ where $a_t = \int_0^\infty a_{i, t} \mathrm{d}i.$
 "
 
 # ╔═╡ a7357976-2f2c-497f-9ab0-bdd9a809df1a
 Base.@kwdef struct Firm{T}
-	e₀::T = 10.3 # emissions [GtC/year]
-	ν::T = 0.55 # adjustment costs [year / tEur²]
+	e₀::T = e₀ # emissions [GtC/year]
+	ν::T = dietzφ * y₀ * (e₀ * CO₂toC)^2 # adjustment costs [year / tEur²]
 end
 
 # ╔═╡ 05306d65-3c46-421c-90ec-bf2e665d2ca7
@@ -60,7 +117,7 @@ end;
 
 # ╔═╡ 49daa43b-65a9-44cf-9204-5c1b9487254c
 function k(a, τ, firm::Firm)
-	e(a) * τ + c(a, firm)
+	e(a, firm) * τ + c(a, firm)
 end;
 
 # ╔═╡ e1cf6b4c-744b-44ec-92a3-d18af362bb68
@@ -68,7 +125,7 @@ firm = Firm();
 
 # ╔═╡ 3ba4fb2e-b3ca-49bc-a73e-2a2bccdb3af2
 md"
-## Government
+### Government
 
 Aggregate emissions $e_{t}$ generate damages 
 
@@ -95,9 +152,9 @@ const matchscc = 66 / 1000;
 
 # ╔═╡ 855f60fe-a2be-4baa-8456-132de601b01a
 Base.@kwdef struct Gov{T}
-	ξ::T = matchscc / firm.e₀ # linear damage coefficient [-]
-    y₀::T = 15.231 # output/GDP [trillion Eur/year]
-	δ::T = 1.
+	ξ::T = dicescc / e₀ # linear damage coefficient [-]
+    y₀::T = y₀ # output/GDP [trillion Eur/year]
+	δ::T = 0.2 * y₀
 end
 
 # ╔═╡ 146425a3-008b-4c49-b974-611558563c32
@@ -110,16 +167,15 @@ function l(τ, gov::Gov)
 	gov.δ * τ / 2
 end;
 
+# ╔═╡ d5df8b25-7510-40cd-b0fe-512bb8199390
+w(a, τ, gov::Gov, firm::Firm) = gov.y₀ * d(e(a, firm), gov, firm) + c(a, firm) + l(τ, gov);
+
 # ╔═╡ 2455a855-b249-454f-ae9d-3c7794b96b5e
 gov = Gov();
 
 # ╔═╡ 145c4934-4ce9-4d7a-bcc6-fba053f78eea
 let
-	A = 0:0.01:1
-	xticks = 0:0.2:1
-	xticklabels = [L"%$(floor(Int, 100x)) \%" for x in xticks]
-	
-	fig = plot(xlabel = L"Abatement rate $a$", xlims = (0, 1), ylabel = L"Damages $\mathrm{tUSD /year}$", ylims = (0, Inf), xticks = (xticks, xticklabels))
+	fig = plot(xlabel = alabel, xlims = (0, 1), ylabel = L"Damages $\mathrm{tUSD /year}$", ylims = (0, Inf), xticks = (aticks, aticklabels))
 	plot!(A, a -> gov.y₀ * d(e(a, firm), gov, firm); c = :darkgreen, label = L"d(a) y_0")
 	plot!(A, a -> c(a, firm); c = :darkred, label = L"c(a)")
 	
@@ -127,7 +183,7 @@ end
 
 # ╔═╡ 2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
 md"
-## Signal
+### Signal
 
 Firms do not observe $\tau_t$ directly, but a signal $s_t$ following 
 
@@ -136,17 +192,157 @@ $\begin{equation}
 \end{equation}$
 "
 
+# ╔═╡ 6811789d-8d34-46a7-88d8-aae95869e42c
+const taxfactor = 3.67 * 1e9 * 1e-12; # $ / tCO₂ → t$ / GtC
+
+# ╔═╡ dd31ae41-3b6d-41d1-8b8b-95408ff2133f
+const τ₀ = 3 * taxfactor;
+
+# ╔═╡ c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
+let
+	contourf(A, τspace, (a, τ) -> w(a, τ * taxfactor, gov, firm); xticks = (aticks, aticklabels), yticks = (τticks, τticklabels), xflip = false, c = :Reds, linewidth = 0.5, xlabel = alabel, ylabel = τlabel, title = L"Social costs $w(\tau, a) \; \textrm{tUSD} / \textrm{year}$", clims = (0, Inf))
+end
+
+# ╔═╡ dc05d560-9f17-4844-9609-c1105fbec573
+Base.@kwdef struct Signal{T <: Real}
+	α::T = 1 / τ₀
+	σ₀::T = 1.
+end
+
+# ╔═╡ 2a4c171d-07aa-4459-bf2e-27ebb2a97bab
+function μ(τ, a, signal::Signal)
+	signal.α * τ - a
+end;
+
+# ╔═╡ adf31b71-7bf7-412b-aeec-2a4f100e40bf
+function σ(a, signal::Signal)
+	signal.σ₀ * √(1 + a)
+end;
+
+# ╔═╡ 8c71d228-5fe6-45ce-b108-c6b5853989a8
+signal = Signal();
+
+# ╔═╡ 17cf162b-9a35-4301-a465-fbf4ba93c49c
+md"
+## Optimal policies
+
+### Government
+
+Introduce the reputational weight $z \in \mathbb{R}$. The optimal tax policy $\tau$, given an abatement level $\bar{a}$ and the reputational weight $z$ is given by 
+
+$\begin{equation}
+	\begin{split}
+		\tau \in \arg_{\tau}\min \; &\mathcal{L}(\tau; \bar{a}, z) \text{ where } \\
+		&\mathcal{L}(\tau; \bar{a}, z) = w(\tau, \bar{a}) - z \frac{ \mu(\tau^{\mathrm{c}}, \bar{a}) - \mu(\tau, \bar{a})}{\sigma(\bar{a})^2} \mu(\tau, \bar{a})
+	\end{split}
+\end{equation}$ 
+"
+
+# ╔═╡ 9c931185-641a-4179-a6b4-6c7b0e038a08
+const τᶜ = maximum(τspace) * taxfactor;
+
+# ╔═╡ ae44f829-e754-4879-8ff5-2cde5c8c7f28
+function L(τ, a, z, signal::Signal, gov::Gov, firm::Firm)
+	w(τ, a, gov, firm) - z * μ(τ, a, signal) * (μ(τᶜ, a, signal) - μ(τ, a, signal)) / σ(a, signal)
+end;
+
+# ╔═╡ 16c84394-1525-409a-bb58-215756926056
+md"
+- ``a =`` $(@bind La Slider(A, show_value = true, default = 0.5))
+- ``z =`` $(@bind Lz Slider(0:0.001:0.04, show_value = true, default = 0.02))
+"
+
+# ╔═╡ 860109da-f4c4-4247-8fe3-f6f7c1b8e331
+let
+	cmin = :black
+	cmax = :darkorange
+
+	zmin = 0.
+	zmax = 0.04
+	
+	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", ylims = (-20, 20), legend = :bottomleft)
+	plot!(fig, τspace, τ -> L(τ * taxfactor, La, zmin, signal, gov, firm), label = L"%$zmin", c = cmin)
+
+	cweight = (Lz - zmin) / (zmax - zmin)
+	c = get(cgrad([cmin, cmax]), cweight)
+
+	obj = @closure τ -> L(τ * taxfactor, La, Lz, signal, gov, firm)
+	sol = Optim.optimize(obj, 0., τᶜ / taxfactor)
+	
+	plot!(fig, τspace, obj, label = L"%$Lz", c = c)
+	scatter!(fig, [sol.minimizer], [sol.minimum], c = :black)
+	annotate!(fig, sol.minimizer, sol.minimum, text(L"\tau = %$(round(sol.minimizer, digits = 2))", 10, :bottom))
+	
+	plot!(fig, τspace, τ -> L(τ * taxfactor, La, zmax, signal, gov, firm), label = L"%$zmax", c = cmax)
+
+
+	fig
+end
+
+# ╔═╡ be015c5a-e9ab-45dc-a9ab-171a6322034e
+md"
+### Firm
+
+The firms, given the subjective probability $\phi$ on the government being committed, choose
+
+$\begin{equation}
+	\begin{split}
+		\bar{a} \in \arg_\bar{a}\min \; &\mathcal{K}(\bar{a}; \tau, \phi) \text{ where } \\
+		&\mathcal{K}(\bar{a}; \tau, \phi) = \phi k(\tau^{\mathrm{c}}, \bar{a}) + (1 - \phi) k(\tau, \bar{a})
+	\end{split}
+\end{equation}$ 
+
+Here I have assumed symmetric behaviour.
+
+
+"
+
+# ╔═╡ 47e0c197-7bdd-4bda-b4cd-06c7aeec639c
+function K(a, τ, ϕ, firm::Firm)
+	ϕ * k(a, τᶜ, firm) + (1 - ϕ) * k(a, τ, firm)
+end;
+
+# ╔═╡ 022afc7d-1250-40a3-9848-f1d332cf1dc2
+md"
+- ``\phi =`` $(@bind Kϕ Slider(0:0.01:1, show_value = true, default = 0.5))
+- ``\tau =`` $(@bind Kτ Slider(τspace, show_value = true, default = τ₀ / taxfactor)) ``\textrm{USD} / \textrm{tC}``
+"
+
+# ╔═╡ 19acba30-d3d7-49a2-8c96-2df68b232196
+let
+	cmin = :darkred
+	cmax = :darkgreen
+
+	fig = plot(xlabel = alabel, xticks = (aticks, aticklabels), ylims = (0, Inf))
+	plot!(fig, A, a -> K(a, Kτ * taxfactor, 0., firm); label = L"0 \%", c = cmin)
+
+	obj = @closure a -> K(a, Kτ * taxfactor, Kϕ, firm)
+	sol = Optim.optimize(obj, 0, 1)
+	
+	c = get(cgrad([cmin, cmax]), Kϕ)
+	plot!(fig, A, obj; label = L"%$(floor(Int, 100Kϕ)) \%", c = c)
+	scatter!(fig, [sol.minimizer], [sol.minimum], c = :black)
+	annotate!(fig, sol.minimizer, sol.minimum, text(L"a = %$(round(Int, 100sol.minimizer)) \%", 10, :bottom))
+	
+	plot!(fig, A, a -> K(a, Kτ * taxfactor, 1., firm); label = L"100 \%", c = cmax)
+	
+end
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+FastClosures = "9aa1b823-49e4-5ca5-8b0f-3971ec8bab6a"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
+FastClosures = "~0.3.2"
 LaTeXStrings = "~1.4.0"
-Plots = "~1.41.2"
-PlutoUI = "~0.7.75"
+Optim = "~2.0.0"
+Plots = "~1.41.3"
+PlutoUI = "~0.7.76"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -155,13 +351,42 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "e3eb74bf8227855c3aca6e58a6862ef568470953"
+project_hash = "5efdcf21c4a8e8e22268a521adddc90551e1acc2"
+
+[[deps.ADTypes]]
+git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
+uuid = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+version = "1.21.0"
+
+    [deps.ADTypes.extensions]
+    ADTypesChainRulesCoreExt = "ChainRulesCore"
+    ADTypesConstructionBaseExt = "ConstructionBase"
+    ADTypesEnzymeCoreExt = "EnzymeCore"
+
+    [deps.ADTypes.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    ConstructionBase = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+    EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.3.2"
+
+[[deps.Adapt]]
+deps = ["LinearAlgebra", "Requires"]
+git-tree-sha1 = "7e35fca2bdfba44d797c53dfe63a51fabf39bfc0"
+uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+version = "4.4.0"
+
+    [deps.Adapt.extensions]
+    AdaptSparseArraysExt = "SparseArrays"
+    AdaptStaticArraysExt = "StaticArrays"
+
+    [deps.Adapt.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -172,6 +397,40 @@ version = "1.1.3"
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 version = "1.1.2"
+
+[[deps.ArrayInterface]]
+deps = ["Adapt", "LinearAlgebra"]
+git-tree-sha1 = "d81ae5489e13bc03567d4fbbb06c546a5e53c857"
+uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
+version = "7.22.0"
+
+    [deps.ArrayInterface.extensions]
+    ArrayInterfaceBandedMatricesExt = "BandedMatrices"
+    ArrayInterfaceBlockBandedMatricesExt = "BlockBandedMatrices"
+    ArrayInterfaceCUDAExt = "CUDA"
+    ArrayInterfaceCUDSSExt = ["CUDSS", "CUDA"]
+    ArrayInterfaceChainRulesCoreExt = "ChainRulesCore"
+    ArrayInterfaceChainRulesExt = "ChainRules"
+    ArrayInterfaceGPUArraysCoreExt = "GPUArraysCore"
+    ArrayInterfaceMetalExt = "Metal"
+    ArrayInterfaceReverseDiffExt = "ReverseDiff"
+    ArrayInterfaceSparseArraysExt = "SparseArrays"
+    ArrayInterfaceStaticArraysCoreExt = "StaticArraysCore"
+    ArrayInterfaceTrackerExt = "Tracker"
+
+    [deps.ArrayInterface.weakdeps]
+    BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
+    BlockBandedMatrices = "ffab5731-97b5-5995-9138-79e8c1846df0"
+    CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+    CUDSS = "45b445bb-4962-46a0-9369-b4df9d0f772e"
+    ChainRules = "082447d4-558c-5d27-93f4-14fc19e9eca2"
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
+    Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
+    ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+    Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -249,6 +508,21 @@ git-tree-sha1 = "d9d26935a0bcffc87d2613ce14c527c99fc543fd"
 uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
 version = "2.5.0"
 
+[[deps.ConstructionBase]]
+git-tree-sha1 = "b4b092499347b18a015186eae3042f72267106cb"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.6.0"
+
+    [deps.ConstructionBase.extensions]
+    ConstructionBaseIntervalSetsExt = "IntervalSets"
+    ConstructionBaseLinearAlgebraExt = "LinearAlgebra"
+    ConstructionBaseStaticArraysExt = "StaticArrays"
+
+    [deps.ConstructionBase.weakdeps]
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
 [[deps.Contour]]
 git-tree-sha1 = "439e35b0b36e2e5881738abc8857bd92ad6ff9a8"
 uuid = "d38c429a-6771-53c6-b99e-75d170b6e991"
@@ -282,6 +556,56 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
+[[deps.DifferentiationInterface]]
+deps = ["ADTypes", "LinearAlgebra"]
+git-tree-sha1 = "44d9321761ed99e1d444b5081b3166d3259adcf0"
+uuid = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+version = "0.7.14"
+
+    [deps.DifferentiationInterface.extensions]
+    DifferentiationInterfaceChainRulesCoreExt = "ChainRulesCore"
+    DifferentiationInterfaceDiffractorExt = "Diffractor"
+    DifferentiationInterfaceEnzymeExt = ["EnzymeCore", "Enzyme"]
+    DifferentiationInterfaceFastDifferentiationExt = "FastDifferentiation"
+    DifferentiationInterfaceFiniteDiffExt = "FiniteDiff"
+    DifferentiationInterfaceFiniteDifferencesExt = "FiniteDifferences"
+    DifferentiationInterfaceForwardDiffExt = ["ForwardDiff", "DiffResults"]
+    DifferentiationInterfaceGPUArraysCoreExt = "GPUArraysCore"
+    DifferentiationInterfaceGTPSAExt = "GTPSA"
+    DifferentiationInterfaceMooncakeExt = "Mooncake"
+    DifferentiationInterfacePolyesterForwardDiffExt = ["PolyesterForwardDiff", "ForwardDiff", "DiffResults"]
+    DifferentiationInterfaceReverseDiffExt = ["ReverseDiff", "DiffResults"]
+    DifferentiationInterfaceSparseArraysExt = "SparseArrays"
+    DifferentiationInterfaceSparseConnectivityTracerExt = "SparseConnectivityTracer"
+    DifferentiationInterfaceSparseMatrixColoringsExt = "SparseMatrixColorings"
+    DifferentiationInterfaceStaticArraysExt = "StaticArrays"
+    DifferentiationInterfaceSymbolicsExt = "Symbolics"
+    DifferentiationInterfaceTrackerExt = "Tracker"
+    DifferentiationInterfaceZygoteExt = ["Zygote", "ForwardDiff"]
+
+    [deps.DifferentiationInterface.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DiffResults = "163ba53b-c6d8-5494-b064-1a9d43ac40c5"
+    Diffractor = "9f5e2b26-1114-432f-b630-d3fe2085c51c"
+    Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+    EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
+    FastDifferentiation = "eb9bf01b-bf85-4b60-bf87-ee5de06c00be"
+    FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
+    FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
+    GTPSA = "b27dd330-f138-47c5-815b-40db9dd9b6e8"
+    Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+    PolyesterForwardDiff = "98d1487c-24ca-40b6-b7ab-df2af84e126b"
+    ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    SparseConnectivityTracer = "9f842d2f-2579-4b1d-911e-f412cf18a3f5"
+    SparseMatrixColorings = "0a514795-09f3-496d-8182-132a7b665d35"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+    Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
+    Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
@@ -291,6 +615,11 @@ version = "0.9.5"
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
+
+[[deps.EnumX]]
+git-tree-sha1 = "bddad79635af6aec424f53ed8aad5d7555dc6f00"
+uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
+version = "1.0.5"
 
 [[deps.EpollShim_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -322,9 +651,48 @@ git-tree-sha1 = "ccc81ba5e42497f4e76553a5545665eed577a663"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "8.0.0+0"
 
+[[deps.FastClosures]]
+git-tree-sha1 = "acebe244d53ee1b461970f8910c235b259e772ef"
+uuid = "9aa1b823-49e4-5ca5-8b0f-3971ec8bab6a"
+version = "0.3.2"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
+
+[[deps.FillArrays]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "5bfcd42851cf2f1b303f51525a54dc5e98d408a3"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.15.0"
+
+    [deps.FillArrays.extensions]
+    FillArraysPDMatsExt = "PDMats"
+    FillArraysSparseArraysExt = "SparseArrays"
+    FillArraysStatisticsExt = "Statistics"
+
+    [deps.FillArrays.weakdeps]
+    PDMats = "90014a1f-27ba-587c-ab20-58faa44d9150"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[[deps.FiniteDiff]]
+deps = ["ArrayInterface", "LinearAlgebra", "Setfield"]
+git-tree-sha1 = "9340ca07ca27093ff68418b7558ca37b05f8aeb1"
+uuid = "6a86dc24-6348-571c-b903-95158fe2bd41"
+version = "2.29.0"
+
+    [deps.FiniteDiff.extensions]
+    FiniteDiffBandedMatricesExt = "BandedMatrices"
+    FiniteDiffBlockBandedMatricesExt = "BlockBandedMatrices"
+    FiniteDiffSparseArraysExt = "SparseArrays"
+    FiniteDiffStaticArraysExt = "StaticArrays"
+
+    [deps.FiniteDiff.weakdeps]
+    BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
+    BlockBandedMatrices = "ffab5731-97b5-5995-9138-79e8c1846df0"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -354,6 +722,11 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "7a214fdac5ed5f59a22c2d9a885a16da1c74bbc7"
 uuid = "559328eb-81f9-559d-9380-de523a88c83c"
 version = "1.0.17+0"
+
+[[deps.Future]]
+deps = ["Random"]
+uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+version = "1.11.0"
 
 [[deps.GLFW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll", "libdecor_jll", "xkbcommon_jll"]
@@ -595,6 +968,12 @@ git-tree-sha1 = "2a7a12fc0a4e7fb773450d17975322aa77142106"
 uuid = "38a345b3-de98-5d2b-a5d3-14cd9215e700"
 version = "2.41.2+0"
 
+[[deps.LineSearches]]
+deps = ["LinearAlgebra", "NLSolversBase", "NaNMath", "Printf"]
+git-tree-sha1 = "738bdcacfef25b3a9e4a39c28613717a6b23751e"
+uuid = "d3d80556-e9d4-5f37-9878-2ab0fcc64255"
+version = "7.6.0"
+
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -672,6 +1051,12 @@ version = "1.11.0"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2025.11.4"
 
+[[deps.NLSolversBase]]
+deps = ["ADTypes", "DifferentiationInterface", "FiniteDiff", "LinearAlgebra"]
+git-tree-sha1 = "b3f76b463c7998473062992b246045e6961a074e"
+uuid = "d41bc354-129a-5804-8e4c-c37616107c6c"
+version = "8.0.0"
+
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
 git-tree-sha1 = "9b8215b1ee9e78a293f99797cd31375471b2bcae"
@@ -708,6 +1093,18 @@ version = "1.6.1"
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 version = "3.5.4+0"
+
+[[deps.Optim]]
+deps = ["ADTypes", "EnumX", "FillArrays", "LineSearches", "LinearAlgebra", "NLSolversBase", "NaNMath", "PositiveFactorizations", "Printf", "SparseArrays", "Statistics"]
+git-tree-sha1 = "e4f98846b70ef55e111ac8c40add135256c0cc47"
+uuid = "429524aa-4258-5aef-a3af-852621145aeb"
+version = "2.0.0"
+
+    [deps.Optim.extensions]
+    OptimMOIExt = "MathOptInterface"
+
+    [deps.Optim.weakdeps]
+    MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -789,6 +1186,12 @@ deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", 
 git-tree-sha1 = "0d751d4ceb9dbd402646886332c2f99169dc1cfd"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.76"
+
+[[deps.PositiveFactorizations]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "17275485f373e6673f7e7f97051f703ed5b15b20"
+uuid = "85a6dd25-e78a-55b7-8502-1745935b8125"
+version = "0.2.4"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -889,6 +1292,12 @@ version = "1.3.0"
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 version = "1.11.0"
 
+[[deps.Setfield]]
+deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
+git-tree-sha1 = "c5391c6ace3bc430ca630251d02ea9687169ca68"
+uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+version = "1.1.2"
+
 [[deps.Showoff]]
 deps = ["Dates", "Grisu"]
 git-tree-sha1 = "91eddf657aca81df9ae6ceb20b959ae5653ad1de"
@@ -920,6 +1329,11 @@ deps = ["Random"]
 git-tree-sha1 = "4f96c596b8c8258cc7d3b19797854d368f243ddc"
 uuid = "860ef19b-820b-49d6-a774-d7a799459cd3"
 version = "1.0.4"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.4"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
@@ -1290,10 +1704,17 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╟─bfd65b1b-5f8a-47ad-bdfc-a52b3b2e5685
+# ╟─bd19032e-02e1-4fe4-aecd-b54a3f0feafc
 # ╠═d843633c-f12e-11f0-8e75-d943d67c24f5
 # ╠═a9de090c-090f-4930-be8d-02c2a107510f
 # ╠═8c7ebeb2-fd73-4872-ac0b-190f9eb5462b
+# ╠═74f7a92d-f820-497f-af41-3aa6f534b55d
+# ╠═3ba13a81-ac25-4cd9-851f-26ac21b4fe33
+# ╟─8fae1b6b-015e-43c6-ad5b-890c8a65305c
+# ╠═b58e1d2e-e218-4d58-9c2d-c47cab866560
+# ╟─efed6f54-eb6b-4f98-9507-c8d601d45e76
+# ╠═5602e190-2d3b-4ae2-9ee9-58a9cb3b73c1
+# ╟─ca2c45d8-393b-415e-baaa-d38306664dca
 # ╟─edca9b01-5497-46c4-9879-4a1e5c2f87ec
 # ╠═a7357976-2f2c-497f-9ab0-bdd9a809df1a
 # ╠═05306d65-3c46-421c-90ec-bf2e665d2ca7
@@ -1305,8 +1726,25 @@ version = "1.13.0+0"
 # ╠═855f60fe-a2be-4baa-8456-132de601b01a
 # ╠═146425a3-008b-4c49-b974-611558563c32
 # ╠═bd4538ef-9fbe-4a51-a3d7-1655b08935b6
+# ╠═d5df8b25-7510-40cd-b0fe-512bb8199390
 # ╠═2455a855-b249-454f-ae9d-3c7794b96b5e
 # ╟─145c4934-4ce9-4d7a-bcc6-fba053f78eea
+# ╠═dd31ae41-3b6d-41d1-8b8b-95408ff2133f
+# ╟─c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
 # ╟─2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
+# ╠═6811789d-8d34-46a7-88d8-aae95869e42c
+# ╠═dc05d560-9f17-4844-9609-c1105fbec573
+# ╠═2a4c171d-07aa-4459-bf2e-27ebb2a97bab
+# ╠═adf31b71-7bf7-412b-aeec-2a4f100e40bf
+# ╠═8c71d228-5fe6-45ce-b108-c6b5853989a8
+# ╟─17cf162b-9a35-4301-a465-fbf4ba93c49c
+# ╠═9c931185-641a-4179-a6b4-6c7b0e038a08
+# ╠═ae44f829-e754-4879-8ff5-2cde5c8c7f28
+# ╟─16c84394-1525-409a-bb58-215756926056
+# ╟─860109da-f4c4-4247-8fe3-f6f7c1b8e331
+# ╟─be015c5a-e9ab-45dc-a9ab-171a6322034e
+# ╠═47e0c197-7bdd-4bda-b4cd-06c7aeec639c
+# ╟─022afc7d-1250-40a3-9848-f1d332cf1dc2
+# ╟─19acba30-d3d7-49a2-8c96-2df68b232196
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
