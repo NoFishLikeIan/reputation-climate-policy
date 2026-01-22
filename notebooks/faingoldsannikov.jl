@@ -25,6 +25,9 @@ using PlutoUI
 # ╔═╡ 3ba13a81-ac25-4cd9-851f-26ac21b4fe33
 using Optim, FastClosures
 
+# ╔═╡ 84f3a07a-81d0-49f5-b685-a6b51a1cefae
+using UnPack
+
 # ╔═╡ bd19032e-02e1-4fe4-aecd-b54a3f0feafc
 html"""
 <style>
@@ -51,7 +54,7 @@ md"
 
 # ╔═╡ b58e1d2e-e218-4d58-9c2d-c47cab866560
 begin
-	τspace = 0:1:120
+	τspace = 0:1:250
 	τticks = 0:40:120
 	τticklabels = [L"%$x" for x in τticks]
 	τlabel =  L"Carbon tax $\tau \; \textrm{USD} / \textrm{tC}$"
@@ -68,8 +71,8 @@ md"## Constants"
 # ╔═╡ 5602e190-2d3b-4ae2-9ee9-58a9cb3b73c1
 begin
 	const CO₂toC = 44 / 12
-	const e₀ = 10.3
-	const y₀ = 15.231
+	const e₀ = 37.8 / CO₂toC
+	const y₀ = 197.231
 	const dicescc = 66 / 1000
 	const dietzφ = 3e-5
 end;
@@ -123,6 +126,9 @@ end;
 # ╔═╡ e1cf6b4c-744b-44ec-92a3-d18af362bb68
 firm = Firm();
 
+# ╔═╡ dcdfe059-ce2f-48c6-a9bb-f0dbdaadd2ab
+y₀
+
 # ╔═╡ 3ba4fb2e-b3ca-49bc-a73e-2a2bccdb3af2
 md"
 ### Government
@@ -164,11 +170,11 @@ end;
 
 # ╔═╡ bd4538ef-9fbe-4a51-a3d7-1655b08935b6
 function l(τ, gov::Gov)
-	gov.δ * τ / 2
+	(gov.δ / 2) * τ^2
 end;
 
 # ╔═╡ d5df8b25-7510-40cd-b0fe-512bb8199390
-w(a, τ, gov::Gov, firm::Firm) = gov.y₀ * d(e(a, firm), gov, firm) + c(a, firm) + l(τ, gov);
+w(τ, a, gov::Gov, firm::Firm) = gov.y₀ * d(e(a, firm), gov, firm) + c(a, firm) + l(τ, gov);
 
 # ╔═╡ 2455a855-b249-454f-ae9d-3c7794b96b5e
 gov = Gov();
@@ -181,6 +187,41 @@ let
 	
 end
 
+# ╔═╡ af101b48-00d7-4fca-9c7e-7365687fc03f
+md"
+## Committed Policies
+
+Under comittment $\tau_t = \tau^{\mathrm{c}}$, the firm takes $\tau^{\mathrm{c}}$ as given and chooses $a \in [0, 1]$ to minimise $k(a, \tau^c)$. The minimiser is given by $a^{\mathrm{c}}(\tau^\mathrm{c}) = \min\left\{\frac{e_0}{\nu} \tau^{\mathrm{c}}, 1\right\}$.
+
+Then, the problem of a committed government amounts to minimising $w^{\mathrm{c}}(\tau) = w(\tau^{\mathrm{c}}, a^{\mathrm{c}}(\tau^\mathrm{c})))$ which yields
+
+$\begin{equation}
+\tau^{\mathrm{c}} = \min\left\{\frac{\xi \frac{e_0}{\nu} y_0}{\left(\frac{e_0}{\nu}\right)^2 y_0 + \frac{e_0^2}{\nu} + \delta}, \frac{\nu}{e_0}\right\}.
+\end{equation}$
+
+"
+
+# ╔═╡ 03385be6-b623-4e24-b0c0-eca701d37e77
+function aᶜ(τ, firm::Firm)
+	min((firm.e₀ / firm.ν) * τ, 1)
+end;
+
+# ╔═╡ 285b4c6a-75a1-4589-a60d-255be2333d4c
+wᶜ(τ, gov::Gov, firm::Firm) = w(τ, aᶜ(τ, firm::Firm), gov, firm);
+
+# ╔═╡ 846a0839-a3e1-4288-af53-5d20915cf73f
+let
+	@unpack ξ, y₀, δ = gov
+	@unpack e₀, ν = firm
+	num = ξ * y₀ * (e₀ / ν)
+	den = (e₀ / ν)^2 * y₀ + (e₀^2 / ν) + δ
+
+	num / den
+end
+
+# ╔═╡ 6607f6fa-88a0-473c-a499-310fd935c174
+md"## Reputation"
+
 # ╔═╡ 2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
 md"
 ### Signal
@@ -188,8 +229,10 @@ md"
 Firms do not observe $\tau_t$ directly, but a signal $s_t$ following 
 
 $\begin{equation}
-	\mathrm{d}s_t = \mu(\tau_t, \bar{a}_t) \mathrm{d} t + \sigma(\bar{a}_t) \mathrm{d}Z_t
+	\mathrm{d}s_t = \mu(\tau_t, \bar{a}_t) \mathrm{d} t + \sigma\mathrm{d}Z_t.
 \end{equation}$
+
+We assume that the signal $s_t$ is growing in the policy rate $\tau$ and decreasing in the abatement rate $a_t$, that is $\mu(\tau, a) \coloneqq \alpha \tau - a$.
 "
 
 # ╔═╡ 6811789d-8d34-46a7-88d8-aae95869e42c
@@ -200,13 +243,19 @@ const τ₀ = 3 * taxfactor;
 
 # ╔═╡ c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
 let
-	contourf(A, τspace, (a, τ) -> w(a, τ * taxfactor, gov, firm); xticks = (aticks, aticklabels), yticks = (τticks, τticklabels), xflip = false, c = :Reds, linewidth = 0.5, xlabel = alabel, ylabel = τlabel, title = L"Social costs $w(\tau, a) \; \textrm{tUSD} / \textrm{year}$", clims = (0, Inf))
+	contourf(A, τspace, (a, τ) -> w(τ * taxfactor, a, gov, firm); xticks = (aticks, aticklabels), yticks = (τticks, τticklabels), xflip = false, c = :Reds, linewidth = 0.5, xlabel = alabel, ylabel = τlabel, title = L"Social costs $w(\tau, a) \; \textrm{tUSD} / \textrm{year}$", clims = (0, Inf))
+end
+
+# ╔═╡ 737e6fad-e711-4a52-bbae-3c9f66830573
+let
+	fig = plot(τspace, τ -> wᶜ(τ * taxfactor, gov, firm))
+	plot!(twinx(fig), τspace, τ -> aᶜ(τ * taxfactor, firm))
 end
 
 # ╔═╡ dc05d560-9f17-4844-9609-c1105fbec573
 Base.@kwdef struct Signal{T <: Real}
 	α::T = 1 / τ₀
-	σ₀::T = 1.
+	σ::T = 1.
 end
 
 # ╔═╡ 2a4c171d-07aa-4459-bf2e-27ebb2a97bab
@@ -214,18 +263,11 @@ function μ(τ, a, signal::Signal)
 	signal.α * τ - a
 end;
 
-# ╔═╡ adf31b71-7bf7-412b-aeec-2a4f100e40bf
-function σ(a, signal::Signal)
-	signal.σ₀ * √(1 + a)
-end;
-
 # ╔═╡ 8c71d228-5fe6-45ce-b108-c6b5853989a8
 signal = Signal();
 
 # ╔═╡ 17cf162b-9a35-4301-a465-fbf4ba93c49c
 md"
-## Optimal policies
-
 ### Government
 
 Introduce the reputational weight $z \in \mathbb{R}$. The optimal tax policy $\tau$, given an abatement level $\bar{a}$ and the reputational weight $z$ is given by 
@@ -243,14 +285,19 @@ const τᶜ = maximum(τspace) * taxfactor;
 
 # ╔═╡ ae44f829-e754-4879-8ff5-2cde5c8c7f28
 function L(τ, a, z, signal::Signal, gov::Gov, firm::Firm)
-	w(τ, a, gov, firm) - z * μ(τ, a, signal) * (μ(τᶜ, a, signal) - μ(τ, a, signal)) / σ(a, signal)
+	w(τ, a, gov, firm) - z * μ(τ, a, signal) * (μ(τᶜ, a, signal) - μ(τ, a, signal)) / signal.σ
 end;
 
 # ╔═╡ 16c84394-1525-409a-bb58-215756926056
 md"
 - ``a =`` $(@bind La Slider(A, show_value = true, default = 0.5))
-- ``z =`` $(@bind Lz Slider(0:0.001:0.04, show_value = true, default = 0.02))
+- ``z =`` $(@bind Lz Slider(0:0.001:0.04, show_value = true, default = 0.001))
 "
+
+# ╔═╡ cf272c45-774b-4384-8b65-df58bfde5eb3
+function optimalτ(a, z, signal::Signal, gov::Gov, firm::Firm)
+	(signal.α * τᶜ +  a) / (2signal.α + signal.σ * gov.δ / (z * signal.α))
+end;
 
 # ╔═╡ 860109da-f4c4-4247-8fe3-f6f7c1b8e331
 let
@@ -260,21 +307,35 @@ let
 	zmin = 0.
 	zmax = 0.04
 	
-	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", ylims = (-20, 20), legend = :bottomleft)
+	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", legend = :bottomleft)
+	
 	plot!(fig, τspace, τ -> L(τ * taxfactor, La, zmin, signal, gov, firm), label = L"%$zmin", c = cmin)
 
 	cweight = (Lz - zmin) / (zmax - zmin)
 	c = get(cgrad([cmin, cmax]), cweight)
 
-	obj = @closure τ -> L(τ * taxfactor, La, Lz, signal, gov, firm)
-	sol = Optim.optimize(obj, 0., τᶜ / taxfactor)
-	
-	plot!(fig, τspace, obj, label = L"%$Lz", c = c)
-	scatter!(fig, [sol.minimizer], [sol.minimum], c = :black)
-	annotate!(fig, sol.minimizer, sol.minimum, text(L"\tau = %$(round(sol.minimizer, digits = 2))", 10, :bottom))
+	minimizer = optimalτ(La, Lz, signal, gov, firm)
+	minimum = L(minimizer, La, Lz, signal, gov, firm)
+			
+	plot!(fig, τspace, τ -> L(τ * taxfactor, La, Lz, signal, gov, firm), label = L"%$Lz", c = c)
+	scatter!(fig, [minimizer / taxfactor], [minimum], c = :black)
+	annotate!(fig, minimizer / taxfactor, minimum, text(L"\tau = %$(round(minimizer / taxfactor, digits = 2))", 10, :bottom))
 	
 	plot!(fig, τspace, τ -> L(τ * taxfactor, La, zmax, signal, gov, firm), label = L"%$zmax", c = cmax)
 
+
+	fig
+end
+
+# ╔═╡ fdb1300b-ba5d-4337-bb52-fc7b23b4fb13
+let
+	zspace = range(0, 0.05; length = 101)
+	τ̄ = (τᶜ / 2) + La / 2signal.α
+	
+	fig = plot(xlabel = L"Reputation weight $z$", ylabel = τlabel, ylims = (0, 1.01τ̄ / taxfactor), xlims = (0, Inf))
+	plot!(fig, zspace, z -> optimalτ(La, z, signal, gov, firm) / taxfactor; c = :black)
+
+	hline!(fig, [τ̄ / taxfactor]; c = :black, linestyle = :dash)
 
 	fig
 end
@@ -287,8 +348,8 @@ The firms, given the subjective probability $\phi$ on the government being commi
 
 $\begin{equation}
 	\begin{split}
-		\bar{a} \in \arg_\bar{a}\min \; &\mathcal{K}(\bar{a}; \tau, \phi) \text{ where } \\
-		&\mathcal{K}(\bar{a}; \tau, \phi) = \phi k(\tau^{\mathrm{c}}, \bar{a}) + (1 - \phi) k(\tau, \bar{a})
+		\bar{a} \in \arg_\bar{a}\min \; &k^{\phi}(\bar{a}; \tau, \phi) \text{ where } \\
+		&k^{\phi}(\bar{a}; \tau, \phi) = \phi k(\bar{a}, \tau^{\mathrm{c}}) + (1 - \phi) k(\bar{a}, \tau)
 	\end{split}
 \end{equation}$ 
 
@@ -308,25 +369,76 @@ md"
 - ``\tau =`` $(@bind Kτ Slider(τspace, show_value = true, default = τ₀ / taxfactor)) ``\textrm{USD} / \textrm{tC}``
 "
 
+# ╔═╡ a9a75f0c-e59e-40a7-ade5-cef40353071d
+function optimala(τ, ϕ, firm::Firm)
+	clamp(firm.e₀ * (ϕ * τᶜ + (1 - ϕ) * τ) / firm.ν, 0, 1)
+end;
+
 # ╔═╡ 19acba30-d3d7-49a2-8c96-2df68b232196
 let
 	cmin = :darkred
 	cmax = :darkgreen
 
 	fig = plot(xlabel = alabel, xticks = (aticks, aticklabels), ylims = (0, Inf))
-	plot!(fig, A, a -> K(a, Kτ * taxfactor, 0., firm); label = L"0 \%", c = cmin)
+	plot!(fig, A, a -> K(a, Kτ * taxfactor, 0., firm); label = L"0 \%", c = cmin, ylabel = L"Costs $k^{\phi}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$")
 
 	obj = @closure a -> K(a, Kτ * taxfactor, Kϕ, firm)
 	sol = Optim.optimize(obj, 0, 1)
 	
 	c = get(cgrad([cmin, cmax]), Kϕ)
-	plot!(fig, A, obj; label = L"%$(floor(Int, 100Kϕ)) \%", c = c)
-	scatter!(fig, [sol.minimizer], [sol.minimum], c = :black)
-	annotate!(fig, sol.minimizer, sol.minimum, text(L"a = %$(round(Int, 100sol.minimizer)) \%", 10, :bottom))
+	plot!(fig, A,  a -> K(a, Kτ * taxfactor, Kϕ, firm); label = L"%$(floor(Int, 100Kϕ)) \%", c = c)
+
+	minimizer = optimala(Kτ, Kϕ, firm)
+	minimum = K(minimizer, Kτ * taxfactor, Kϕ, firm)
+	scatter!(fig, [minimizer], [minimum], c = :black)
+	annotate!(fig, minimizer, minimum, text(L"a = %$(round(Int, 100sol.minimizer)) \%", 10, :bottom))
 	
 	plot!(fig, A, a -> K(a, Kτ * taxfactor, 1., firm); label = L"100 \%", c = cmax)
 	
 end
+
+# ╔═╡ cd32206d-12c6-471f-b5f1-12640241d630
+let
+	ϕs = 0:0.01:1
+	contourf(ϕs, τspace, (ϕ, τ) -> optimala(τ, ϕ, firm), clims = (0, 1), c = :Greens, xlabel = L"\phi", ylabel = τlabel, yticks = (τticks, τticklabels), linewidth = 0.)
+end
+
+# ╔═╡ 2688fc63-164f-4fd0-bc8f-abbde845d51d
+md"
+The equilibrium tax gives 
+
+$\begin{equation}
+	\tau(\phi, z) = \frac{\frac{\phi}{\nu} e_0}{\alpha + \frac{\sigma \delta}{z \alpha} - \frac{1 - \phi}{\nu} e_0} \tau^c
+\end{equation}$
+"
+
+# ╔═╡ 45e18af0-2531-4f70-a30d-a65f2f3560b6
+function eqτ(ϕ, z, signal::Signal, gov::Gov, firm::Firm)
+	@unpack α, σ = signal
+	@unpack ν, e₀ = firm
+	@unpack δ = gov
+
+	num = e₀ * ϕ / ν
+	den = α + (σ * δ) / (z * α) - e₀ * (1 - ϕ) / ν
+
+	return (num / den) * τᶜ
+end;
+
+# ╔═╡ a1513476-8abf-40f6-bd39-d8d424424280
+let
+	ϕs = range(0, 1, 101)
+	zspace = range(0, 0.04, 101)
+	
+	contourf(ϕs, zspace, (ϕ, z) -> eqτ(ϕ, z, signal, gov, firm) / taxfactor)
+end
+
+# ╔═╡ 9cb3a94e-b549-4add-bb92-5c58037a8e54
+md"
+## Value function
+
+Assuming $W_t = U(\phi_t)$
+
+"
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -336,6 +448,7 @@ LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 
 [compat]
 FastClosures = "~0.3.2"
@@ -343,6 +456,7 @@ LaTeXStrings = "~1.4.0"
 Optim = "~2.0.0"
 Plots = "~1.41.3"
 PlutoUI = "~0.7.76"
+UnPack = "~1.0.2"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -351,7 +465,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "5efdcf21c4a8e8e22268a521adddc90551e1acc2"
+project_hash = "87b73888e3ed718c7c56d211a808d0a5c9eb8c4f"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -1421,6 +1535,11 @@ deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 version = "1.11.0"
 
+[[deps.UnPack]]
+git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+version = "1.0.2"
+
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 version = "1.11.0"
@@ -1710,6 +1829,7 @@ version = "1.13.0+0"
 # ╠═8c7ebeb2-fd73-4872-ac0b-190f9eb5462b
 # ╠═74f7a92d-f820-497f-af41-3aa6f534b55d
 # ╠═3ba13a81-ac25-4cd9-851f-26ac21b4fe33
+# ╠═84f3a07a-81d0-49f5-b685-a6b51a1cefae
 # ╟─8fae1b6b-015e-43c6-ad5b-890c8a65305c
 # ╠═b58e1d2e-e218-4d58-9c2d-c47cab866560
 # ╟─efed6f54-eb6b-4f98-9507-c8d601d45e76
@@ -1721,6 +1841,7 @@ version = "1.13.0+0"
 # ╠═4f10b1c7-0dd1-4128-b224-fc872e4b7276
 # ╠═49daa43b-65a9-44cf-9204-5c1b9487254c
 # ╠═e1cf6b4c-744b-44ec-92a3-d18af362bb68
+# ╠═dcdfe059-ce2f-48c6-a9bb-f0dbdaadd2ab
 # ╟─3ba4fb2e-b3ca-49bc-a73e-2a2bccdb3af2
 # ╠═f5c5fcd0-c43b-4abf-886f-5a3022affea6
 # ╠═855f60fe-a2be-4baa-8456-132de601b01a
@@ -1731,20 +1852,33 @@ version = "1.13.0+0"
 # ╟─145c4934-4ce9-4d7a-bcc6-fba053f78eea
 # ╠═dd31ae41-3b6d-41d1-8b8b-95408ff2133f
 # ╟─c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
+# ╟─af101b48-00d7-4fca-9c7e-7365687fc03f
+# ╠═03385be6-b623-4e24-b0c0-eca701d37e77
+# ╠═285b4c6a-75a1-4589-a60d-255be2333d4c
+# ╠═846a0839-a3e1-4288-af53-5d20915cf73f
+# ╠═737e6fad-e711-4a52-bbae-3c9f66830573
+# ╟─6607f6fa-88a0-473c-a499-310fd935c174
 # ╟─2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
 # ╠═6811789d-8d34-46a7-88d8-aae95869e42c
 # ╠═dc05d560-9f17-4844-9609-c1105fbec573
 # ╠═2a4c171d-07aa-4459-bf2e-27ebb2a97bab
-# ╠═adf31b71-7bf7-412b-aeec-2a4f100e40bf
 # ╠═8c71d228-5fe6-45ce-b108-c6b5853989a8
-# ╟─17cf162b-9a35-4301-a465-fbf4ba93c49c
+# ╠═17cf162b-9a35-4301-a465-fbf4ba93c49c
 # ╠═9c931185-641a-4179-a6b4-6c7b0e038a08
 # ╠═ae44f829-e754-4879-8ff5-2cde5c8c7f28
 # ╟─16c84394-1525-409a-bb58-215756926056
+# ╠═cf272c45-774b-4384-8b65-df58bfde5eb3
 # ╟─860109da-f4c4-4247-8fe3-f6f7c1b8e331
+# ╟─fdb1300b-ba5d-4337-bb52-fc7b23b4fb13
 # ╟─be015c5a-e9ab-45dc-a9ab-171a6322034e
 # ╠═47e0c197-7bdd-4bda-b4cd-06c7aeec639c
 # ╟─022afc7d-1250-40a3-9848-f1d332cf1dc2
+# ╠═a9a75f0c-e59e-40a7-ade5-cef40353071d
 # ╟─19acba30-d3d7-49a2-8c96-2df68b232196
+# ╟─cd32206d-12c6-471f-b5f1-12640241d630
+# ╟─2688fc63-164f-4fd0-bc8f-abbde845d51d
+# ╠═45e18af0-2531-4f70-a30d-a65f2f3560b6
+# ╠═a1513476-8abf-40f6-bd39-d8d424424280
+# ╠═9cb3a94e-b549-4add-bb92-5c58037a8e54
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
