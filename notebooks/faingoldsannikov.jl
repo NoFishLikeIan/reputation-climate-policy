@@ -28,6 +28,9 @@ using Optim, FastClosures
 # ╔═╡ 84f3a07a-81d0-49f5-b685-a6b51a1cefae
 using UnPack
 
+# ╔═╡ 03574177-09a7-4709-9800-8ecb41f24fa5
+using Roots
+
 # ╔═╡ bd19032e-02e1-4fe4-aecd-b54a3f0feafc
 html"""
 <style>
@@ -55,7 +58,7 @@ md"
 # ╔═╡ b58e1d2e-e218-4d58-9c2d-c47cab866560
 begin
 	τspace = 0:1:250
-	τticks = 0:40:120
+	τticks = 0:50:maximum(τspace)
 	τticklabels = [L"%$x" for x in τticks]
 	τlabel =  L"Carbon tax $\tau \; \textrm{USD} / \textrm{tC}$"
 	
@@ -70,11 +73,12 @@ md"## Constants"
 
 # ╔═╡ 5602e190-2d3b-4ae2-9ee9-58a9cb3b73c1
 begin
-	const CO₂toC = 44 / 12
-	const e₀ = 37.8 / CO₂toC
+	const CtoCO₂ = 44 / 12
+	const e₀ = 37.8 / CtoCO₂
 	const y₀ = 197.231
 	const dicescc = 66 / 1000
 	const dietzφ = 3e-5
+	const taxfactor = CtoCO₂ * 1e9 * 1e-12; # $ / tCO₂ → t$ / GtC
 end;
 
 # ╔═╡ ca2c45d8-393b-415e-baaa-d38306664dca
@@ -105,7 +109,7 @@ Aggregate emissions are given by $e_t = \int_0^\infty e_{i, t} \mathrm{d}i = (1 
 # ╔═╡ a7357976-2f2c-497f-9ab0-bdd9a809df1a
 Base.@kwdef struct Firm{T}
 	e₀::T = e₀ # emissions [GtC/year]
-	ν::T = dietzφ * y₀ * (e₀ * CO₂toC)^2 # adjustment costs [year / tEur²]
+	ν::T = dietzφ * y₀ * (e₀ * CtoCO₂)^2 # adjustment costs [year / tEur²]
 end
 
 # ╔═╡ 05306d65-3c46-421c-90ec-bf2e665d2ca7
@@ -187,6 +191,14 @@ let
 	
 end
 
+# ╔═╡ dd31ae41-3b6d-41d1-8b8b-95408ff2133f
+const τ₀ = 3 * taxfactor;
+
+# ╔═╡ c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
+let
+	contourf(A, τspace, (a, τ) -> w(τ * taxfactor, a, gov, firm); xticks = (aticks, aticklabels), yticks = (τticks, τticklabels), xflip = false, c = :Reds, linewidth = 0.5, xlabel = alabel, ylabel = τlabel, title = L"Social costs $w(\tau, a) \; \textrm{tUSD} / \textrm{year}$", clims = (0, Inf))
+end
+
 # ╔═╡ af101b48-00d7-4fca-9c7e-7365687fc03f
 md"
 ## Committed Policies
@@ -196,7 +208,7 @@ Under comittment $\tau_t = \tau^{\mathrm{c}}$, the firm takes $\tau^{\mathrm{c}}
 Then, the problem of a committed government amounts to minimising $w^{\mathrm{c}}(\tau) = w(\tau^{\mathrm{c}}, a^{\mathrm{c}}(\tau^\mathrm{c})))$ which yields
 
 $\begin{equation}
-\tau^{\mathrm{c}} = \min\left\{\frac{\xi \frac{e_0}{\nu} y_0}{\left(\frac{e_0}{\nu}\right)^2 y_0 + \frac{e_0^2}{\nu} + \delta}, \frac{\nu}{e_0}\right\}.
+\tau^{\mathrm{c}} = \min\left\{\frac{\xi y_0 \frac{e_0^3}{\nu}}{\frac{e_0^4}{\nu^2} \xi y_0 + \frac{e_0^2}{\nu} + \delta}, \frac{\nu}{e_0}\right\}.
 \end{equation}$
 
 "
@@ -210,13 +222,22 @@ end;
 wᶜ(τ, gov::Gov, firm::Firm) = w(τ, aᶜ(τ, firm::Firm), gov, firm);
 
 # ╔═╡ 846a0839-a3e1-4288-af53-5d20915cf73f
-let
-	@unpack ξ, y₀, δ = gov
-	@unpack e₀, ν = firm
-	num = ξ * y₀ * (e₀ / ν)
-	den = (e₀ / ν)^2 * y₀ + (e₀^2 / ν) + δ
+begin
+	@unpack ξ, δ = gov
+	@unpack ν = firm
+	num = ξ * y₀ * (e₀^3 / ν)
+	den = (e₀^4 / ν^2) * y₀ * ξ + (e₀^2 / ν) + δ
 
-	num / den
+	const τᶜ = max((num / den) / taxfactor, ν / e₀) * taxfactor
+end;
+
+# ╔═╡ 737e6fad-e711-4a52-bbae-3c9f66830573
+let
+	fig = plot(τspace, τ -> wᶜ(τ * taxfactor, gov, firm), xlims = extrema(τspace), c = :black, xlabel = τlabel, xticks = (τticks, τticklabels), ylabel = L"Social costs $w^{\mathrm{c}}(\tau) \; \textrm{tUSD} / \textrm{year}$", yguidefontcolor = :black)
+	
+	vline!(fig, [τᶜ / taxfactor]; c = :black, linestyle = :dash)
+	
+	plot!(twinx(fig), τspace, τ -> aᶜ(τ * taxfactor, firm), xlims = extrema(τspace), ylims = (0, 1.01), c = :darkgreen, ylabel = alabel, yguidefontcolor = :darkgreen)
 end
 
 # ╔═╡ 6607f6fa-88a0-473c-a499-310fd935c174
@@ -234,23 +255,6 @@ $\begin{equation}
 
 We assume that the signal $s_t$ is growing in the policy rate $\tau$ and decreasing in the abatement rate $a_t$, that is $\mu(\tau, a) \coloneqq \alpha \tau - a$.
 "
-
-# ╔═╡ 6811789d-8d34-46a7-88d8-aae95869e42c
-const taxfactor = 3.67 * 1e9 * 1e-12; # $ / tCO₂ → t$ / GtC
-
-# ╔═╡ dd31ae41-3b6d-41d1-8b8b-95408ff2133f
-const τ₀ = 3 * taxfactor;
-
-# ╔═╡ c7dfd8c7-1b38-4fc1-8162-0472e7a090ce
-let
-	contourf(A, τspace, (a, τ) -> w(τ * taxfactor, a, gov, firm); xticks = (aticks, aticklabels), yticks = (τticks, τticklabels), xflip = false, c = :Reds, linewidth = 0.5, xlabel = alabel, ylabel = τlabel, title = L"Social costs $w(\tau, a) \; \textrm{tUSD} / \textrm{year}$", clims = (0, Inf))
-end
-
-# ╔═╡ 737e6fad-e711-4a52-bbae-3c9f66830573
-let
-	fig = plot(τspace, τ -> wᶜ(τ * taxfactor, gov, firm))
-	plot!(twinx(fig), τspace, τ -> aᶜ(τ * taxfactor, firm))
-end
 
 # ╔═╡ dc05d560-9f17-4844-9609-c1105fbec573
 Base.@kwdef struct Signal{T <: Real}
@@ -280,9 +284,6 @@ $\begin{equation}
 \end{equation}$ 
 "
 
-# ╔═╡ 9c931185-641a-4179-a6b4-6c7b0e038a08
-const τᶜ = maximum(τspace) * taxfactor;
-
 # ╔═╡ ae44f829-e754-4879-8ff5-2cde5c8c7f28
 function L(τ, a, z, signal::Signal, gov::Gov, firm::Firm)
 	w(τ, a, gov, firm) - z * μ(τ, a, signal) * (μ(τᶜ, a, signal) - μ(τ, a, signal)) / signal.σ
@@ -291,7 +292,7 @@ end;
 # ╔═╡ 16c84394-1525-409a-bb58-215756926056
 md"
 - ``a =`` $(@bind La Slider(A, show_value = true, default = 0.5))
-- ``z =`` $(@bind Lz Slider(0:0.001:0.04, show_value = true, default = 0.001))
+- ``z =`` $(@bind Lz Slider(0:0.001:0.1, show_value = true, default = 0.001))
 "
 
 # ╔═╡ cf272c45-774b-4384-8b65-df58bfde5eb3
@@ -305,9 +306,9 @@ let
 	cmax = :darkorange
 
 	zmin = 0.
-	zmax = 0.04
+	zmax = 1 / 10
 	
-	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", legend = :bottomleft)
+	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", legend = :topleft)
 	
 	plot!(fig, τspace, τ -> L(τ * taxfactor, La, zmin, signal, gov, firm), label = L"%$zmin", c = cmin)
 
@@ -371,7 +372,7 @@ md"
 
 # ╔═╡ a9a75f0c-e59e-40a7-ade5-cef40353071d
 function optimala(τ, ϕ, firm::Firm)
-	clamp(firm.e₀ * (ϕ * τᶜ + (1 - ϕ) * τ) / firm.ν, 0, 1)
+	min(firm.e₀ * (ϕ * τᶜ + (1 - ϕ) * τ) / firm.ν, 1)
 end;
 
 # ╔═╡ 19acba30-d3d7-49a2-8c96-2df68b232196
@@ -381,17 +382,14 @@ let
 
 	fig = plot(xlabel = alabel, xticks = (aticks, aticklabels), ylims = (0, Inf))
 	plot!(fig, A, a -> K(a, Kτ * taxfactor, 0., firm); label = L"0 \%", c = cmin, ylabel = L"Costs $k^{\phi}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$")
-
-	obj = @closure a -> K(a, Kτ * taxfactor, Kϕ, firm)
-	sol = Optim.optimize(obj, 0, 1)
 	
 	c = get(cgrad([cmin, cmax]), Kϕ)
 	plot!(fig, A,  a -> K(a, Kτ * taxfactor, Kϕ, firm); label = L"%$(floor(Int, 100Kϕ)) \%", c = c)
 
-	minimizer = optimala(Kτ, Kϕ, firm)
+	minimizer = optimala(Kτ * taxfactor, Kϕ, firm)
 	minimum = K(minimizer, Kτ * taxfactor, Kϕ, firm)
 	scatter!(fig, [minimizer], [minimum], c = :black)
-	annotate!(fig, minimizer, minimum, text(L"a = %$(round(Int, 100sol.minimizer)) \%", 10, :bottom))
+	annotate!(fig, minimizer, minimum, text(L"a = %$(round(Int, 100minimizer)) \%", 10, :bottom))
 	
 	plot!(fig, A, a -> K(a, Kτ * taxfactor, 1., firm); label = L"100 \%", c = cmax)
 	
@@ -424,20 +422,33 @@ function eqτ(ϕ, z, signal::Signal, gov::Gov, firm::Firm)
 	return (num / den) * τᶜ
 end;
 
+# ╔═╡ 47c0ac4a-24bd-4309-9513-daf226ce7eec
+let
+	ϕ = 0.2
+	z = 0.05
+	eqτ(ϕ, z, signal, gov, firm)
+
+	eq = τ -> optimalτ(optimala(τ, ϕ, firm), z, signal, gov, firm) - τ
+	
+	find_zero(eq, 0.)
+end
+
+# ╔═╡ 808229e6-665b-4c63-9fba-0fe98841dff1
+
+
 # ╔═╡ a1513476-8abf-40f6-bd39-d8d424424280
 let
 	ϕs = range(0, 1, 101)
 	zspace = range(0, 0.04, 101)
 	
-	contourf(ϕs, zspace, (ϕ, z) -> eqτ(ϕ, z, signal, gov, firm) / taxfactor)
+	contourf(ϕs, zspace, (ϕ, z) -> eqτ(ϕ, z, signal, gov, firm) / taxfactor; xlabel = L"Reputation $\phi$", ylabel = L"Reputation weight $z$", title = L"Equilibrium tax $\tau$", c = :Reds, linewidth = 0.)
 end
 
 # ╔═╡ 9cb3a94e-b549-4add-bb92-5c58037a8e54
 md"
 ## Value function
 
-Assuming $W_t = U(\phi_t)$
-
+The
 "
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -448,6 +459,7 @@ LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 
 [compat]
@@ -456,6 +468,7 @@ LaTeXStrings = "~1.4.0"
 Optim = "~2.0.0"
 Plots = "~1.41.3"
 PlutoUI = "~0.7.76"
+Roots = "~2.2.10"
 UnPack = "~1.0.2"
 """
 
@@ -465,7 +478,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "87b73888e3ed718c7c56d211a808d0a5c9eb8c4f"
+project_hash = "2d1ccb67a73940597d8438ebe99834242cbb4835"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -487,6 +500,30 @@ deps = ["Pkg"]
 git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.3.2"
+
+[[deps.Accessors]]
+deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
+git-tree-sha1 = "856ecd7cebb68e5fc87abecd2326ad59f0f911f3"
+uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+version = "0.1.43"
+
+    [deps.Accessors.extensions]
+    AxisKeysExt = "AxisKeys"
+    IntervalSetsExt = "IntervalSets"
+    LinearAlgebraExt = "LinearAlgebra"
+    StaticArraysExt = "StaticArrays"
+    StructArraysExt = "StructArrays"
+    TestExt = "Test"
+    UnitfulExt = "Unitful"
+
+    [deps.Accessors.weakdeps]
+    AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra", "Requires"]
@@ -611,10 +648,24 @@ git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.13.1"
 
+[[deps.CommonSolve]]
+git-tree-sha1 = "78ea4ddbcf9c241827e7035c3a03e2e456711470"
+uuid = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
+version = "0.2.6"
+
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.3.0+1"
+
+[[deps.CompositionsBase]]
+git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.2"
+weakdeps = ["InverseFunctions"]
+
+    [deps.CompositionsBase.extensions]
+    CompositionsBaseInverseFunctionsExt = "InverseFunctions"
 
 [[deps.ConcurrentUtilities]]
 deps = ["Serialization", "Sockets"]
@@ -929,6 +980,16 @@ version = "1.0.0"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
+
+[[deps.InverseFunctions]]
+git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
+uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
+version = "0.1.17"
+weakdeps = ["Dates", "Test"]
+
+    [deps.InverseFunctions.extensions]
+    InverseFunctionsDatesExt = "Dates"
+    InverseFunctionsTestExt = "Test"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "b2d91fe939cae05960e760110b328288867b5758"
@@ -1392,6 +1453,28 @@ git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
+[[deps.Roots]]
+deps = ["Accessors", "CommonSolve", "Printf"]
+git-tree-sha1 = "8a433b1ede5e9be9a7ba5b1cc6698daa8d718f1d"
+uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+version = "2.2.10"
+
+    [deps.Roots.extensions]
+    RootsChainRulesCoreExt = "ChainRulesCore"
+    RootsForwardDiffExt = "ForwardDiff"
+    RootsIntervalRootFindingExt = "IntervalRootFinding"
+    RootsSymPyExt = "SymPy"
+    RootsSymPyPythonCallExt = "SymPyPythonCall"
+    RootsUnitfulExt = "Unitful"
+
+    [deps.Roots.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    IntervalRootFinding = "d2bf35a9-74e0-55ec-b149-d360ff49b807"
+    SymPy = "24249f21-da20-56a4-8eb1-6a02cf4ae2e6"
+    SymPyPythonCall = "bc8888f7-b21e-4b7c-a06a-5d9c9496438c"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
@@ -1830,6 +1913,7 @@ version = "1.13.0+0"
 # ╠═74f7a92d-f820-497f-af41-3aa6f534b55d
 # ╠═3ba13a81-ac25-4cd9-851f-26ac21b4fe33
 # ╠═84f3a07a-81d0-49f5-b685-a6b51a1cefae
+# ╠═03574177-09a7-4709-9800-8ecb41f24fa5
 # ╟─8fae1b6b-015e-43c6-ad5b-890c8a65305c
 # ╠═b58e1d2e-e218-4d58-9c2d-c47cab866560
 # ╟─efed6f54-eb6b-4f98-9507-c8d601d45e76
@@ -1856,15 +1940,13 @@ version = "1.13.0+0"
 # ╠═03385be6-b623-4e24-b0c0-eca701d37e77
 # ╠═285b4c6a-75a1-4589-a60d-255be2333d4c
 # ╠═846a0839-a3e1-4288-af53-5d20915cf73f
-# ╠═737e6fad-e711-4a52-bbae-3c9f66830573
+# ╟─737e6fad-e711-4a52-bbae-3c9f66830573
 # ╟─6607f6fa-88a0-473c-a499-310fd935c174
 # ╟─2fc61a7f-745d-42c0-a8f0-4ac2a34bbb6e
-# ╠═6811789d-8d34-46a7-88d8-aae95869e42c
 # ╠═dc05d560-9f17-4844-9609-c1105fbec573
 # ╠═2a4c171d-07aa-4459-bf2e-27ebb2a97bab
 # ╠═8c71d228-5fe6-45ce-b108-c6b5853989a8
-# ╠═17cf162b-9a35-4301-a465-fbf4ba93c49c
-# ╠═9c931185-641a-4179-a6b4-6c7b0e038a08
+# ╟─17cf162b-9a35-4301-a465-fbf4ba93c49c
 # ╠═ae44f829-e754-4879-8ff5-2cde5c8c7f28
 # ╟─16c84394-1525-409a-bb58-215756926056
 # ╠═cf272c45-774b-4384-8b65-df58bfde5eb3
@@ -1875,9 +1957,11 @@ version = "1.13.0+0"
 # ╟─022afc7d-1250-40a3-9848-f1d332cf1dc2
 # ╠═a9a75f0c-e59e-40a7-ade5-cef40353071d
 # ╟─19acba30-d3d7-49a2-8c96-2df68b232196
-# ╟─cd32206d-12c6-471f-b5f1-12640241d630
+# ╠═cd32206d-12c6-471f-b5f1-12640241d630
 # ╟─2688fc63-164f-4fd0-bc8f-abbde845d51d
 # ╠═45e18af0-2531-4f70-a30d-a65f2f3560b6
+# ╠═47c0ac4a-24bd-4309-9513-daf226ce7eec
+# ╠═808229e6-665b-4c63-9fba-0fe98841dff1
 # ╠═a1513476-8abf-40f6-bd39-d8d424424280
 # ╠═9cb3a94e-b549-4add-bb92-5c58037a8e54
 # ╟─00000000-0000-0000-0000-000000000001
