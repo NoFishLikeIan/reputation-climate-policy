@@ -309,13 +309,14 @@ The firms form a belief $\phi_t$ on the probability of the government being comm
 
 # ╔═╡ dc05d560-9f17-4844-9609-c1105fbec573
 Base.@kwdef struct Signal{T <: Real}
-	α::T = 1 / τ₀
-	σ::T = 1.
+	σ::T = √τ₀
+	α::T = τ₀ * 0.05
+	ϵ::T = 1e-2
 end
 
 # ╔═╡ 2a4c171d-07aa-4459-bf2e-27ebb2a97bab
 function μ(τ, a, signal::Signal)
-	signal.α * τ - a
+	signal.ϵ * (τ - signal.α * a)
 end;
 
 # ╔═╡ 8c71d228-5fe6-45ce-b108-c6b5853989a8
@@ -337,7 +338,7 @@ $\begin{equation}
 First order condition yields the optimal policy 
 
 $\begin{equation}
-	\tau_t = \frac{\alpha \tau^c + a_t}{2\alpha + \frac{\sigma^2 \delta}{z_t \alpha}}.
+	\tau_t = \frac{\tau^c + \alpha \bar{a}_t}{2 +\frac{\delta \sigma^2}{\varepsilon^2 z}}.
 \end{equation}$
 "
 
@@ -346,18 +347,32 @@ function L(τ, a, z, signal::Signal, gov::Gov, firm::Firm)
 	w(τ, a, gov, firm) - z * μ(τ, a, signal) * (μ(τᶜ, a, signal) - μ(τ, a, signal)) / signal.σ^2
 end;
 
-# ╔═╡ cf272c45-774b-4384-8b65-df58bfde5eb3
-function optimalτ(a, z, signal::Signal, gov::Gov, firm::Firm)
-	@unpack α, σ = signal
+# ╔═╡ 29a3bcd6-7348-4398-8fbd-267f9212c119
+function reputationweight(z, signal::Signal, gov::Gov)
+	@unpack ϵ, σ = signal
 	@unpack δ = gov
 	
-	return (α * τᶜ +  a) / (2α + σ^2 * δ / (z * α))
+	return (δ * σ^2) / (ϵ^2 * z)
+end;
+
+# ╔═╡ cf272c45-774b-4384-8b65-df58bfde5eb3
+function optimalτ(a, z, signal::Signal, gov::Gov, firm::Firm)
+	@unpack α, ϵ, σ = signal
+	@unpack δ = gov
+
+	(τᶜ + α * a) / (2 + reputationweight(z, signal, gov))
+end;
+
+# ╔═╡ 483185a7-7ca6-470e-8d67-1e6ef304d19c
+begin
+	z̲ = 0.
+	z̄ = 10_000
 end;
 
 # ╔═╡ 16c84394-1525-409a-bb58-215756926056
 md"
 - ``a =`` $(@bind La Slider(A, show_value = true, default = 0.5))
-- ``z =`` $(@bind Lz Slider(0.:0.001:0.1, show_value = true, default = 0.1 / 2))
+- ``z =`` $(@bind Lz Slider(range(z̲, z̄, 201), show_value = true, default = 0.))
 "
 
 # ╔═╡ 860109da-f4c4-4247-8fe3-f6f7c1b8e331
@@ -366,7 +381,7 @@ let
 	cmax = :darkorange
 
 	zmin = 0.
-	zmax = 0.1
+	zmax = 10_000
 	
 	fig = plot(xlabel = τlabel, xticks = (τticks, τticklabels), legendtitle = L"Reputation $z$", legendtitlefontsize = 9, legendfontsize = 9, ylabel = L"Welfare $\mathcal{L}(\tau; %$(La), z) \textrm{tUSD} / \textrm{year}$", legend = :topleft)
 	
@@ -390,8 +405,8 @@ end
 
 # ╔═╡ fdb1300b-ba5d-4337-bb52-fc7b23b4fb13
 let
-	zspace = range(0, 0.05; length = 101)
-	τ̄ = (τᶜ / 2) + La / 2signal.α
+	zspace = range(z̲, z̄; length = 101)
+	τ̄ = optimalτ(La, Inf, signal, gov, firm)
 	
 	fig = plot(xlabel = L"Reputation weight $z$", ylabel = τlabel, ylims = (0, 1.01τ̄ / taxfactor), xlims = (0, Inf))
 	plot!(fig, zspace, z -> optimalτ(La, z, signal, gov, firm) / taxfactor; c = :black)
@@ -462,7 +477,7 @@ md"
 The equilibrium tax gives 
 
 $\begin{equation}
-	\tau(\phi, z) = \frac{\alpha + \frac{\phi}{\nu} e_0}{2α + \frac{\sigma^2 \delta}{z \alpha} - (1 - \phi)\frac{e_0}{\nu}} \tau^c
+	\tau_t = \tau^*(\phi_t, z_t) \coloneqq \frac{1 + \alpha \frac{e_0}{\nu} \phi}{2 + \frac{\delta \sigma^2}{\varepsilon^2 z} - \alpha \frac{e_0}{\nu} (1 - \phi)} \tau^c.
 \end{equation}$
 "
 
@@ -472,8 +487,10 @@ function τᵒ(ϕ, z, signal::Signal, gov::Gov, firm::Firm)
 	@unpack ν, e₀ = firm
 	@unpack δ = gov
 
-	num = α + e₀ * ϕ / ν
-	den = 2α + (σ^2 * δ) / (z * α) - e₀ * (1 - ϕ) / ν
+	weight = reputationweight(z, signal, gov)
+
+	num = 1 + α * (e₀ / ν) * ϕ
+	den = 2 + weight - α * (e₀ / ν) * (1 - ϕ)
 
 	return (num / den) * τᶜ
 end;
@@ -481,9 +498,9 @@ end;
 # ╔═╡ a1513476-8abf-40f6-bd39-d8d424424280
 let
 	ϕs = range(0, 1, 101)
-	zspace = range(0., 0.04, 101)
+	zspace = range(z̲, z̄, 101)
 	
-	surface(ϕs, zspace, (ϕ, z) -> τᵒ(ϕ, z, signal, gov, firm) / τᶜ; xlabel = L"Reputation $\phi$", ylabel = L"Reputation weight $z$", title = L"Equilibrium tax $\tau$", c = :Reds, linewidth = 0., clims = (0, 1), zlims = (0, 1))
+	surface(ϕs, zspace, (ϕ, z) -> τᵒ(ϕ, z, signal, gov, firm) / τᶜ; xlabel = L"Reputation $\phi$", ylabel = L"Reputation weight $z$", title = L"Tax ratio $\tau / \tau^{\mathrm{c}}$", c = :Reds, linewidth = 0., clims = (0, 1), zlims = (0, 1))
 end
 
 # ╔═╡ a0dea2de-084a-4c9b-95b9-e789d03b6c52
@@ -597,16 +614,25 @@ let
 end
 
 # ╔═╡ f99168ac-2fce-4179-a3dc-0278024fe150
+# ╠═╡ disabled = true
+#=╠═╡
 sol = solve(bvp,  MIRK4(), dt = 0.001)
+  ╠═╡ =#
 
 # ╔═╡ a8614217-e1de-4ee7-9936-61269e0cce42
+#=╠═╡
 plot(sol, idxs = 1)
+  ╠═╡ =#
 
 # ╔═╡ c651d581-69c9-447c-8434-9a33a4f8ff94
+#=╠═╡
 plot(sol, idxs = 2)
+  ╠═╡ =#
 
 # ╔═╡ 53e4d7a6-7976-4d90-9b09-4c12835b501d
+#=╠═╡
 plot(0:0.01:1, ϕ -> sol(log(ϕ / (1 - ϕ)))[1])
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3397,7 +3423,9 @@ version = "1.13.0+0"
 # ╠═8c71d228-5fe6-45ce-b108-c6b5853989a8
 # ╟─17cf162b-9a35-4301-a465-fbf4ba93c49c
 # ╠═ae44f829-e754-4879-8ff5-2cde5c8c7f28
+# ╠═29a3bcd6-7348-4398-8fbd-267f9212c119
 # ╠═cf272c45-774b-4384-8b65-df58bfde5eb3
+# ╠═483185a7-7ca6-470e-8d67-1e6ef304d19c
 # ╟─16c84394-1525-409a-bb58-215756926056
 # ╟─860109da-f4c4-4247-8fe3-f6f7c1b8e331
 # ╟─fdb1300b-ba5d-4337-bb52-fc7b23b4fb13
@@ -3413,7 +3441,7 @@ version = "1.13.0+0"
 # ╠═19f87f8f-21c4-49d7-a1b3-7c5a44b243ea
 # ╠═34e6de51-e986-4562-a3e6-eb03c3a23149
 # ╠═bb73d5f6-6685-473f-9a69-dd4798645158
-# ╟─9cb3a94e-b549-4add-bb92-5c58037a8e54
+# ╠═9cb3a94e-b549-4add-bb92-5c58037a8e54
 # ╠═bb77dda6-8373-4e79-a420-51e5058fe7ec
 # ╠═07f780e7-7f41-403a-bd59-21465a45f83a
 # ╠═3e036bce-9b36-4dd3-8a31-b02f629ddfd4

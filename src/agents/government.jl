@@ -2,7 +2,7 @@ Base.@kwdef struct Government{T}
 	ξ::T = dicescc / e₀ # linear damage coefficient [-]
     y₀::T = y₀ # output/GDP [trillion Eur/year]
 	δ::T = 0.2 * y₀
-	ρ::T = 0.05
+	r::T = 0.05
 end
 
 # Climate damages
