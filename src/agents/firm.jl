@@ -1,36 +1,20 @@
-Base.@kwdef struct Firm{T <: Real}
-    β::T = 1 - 1e-2 # discount factor [-]
-
-    e₀::T = 4.2660429 # emissions [GtC/year]
-
-    κ::T = 0.1621 # base investment cost [tEur]
-    ω::T = 0.0 # marginal investment difficulty
-
-    α::T = 2.0779 # investment effectiveness [y / tW]
-    ν::T = 5.4315 # adjustment costs [year / tEur²]
+Base.@kwdef struct Firm{T}
+	e₀::T = e₀ # emissions [GtC/year]
+	ν::T = dietzφ * y₀ * (e₀ * CtoCO₂)^2 # adjustment costs [year / tEur²]
 end
 
-function p(a, firm::Firm)
-    δ = firm.ω > 0 ? firm.ω  / (inv(a) - 1) : firm.ω
-    return firm.κ * (1 + δ)
-end
-p′(a, firm::Firm) = ForwardDiff.derivative(a -> p(a, firm), a)
-
-"Firm's abatement investment cost."
-function c(a, φ, firm::Firm) 
-    p(a, firm) * φ + (firm.ν / 2) * φ^2
-end
-cₐ(a, φ, firm) = ForwardDiff.derivative(a -> c(a, φ, firm), a)
-cᵩ(a, φ, firm) = ForwardDiff.derivative(φ -> c(a, φ, firm), φ)
-
-"Firm's total emissions."
-function emissions(a, firm::Firm)
-    firm.e₀ * (1 - a)
+function c(a, firm::Firm)
+	firm.ν * a^2 / 2
 end
 
-"Capital dynamics `aₜ₊₁ = f(aₜ, φₜ)`"
-function f(a, φ, firm::Firm)
-    a + (1 - a) * firm.α * φ
+function e(a, firm::Firm)
+	(1 - a) * firm.e₀
 end
-fₐ(a, φ, firm::Firm) = ForwardDiff.derivative(a -> f(a, φ, firm), a)
-fᵩ(a, φ, firm::Firm) = ForwardDiff.derivative(φ -> f(a, φ, firm), φ)
+
+function k(a, τ, firm::Firm)
+	e(a, firm) * τ + c(a, firm)
+end
+
+function aᶜ(τ, firm::Firm)
+	min((firm.e₀ / firm.ν) * τ, 1)
+end;

@@ -1,20 +1,23 @@
-const matchscc = 66 / 100
-
-Base.@kwdef struct Government{T <: Real}
-    β::T = 1 - 1e-2   # discount factor [-]
-    ξ::T = matchscc / 4.2660429 # linear damage coefficient [-]
-    y₀::T = 15.231 # GDP [trillion Eur/year]
+Base.@kwdef struct Government{T}
+	ξ::T = dicescc / e₀ # linear damage coefficient [-]
+    y₀::T = y₀ # output/GDP [trillion Eur/year]
+	δ::T = 0.2 * y₀
+	ρ::T = 0.05
 end
 
 # Climate damages
-function d(a, firm::Firm, government::Government)
-    (government.ξ / 2) * (1 - a)^2 * firm.e₀^2
+function d(e, gov::Government)
+	(gov.ξ / 2) * e^2
+end;
+
+function l(τ, gov::Government)
+	(gov.δ / 2) * τ^2
+end;
+
+function w(τ, a, gov::Government, firm::Firm)
+    gov.y₀ * d(e(a, firm), gov) + c(a, firm) + l(τ, gov)
 end
 
-function socialcost(a, ϕ, firm::Firm, government::Government)
-    c(a, ϕ, firm) + d(a, firm, government) * government.y₀
-end
-
-function τ(t, τ₀, θ)
-    τ₀ * exp(θ * t)
+function wᶜ(τ, gov::Government, firm::Firm)
+	w(τ, aᶜ(τ, firm), gov, firm)
 end
