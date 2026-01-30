@@ -7,7 +7,8 @@ using DataFrames, TidierData
 using Printf
 using Plots, LaTeXStrings
 
-include("../src/utils.jl")
+includet("../src/constants.jl")
+includet("../src/utils.jl")
 
 Plots.default(linewidth = 2, dpi = 180, label = false, background_color = :transparent)
 plotpath = "figures/calibration"; if !ispath(plotpath) mkpath(plotpath) end
@@ -24,6 +25,12 @@ end
 value(m::Measurement) = m.val
 uncertainty(m::Measurement) = m.err
 
+const npscenario = "EN_NoPolicy"
+
+const variablekeys = Dict(
+    :E => "Emissions|Kyoto Gases"
+);
+
 function makedf(scenarios)
     dfs = Dict{String, DataFrame}()
     for (key, scenario) in pairs(scenarios)
@@ -36,7 +43,12 @@ function makedf(scenarios)
             @filter(Year ≥ 2020.)
         end
 
-        dfs[key.Scenario] = df
+        T, _ = size(df)
+        hasemissions = keys[:E] ∈ names(df)
+
+        if (T ≥ 2) && hasemissions
+            dfs[key.Scenario] = df
+        end
     end
 
     dfnp = dfs[npscenario]
@@ -57,19 +69,14 @@ function calibrate(scenarios; emissionsfactor = 1e-3, capacityfactor = 1e-3, scc
     pvec = Float64[]
     Evec = Float64[]
 
-    for (_, df) in dfs
-        E = df[:, "Emissions|Kyoto Gases"] * emissionsfactor
-        Eⁿᵖ = interpolate(dfnp[:, "Emissions|Kyoto Gases"] * emissionsfactor, df.Year, dfnp.Year)
-        abated = @. 1 - E / Eⁿᵖ
+    for (scenarioname, df) in dfs
+        ts = df.Year[1]:5:df.Year[end]
 
-        excessedinstalledcapacity = zeros(size(df, 1))
-        for renewable in renewables
-            variable = "Capacity Additions|Electricity|$renewable"
-            installedcapacity = df[:, variable] .* capacityfactor
-            installedcapacityⁿᵖ = interpolate(dfnp[:, variable] .* capacityfactor, df.Year, dfnp.Year)
+        E = interpolate(df[:, "Emissions|Kyoto Gases"] * 1e-3 / CtoCO₂, ts, df.Year)
+        Eⁿᵖ = interpolate(dfnp[:, "Emissions|Kyoto Gases"] * 1e-3 / CtoCO₂, ts, dfnp.Year)
+        abated = Eⁿᵖ .- E
 
-            @. excessedinstalledcapacity +=  installedcapacity - installedcapacityⁿᵖ
-        end
+        additionalabatement = @. abated[2:end] - abated[1:(end - 1)] * (1 - abatementdepreciation)
 
         scc = df[:, "Price|Carbon"] * sccfactor
 
@@ -123,41 +130,37 @@ function calibrate(scenarios; emissionsfactor = 1e-3, capacityfactor = 1e-3, scc
     return αmes, mcmes
 end
 
-scenarios_eu = @chain ar6data begin
+scenarioseu = @chain ar6data begin
     @filter(Region == "R10EUROPE")
-    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
 end;
 
 println("\n=== EU Estimation ===")
-αs_eu, mcs_eu = calibrate(scenarios_eu);
+αs_eu, mcs_eu = calibrate(scenarioseu);
 
-scenarios_na = @chain ar6data begin
+scenariosna = @chain ar6data begin
     @filter(Region == "R10NORTH_AM")
-    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
 end;
 
 println("\n=== North America Estimation ===")
-αs_na, mcs_na = calibrate(scenarios_na);
+αs_na, mcs_na = calibrate(scenariosna);
 
-scenarios_china = @chain ar6data begin
+scenarioschina = @chain ar6data begin
     @filter(Region == "R10CHINA+")
-    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
 end;
 
 println("\n=== China Estimation ===")
-αs_china, mcs_china = calibrate(scenarios_china);
+αs_china, mcs_china = calibrate(scenarioschina);
 
-scenarios_india = @chain ar6data begin
+scenariosindia = @chain ar6data begin
     @filter(Region == "R10INDIA+")
-    @filter(Model ∈ ("REMIND-MAgPIE 2.1-4.2",))
     @group_by(Model, Scenario)
 end;
 
 println("\n=== India Estimation ===");
-αs_india, mcs_india = calibrate(scenarios_india);
+αs_india, mcs_india = calibrate(scenariosindia);
 
 @recipe function f(::Type{T}, m::T) where T <: AbstractArray{<:Measurement}
     if !(get(plotattributes, :seriestype, :path) in (:contour, :contourf, :contour3d, :heatmap, :surface, :wireframe, :image))
