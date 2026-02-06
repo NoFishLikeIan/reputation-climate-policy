@@ -3,7 +3,7 @@ using BenchmarkTools
 using FastClosures
 using Base.Threads
 using UnPack
-using DifferentialEquations
+using DifferentialEquations, SparseArrays
 
 using Plots, LaTeXStrings, Printf
 
@@ -44,35 +44,44 @@ function rightbc!(res, z₁, p)
 	res[2] = v₁
 end;
 
-function vadj(u, v, φ, signal, government, firm)
+function forcing(u, z, φ, signal, government, firm)
     @unpack α, σ = signal
-    @unpack ρ = government
 
     τᶜ = committedtax(government, firm)
-    τ = optimaltax(φ, v / ρ, signal, government, firm)
-    a = optimalabatement(φ, v / ρ, signal, government, firm)
+    τ = optimaltax(φ, z, signal, government, firm)
+    a = optimalabatement(φ, z, signal, government, firm)
     wᵒ = w(τ, a, government, firm)
 
-    return (2ρ * σ^2) * (u - wᵒ) / (α * (τᶜ - τ))^2
+    signal = (σ / (α * (τᶜ - τ)))^2
+
+    return 2 * signal * (u - wᵒ)
 end
 
-function F!(dz, z, p, x)
+function F!(dx, x, p, ψ)
     signal, government, firm = p
-    u, v = z
-    φ = sigmoid(x)
+    u, z = x
+    φ = sigmoid(ψ)
     
-    dz[1] = v
-    dz[2] = v + vadj(u, v, φ, signal, government, firm)
+    dx[1] = government.r * z
+    dx[2] = z + forcing(u, z, φ, signal, government, firm)
 
-    return dz
+    return dx
 end
 
-meanwelfare = (committed + stackleberg) / 2
-z₀ = [meanwelfare, 1.]
-Z = 30.
-xspan = (-Z, Z)
 p = (signal, government, firm)
+meanwelfare = (committed + stackleberg) / 2
+x₀ = [meanwelfare, 0.01]
+
+let # Test function
+    dx₀ = similar(x₀)
+    ψ₀ = 0.
+
+    @btime F!($dx₀, $x₀, $p, $ψ₀)
+end;
+
+Z = 10.
+ψspan = (-Z, Z)
 bcresid_prototype = (zeros(2), zeros(2))
 
-bvp = TwoPointBVProblem(F!, (leftbc!, rightbc!), z₀, xspan, p; bcresid_prototype)
-sol = solve(bvp, RadauIIa7(), dt = 2Z / 10_000.)
+bvp = TwoPointBVProblem(F!, (leftbc!, rightbc!), x₀, ψspan, p; bcresid_prototype);
+sol = solve(bvp,  MIRK6(), dt = 0.001)
