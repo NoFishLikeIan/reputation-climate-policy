@@ -1,40 +1,33 @@
 function committedtax(government::Government, firm::Firm)
-	@unpack ξ, δ = government
-	@unpack ν = firm
-
-	num = ξ * y₀ * (e₀^3 / ν)
-	den = (e₀^4 / ν^2) * y₀ * ξ + (e₀^2 / ν) + δ
-
-	return max((num / den) / taxfactor, ν / e₀) * taxfactor
-end
-
-function bestresponsetax(a, z, signal::Signal, government::Government, firm::Firm)
-	@unpack α, σ = signal
-	@unpack δ = government
-
-	τᶜ = committedtax(government, firm)
-	
-	return max((α * τᶜ +  a) / (2α - (σ^2 * δ) / (z * α)), 0)
-end
-
-function optimaltax(φ, z, signal::Signal, government::Government, firm::Firm)
-	@unpack α, σ = signal
+	@unpack ξ, y₀, δ = government
 	@unpack ν, e₀ = firm
+
+	β = e₀^2 / ν
+
+	return (y₀ * ξ * e₀ * β) / (y₀ * ξ * β^2 + β + δ)
+end
+
+"Optimal tax ratio `η`, such that `τ = η(φ, z) τᶜ`"
+function η(φ, z, signal::Signal, government::Government, firm::Firm)
+	@unpack α, ϵ, σ = signal
 	@unpack δ = government
+	@unpack ν, e₀ = firm
 
-	τᶜ = committedtax(government, firm)
+	β = α * e₀ / ν
+	δfc = ifelse(δ > 0, δ * (σ / ϵ)^2 / z, zero(φ))
 
-	num = α + e₀ * φ / ν
-	den = 2α - (σ^2 * δ) / (z * α) - e₀ * (1 - φ) / ν
-
-	return (num / den) * τᶜ
+	return (1 + β * φ) / (2 + δfc - β * (1 - φ))
 end;
 
-function optimalabatement(φ, z, signal::Signal, government::Government, firm::Firm)
-	τ = optimaltax(φ, z, signal, government, firm)
+function abatementbestresponse(τ, φ, government::Government, firm::Firm)
 	τᶜ = committedtax(government, firm)
+	return firm.e₀ * (φ * τᶜ + (1 - φ) * τ) / firm.ν
+end
 
-	τᵉ = φ * τᶜ + (1 - φ) * τ
+function wᵒ(φ, z, signal::Signal, government::Government, firm::Firm)
+	τᶜ = committedtax(government, firm)
+	τ = η(φ, z, signal, government, firm) * τᶜ
+	a = abatementbestresponse(τ, φ, government, firm)
 
-	return min((firm.e₀ / firm.ν) * τᵉ, 1)
+	return w(τ, a, government, firm)
 end
