@@ -3,7 +3,10 @@ using BenchmarkTools
 using FastClosures
 using Base.Threads
 using UnPack
-using DifferentialEquations, SparseArrays
+
+using StaticArrays, DifferentialEquations
+using Optimization, OptimizationOptimJL
+using ForwardDiff, DifferentiationInterface
 
 using Plots, LaTeXStrings, Printf
 
@@ -15,73 +18,122 @@ includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 includet("../src/signal.jl")
 includet("../src/optimal.jl")
-includet("../src/utils.jl")
+includet("../src/hjb.jl")
 
+function leftinit(cₗ, ε, model)
+	θ = zero(ε)
+	government = model[2]
+	r = government.r
+	
+	κfn = Base.Fix{3}(κ², model)
+	wfn = Base.Fix{3}(wᵒ, model)
+
+	κ₀ = κfn(θ, θ)
+	κ′₀ = ForwardDiff.derivative(Base.Fix{2}(κfn, θ), θ)
+	
+	w₀ = wfn(θ, θ)
+	w′₀ = ForwardDiff.derivative(Base.Fix{2}(wfn, θ), θ)
+	
+	m = (1 + √(1 + 8r * κ₀)) / 2
+	uₘ = cₗ
+	uₘ₊₁ = (m + r * κ′₀ / m) * uₘ + (r / m) * (κ₀ * w′₀ + w₀ * κ′₀)
+	
+	uₗ = w₀ + uₘ * ε^m + uₘ₊₁ * ε^(m + 1)
+	zₗ = (m * uₘ * ε^m) / r + ((m + 1) * uₘ₊₁ - m * uₘ) * ε^(m + 1) / r
+	
+	return SVector(uₗ, zₗ)
+end
+function rightinit(cᵣ, ε, model)
+	ι = one(ε)
+	government = model[2]
+	r = government.r
+	
+	κfn = Base.Fix{3}(κ², model)
+	wfn = Base.Fix{3}(wᵒ, model)
+
+	κ₁ = κfn(ι, ι)
+	κ′₁ = ForwardDiff.derivative(Base.Fix{2}(κfn, ι), ι)
+	
+	w₁ = wfn(ι, ι)
+	w′₁ = ForwardDiff.derivative(Base.Fix{2}(wfn, ι), ι)
+	
+	n = (1 + √(1 + 8r * κ₁)) / 2
+	uₙ = cᵣ
+	uₙ₊₁ = (n + r * κ′₁ / n) * uₙ + (r / n) * (κ₁ * w′₁ + w₁ * κ′₁)
+	
+	uᵣ = w₁ + uₙ * ε^n + uₙ₊₁ * ε^(n + 1)
+	zᵣ = - ((n * uₙ * ε^n) / r + ((n + 1) * uₙ₊₁ - n * uₙ) * ε^(n + 1) / r)
+	
+	return SVector(uᵣ, zᵣ)
+end
+
+function pastingerror(c, parameters)
+	model, ε, φₘ = parameters
+	cₗ, cᵣ = c	
+	xₗ = leftinit(cₗ, ε, model)
+	xᵣ = rightinit(cᵣ, ε, model)
+
+	leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model)
+	leftsol = solve(leftprob, Rodas4P(); save_everystep = false, save_end = true, save_start = false) 
+	
+	rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model)
+	rightsol = solve(rightprob, Rodas4P(); save_everystep = false, save_end = true, save_start = false)
+	
+	return sum(abs2, leftsol.u[1] - rightsol.u[1])
+end
+
+# Example call with original values
 begin
 	firm = Firm()
-	government = Government()
     signal = Signal()
+	ε = 1e-4
+	φₘ = 0.5
+end;
 
-	τᶜ = committedtax(government, firm)
+δs = [0., 0.01, 0.05]
+
+cs = MVector{2, Float64}[]
+for (i, δ) in enumerate(δs)
+	@printf "Solving for %.2f" δ
+	c₀ = i > 1 ? cs[i - 1] : MVector(-500., 6000.)
 	
-    stackleberg = w(0., 0., government, firm)
-	committed = w(τᶜ, aᶜ(τᶜ, firm), government, firm)
-end;
+	objfn = SciMLBase.OptimizationFunction(pastingerror,AutoForwardDiff())
 
-function leftbc!(res, z₀, p)
-    _, government, firm = p
-    u₀, v₀ = z₀
-	
-    res[1] = w(0., 0., government, firm) - u₀
-	res[2] = v₀
-end;
+	government = Government(δ = δ)
+	model = (signal, government, firm)
 
-function rightbc!(res, z₁, p)
-    _, government, firm = p
-    u₁, v₁ = z₁
-    
-    res[1] = u₁ - w(τᶜ, aᶜ(τᶜ, firm), government, firm)
-	res[2] = v₁
-end;
+	pastingproblem = OptimizationProblem(objfn, x₀, (model, ε, φₘ))
+	pastingsol = solve(pastingproblem, BFGS(); iterations = 2_000)
 
-function forcing(u, z, φ, signal, government, firm)
-    @unpack α, σ = signal
+	if !SciMLBase.successful_retcode(pastingsol.retcode)
+		@warn "Optimization failed for δ = $δ with retcode $(pastingsol.retcode)"
+	end
 
-    τᶜ = committedtax(government, firm)
-    τ = optimaltax(φ, z, signal, government, firm)
-    a = optimalabatement(φ, z, signal, government, firm)
-    wᵒ = w(τ, a, government, firm)
-
-    signal = (σ / (α * (τᶜ - τ)))^2
-
-    return 2 * signal * (u - wᵒ)
+	push!(cs, pastingsol.u)
 end
 
-function F!(dx, x, p, ψ)
-    signal, government, firm = p
-    u, z = x
-    φ = sigmoid(ψ)
-    
-    dx[1] = government.r * z
-    dx[2] = z + forcing(u, z, φ, signal, government, firm)
+let
+	ufig = plot()
+	
+	for (i, δ) in enumerate(δs)
+		model_δ = (signal, Government(δ = δ), firm)
+		cₗ, cᵣ = cs[i]
+		xₗ = leftinit(cₗ, ε, model_δ)
+		xᵣ = rightinit(cᵣ, ε, model_δ)
 
-    return dx
+		leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model_δ)
+		leftsol = solve(leftprob, Rodas4P()) 
+
+		rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model_δ)
+		rightsol = solve(rightprob, Rodas4P())
+
+		unit = range(ε, 1 - ε, 101)
+		ufn = φ -> φ < φₘ ? leftsol(φ)[1] : rightsol(φ)[1]
+		zfn = φ -> φ < φₘ ? leftsol(φ)[2] : rightsol(φ)[2]
+
+		plot!(ufig, unit, ufn; xlims = (0, 1), label = L"\delta = "*string(δ))
+	end
+	
+	ylabel!(ufig, L"u(\phi)")
+	xlabel!(ufig, L"\phi")
 end
-
-p = (signal, government, firm)
-meanwelfare = (committed + stackleberg) / 2
-x₀ = [meanwelfare, 0.01]
-
-let # Test function
-    dx₀ = similar(x₀)
-    ψ₀ = 0.
-
-    @btime F!($dx₀, $x₀, $p, $ψ₀)
-end;
-
-Z = 10.
-ψspan = (-Z, Z)
-bcresid_prototype = (zeros(2), zeros(2))
-
-bvp = TwoPointBVProblem(F!, (leftbc!, rightbc!), x₀, ψspan, p; bcresid_prototype);
-sol = solve(bvp,  MIRK6(), dt = 0.001)
