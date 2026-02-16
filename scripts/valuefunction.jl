@@ -13,74 +13,30 @@ using Plots, LaTeXStrings, Printf
 Plots.default(linewidth = 2, dpi = 180, label = false, background_color = :transparent)
 plotpath = "figures/preliminaries"; if !ispath(plotpath) mkpath(plotpath) end
 
-includet("../src/constants.jl")
-includet("../src/agents/firm.jl")
-includet("../src/agents/government.jl")
-includet("../src/signal.jl")
-includet("../src/optimal.jl")
+includet("../src/primitives/constants.jl")
+includet("../src/primitives/firm.jl")
+includet("../src/primitives/government.jl")
+includet("../src/primitives/signal.jl")
+includet("../src/primitives/optimal.jl")
 includet("../src/hjb.jl")
 
-function leftinit(cₗ, ε, model)
-	θ = zero(ε)
-	government = model[2]
-	r = government.r
-	
-	κfn = Base.Fix{3}(κ², model)
-	wfn = Base.Fix{3}(wᵒ, model)
+includet("../src/pasting.jl")
 
-	κ₀ = κfn(θ, θ)
-	κ′₀ = ForwardDiff.derivative(Base.Fix{2}(κfn, θ), θ)
-	
-	w₀ = wfn(θ, θ)
-	w′₀ = ForwardDiff.derivative(Base.Fix{2}(wfn, θ), θ)
-	
-	m = (1 + √(1 + 8r * κ₀)) / 2
-	uₘ = cₗ
-	uₘ₊₁ = (m + r * κ′₀ / m) * uₘ + (r / m) * (κ₀ * w′₀ + w₀ * κ′₀)
-	
-	uₗ = w₀ + uₘ * ε^m + uₘ₊₁ * ε^(m + 1)
-	zₗ = (m * uₘ * ε^m) / r + ((m + 1) * uₘ₊₁ - m * uₘ) * ε^(m + 1) / r
-	
-	return SVector(uₗ, zₗ)
+function maketarget(::V, model) where V <: StaticVector{2}
+	signal, government, firm = model
+
+	return V(wᵒ(1, 0, signal, government, firm), 0)
 end
 
-function rightinit(cᵣ, ε, model)
-	ι = one(ε)
-	government = model[2]
-	r = government.r
-	
-	κfn = Base.Fix{3}(κ², model)
-	wfn = Base.Fix{3}(wᵒ, model)
+function shootingerror(cₗ, optparameters)
+	model, ε = optparameters
+	x = leftinit(cₗ, ε, model)
+	x̄ = maketarget(x, model)
 
-	κ₁ = κfn(ι, ι)
-	κ′₁ = ForwardDiff.derivative(Base.Fix{2}(κfn, ι), ι)
-	
-	w₁ = wfn(ι, ι)
-	w′₁ = ForwardDiff.derivative(Base.Fix{2}(wfn, ι), ι)
-	
-	n = (1 + √(1 + 8r * κ₁)) / 2
-	uₙ = cᵣ
-	uₙ₊₁ = (n + r * κ′₁ / n) * uₙ + (r / n) * (κ₁ * w′₁ + w₁ * κ′₁)
-	
-	uᵣ = w₁ + uₙ * ε^n + uₙ₊₁ * ε^(n + 1)
-	zᵣ = - ((n * uₙ * ε^n) / r + ((n + 1) * uₙ₊₁ - n * uₙ) * ε^(n + 1) / r)
-	
-	return SVector(uᵣ, zᵣ)
-end
+	prob = ODEProblem{false}(F, x, (ε, 1 - ε), model)
+	sol = solve(prob, Rodas4P(); save_everystep = false, save_end = true, save_start = false) 
 
-function pastingerror(c, parameters)
-	model, ε, φₘ = parameters
-	cₗ, cᵣ = c	
-	xₗ = leftinit(cₗ, ε, model)
-	xᵣ = rightinit(cᵣ, ε, model)
-
-	leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model)
-	leftsol = solve(leftprob, Rodas4P(); save_everystep = false, save_end = true, save_start = false) 
-	
-	rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model)
-	rightsol = solve(rightprob, Rodas4P(); save_everystep = false, save_end = true, save_start = false)
-	
-	return sum(abs2, leftsol.u[1] - rightsol.u[1])
+	return sum(abs2, sol.u[1] - x̄)
 end
 
 # Example call with original values
@@ -88,30 +44,27 @@ begin
 	firm = Firm()
     signal = Signal()
 	ε = 1e-3
-	φₘ = 0.5
 end;
 
-δs = [0.]
+δs = [1e-5]
 
-cs = MVector{2, Float64}[]
+cs = Float64[]
 for (i, δ) in enumerate(δs)
 	@printf "Solving for δ = %.2f\n" δ
-	c₀ = i > 1 ? cs[i - 1] : MVector(-500., -100.)
 	
-	objfn = SciMLBase.OptimizationFunction(pastingerror, AutoForwardDiff())
-
 	government = Government(δ = δ)
 	model = (signal, government, firm)
-	optparams = (model, ε, φₘ)
+	optparameters = (model, ε)
 
-	pastingproblem = OptimizationProblem(objfn, c₀, optparams)
-	pastingsol = solve(pastingproblem, BFGS(); iterations = 5_000)
+	shootingsol = optimize(cₗ -> shootingerror(cₗ, optparameters), -100_000., 0.)
 
-	if !SciMLBase.successful_retcode(pastingsol.retcode)
-		@warn "Optimization failed for δ = $δ with retcode $(pastingsol.retcode)"
+	if shootingsol.stopped_by[:converged]
+		@printf "Optimization converged with minimum %.2f\n" shootingsol.minimum
+	else
+		@warn "Optimization failed"
 	end
 
-	push!(cs, pastingsol.u)
+	push!(cs, shootingsol.minimizer)
 end
 
 let
@@ -120,22 +73,17 @@ let
 	
 	for (i, δ) in enumerate(δs)
 		model = (signal, Government(δ = δ), firm)
-		cₗ, cᵣ = cs[i]
-		xₗ = leftinit(cₗ, ε, model)
-		xᵣ = rightinit(cᵣ, ε, model)
+		x = leftinit(cs[i], ε, model)
 
-		leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model)
-		leftsol = solve(leftprob, Rodas4P()) 
-
-		rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model)
-		rightsol = solve(rightprob, Rodas4P())
+		prob = ODEProblem{false}(F, x, (ε, 1 - ε), model)
+		sol = solve(prob, Rodas4P()) 
 
 		unit = range(ε, 1 - ε, 1001)
-		ufn = φ -> φ < φₘ ? leftsol(φ)[1] : rightsol(φ)[1]
-		zfn = φ -> φ < φₘ ? leftsol(φ)[2] : rightsol(φ)[2]
+		ufn = φ -> sol(φ)[1]
+		zfn = φ -> sol(φ)[2]
 
-		plot!(ufig, unit, ufn; label = L"\delta = %$δ", linewidth = 2, c = :black)
-		plot!(zfig, unit, zfn; label = L"\delta = %$δ", linewidth = 2, c = :darkred)
+		plot!(ufig, unit, ufn; label = L"\delta = %$δ", linewidth = 2)
+		plot!(zfig, unit, zfn; label = L"\delta = %$δ", linewidth = 2)
 	end
 	
 	plot(ufig, zfig; layout = (2, 1), link = :x, size = 450 .* (√2, 1.))
