@@ -43,6 +43,7 @@ function leftinit(cₗ, ε, model)
 	
 	return SVector(uₗ, zₗ)
 end
+
 function rightinit(cᵣ, ε, model)
 	ι = one(ε)
 	government = model[2]
@@ -86,24 +87,25 @@ end
 begin
 	firm = Firm()
     signal = Signal()
-	ε = 1e-4
+	ε = 1e-3
 	φₘ = 0.5
 end;
 
-δs = [0., 0.01, 0.05]
+δs = [0.]
 
 cs = MVector{2, Float64}[]
 for (i, δ) in enumerate(δs)
-	@printf "Solving for %.2f" δ
-	c₀ = i > 1 ? cs[i - 1] : MVector(-500., 6000.)
+	@printf "Solving for δ = %.2f\n" δ
+	c₀ = i > 1 ? cs[i - 1] : MVector(-500., -100.)
 	
-	objfn = SciMLBase.OptimizationFunction(pastingerror,AutoForwardDiff())
+	objfn = SciMLBase.OptimizationFunction(pastingerror, AutoForwardDiff())
 
 	government = Government(δ = δ)
 	model = (signal, government, firm)
+	optparams = (model, ε, φₘ)
 
-	pastingproblem = OptimizationProblem(objfn, x₀, (model, ε, φₘ))
-	pastingsol = solve(pastingproblem, BFGS(); iterations = 2_000)
+	pastingproblem = OptimizationProblem(objfn, c₀, optparams)
+	pastingsol = solve(pastingproblem, BFGS(); iterations = 5_000)
 
 	if !SciMLBase.successful_retcode(pastingsol.retcode)
 		@warn "Optimization failed for δ = $δ with retcode $(pastingsol.retcode)"
@@ -113,27 +115,28 @@ for (i, δ) in enumerate(δs)
 end
 
 let
-	ufig = plot()
+	ufig = plot( xlims = (0, 1), ylabel =  L"u(\phi)")
+	zfig = plot( xlims = (0, 1), ylabel =  L"z(\phi)", xlabel =  L"\phi")
 	
 	for (i, δ) in enumerate(δs)
-		model_δ = (signal, Government(δ = δ), firm)
+		model = (signal, Government(δ = δ), firm)
 		cₗ, cᵣ = cs[i]
-		xₗ = leftinit(cₗ, ε, model_δ)
-		xᵣ = rightinit(cᵣ, ε, model_δ)
+		xₗ = leftinit(cₗ, ε, model)
+		xᵣ = rightinit(cᵣ, ε, model)
 
-		leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model_δ)
+		leftprob = ODEProblem{false}(F, xₗ, (ε, φₘ), model)
 		leftsol = solve(leftprob, Rodas4P()) 
 
-		rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model_δ)
+		rightprob = ODEProblem{false}(F, xᵣ, (1 - ε, φₘ), model)
 		rightsol = solve(rightprob, Rodas4P())
 
-		unit = range(ε, 1 - ε, 101)
+		unit = range(ε, 1 - ε, 1001)
 		ufn = φ -> φ < φₘ ? leftsol(φ)[1] : rightsol(φ)[1]
 		zfn = φ -> φ < φₘ ? leftsol(φ)[2] : rightsol(φ)[2]
 
-		plot!(ufig, unit, ufn; xlims = (0, 1), label = L"\delta = "*string(δ))
+		plot!(ufig, unit, ufn; label = L"\delta = %$δ", linewidth = 2, c = :black)
+		plot!(zfig, unit, zfn; label = L"\delta = %$δ", linewidth = 2, c = :darkred)
 	end
 	
-	ylabel!(ufig, L"u(\phi)")
-	xlabel!(ufig, L"\phi")
+	plot(ufig, zfig; layout = (2, 1), link = :x, size = 450 .* (√2, 1.))
 end
