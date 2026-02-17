@@ -4,14 +4,14 @@ using FastClosures
 using Base.Threads
 using UnPack
 
-using StaticArrays, DifferentialEquations
-using Optimization, OptimizationOptimJL
-using ForwardDiff, DifferentiationInterface
+using Roots
+using Optim
+using ForwardDiff, DifferentiationInterface, DifferentialEquations
 
 using Plots, LaTeXStrings, Printf
 
 Plots.default(linewidth = 2, dpi = 180, label = false, background_color = :transparent)
-plotpath = "figures/preliminaries"; if !ispath(plotpath) mkpath(plotpath) end
+plotpath = "figures/valuefunction"; if !ispath(plotpath) mkpath(plotpath) end
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/firm.jl")
@@ -22,31 +22,14 @@ includet("../src/hjb.jl")
 
 includet("../src/pasting.jl")
 
-function maketarget(::V, model) where V <: StaticVector{2}
-	signal, government, firm = model
-
-	return V(wᵒ(1, 0, signal, government, firm), 0)
-end
-
-function shootingerror(cₗ, optparameters)
-	model, ε = optparameters
-	x = leftinit(cₗ, ε, model)
-	x̄ = maketarget(x, model)
-
-	prob = ODEProblem{false}(F, x, (ε, 1 - ε), model)
-	sol = solve(prob, Rodas4P(); save_everystep = false, save_end = true, save_start = false) 
-
-	return sum(abs2, sol.u[1] - x̄)
-end
-
 # Example call with original values
 begin
 	firm = Firm()
     signal = Signal()
+	government = Government()
 	ε = 1e-3
 end;
 
-δs = [1e-5]
 
 cs = Float64[]
 for (i, δ) in enumerate(δs)

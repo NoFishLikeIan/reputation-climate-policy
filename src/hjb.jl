@@ -22,7 +22,7 @@ function F(x, model, φ)
 	u, z = x
 
 	du = government.r * z
-	dz = z + 2κ²(φ, z, model) * (u - wᵒ(φ, z, model))
+	dz = z + 2κ²(φ, z, model) * (wᵒ(φ, z, model) - u)
 
 	return SVector{2}(du, dz) / (φ * (1 - φ))
 end

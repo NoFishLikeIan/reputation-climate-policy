@@ -1,33 +1,35 @@
-function committedtax(government::Government, firm::Firm)
-	@unpack ξ, y₀, δ = government
-	@unpack ν, e₀ = firm
-
-	β = e₀^2 / ν
-
-	return (y₀ * ξ * e₀ * β) / (y₀ * ξ * β^2 + β + δ)
-end
-
-"Optimal tax ratio `η`, such that `τ = η(φ, z) τᶜ`"
-function η(φ, z, signal::Signal, government::Government, firm::Firm)
-	@unpack α, ϵ, σ = signal
-	@unpack δ = government
-	@unpack ν, e₀ = firm
-
-	β = α * e₀ / ν
-	δfc = ifelse(δ > 0, δ * (σ / ϵ)^2 / z, zero(φ))
-
-	return (1 + β * φ) / (2 + δfc - β * (1 - φ))
+function abatement(τ, firm::F) where F <: AbstractFirm
+	(firm.e₀ / firm.ν) * τ
 end;
 
-function abatementbestresponse(τ, φ, government::Government, firm::Firm)
-	τᶜ = committedtax(government, firm)
-	return firm.e₀ * (φ * τᶜ + (1 - φ) * τ) / firm.ν
-end
+function wᶜ(τ, government, firm)
+	w(τ, abatement(τ, firm), government, firm)
+end;
 
-function wᵒ(φ, z, signal::Signal, government::Government, firm::Firm)
-	τᶜ = committedtax(government, firm)
-	τ = η(φ, z, signal, government, firm) * τᶜ
-	a = abatementbestresponse(τ, φ, government, firm)
+function optimaltax(a, z, signal::Signal, firm::EnergyFirm)
+	@unpack α, ϵ, σ = signal
+	@unpack δ = firm
 
-	return w(τ, a, government, firm)
+	s = (ϵ / σ)^2
+	
+	num = τᶜ + α * a
+	den = 2 + e(a, firm)^2 / (2δ * s * z)
+	
+	return num / den
+end;
+
+function optimaltax(a, signal::Signal, firm::InelasticEnergyFirm)
+	@unpack α, ϵ, σ = signal
+	
+	return (τᶜ + α * a) / 2
+end;
+
+function equilibriumcondition(τ, z, φ, signal::Signal, firm::F) where F <: AbstractFirm
+	τᵉ = φ * τᶜ + (1 - φ) * τ
+	a = abatement(τᵉ, firm)
+	return optimaltax(a, z, signal, firm) - τ
+end;
+
+function equilibriumtax(z, φ, signal::Signal, firm::EnergyFirm; atol = 1e-5, τbounds = (zero(z), 1.5one(z)))
+	find_zero(τ -> equilibriumcondition(τ, z, φ, signal, firm), τbounds; atol)
 end
