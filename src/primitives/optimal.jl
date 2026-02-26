@@ -18,7 +18,7 @@ function optimaltax(a, z, signal::Signal, firm::EnergyFirm)
 	return num / den
 end;
 
-function optimaltax(a, signal::Signal, firm::InelasticEnergyFirm)
+function optimaltax(a, signal::Signal, ::InelasticEnergyFirm)
 	@unpack α, ϵ, σ = signal
 	
 	return (τᶜ + α * a) / 2
