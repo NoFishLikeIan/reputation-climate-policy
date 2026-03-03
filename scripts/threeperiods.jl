@@ -61,6 +61,8 @@ for jdx in CartesianIndices(S₂.welfare)
         
     res = Optim.optimize(obj, controlgrid.domains[2]...)
 
+    S₂ᵒ = Optim.minimum(res) # FIXME
+
     S₂.welfare[jdx] = Optim.minimum(res)
     S₂.tax[jdx] = Optim.minimizer(res)
 end
@@ -78,8 +80,9 @@ for idx in CartesianIndices(V₁.value)
     
     obj = @closure φ -> begin
         a₂ = f(φ, a₁, firm)
-        # FIXME: This assumes constant beliefs
-        Vᵉ = p₁ * V₂itp(a₂, p₁, τ₃itp(a₁, p₁)) + (1 - p₁) * V₂itp(a₂, p₁, τᶜ)
+        # p₂ -> (τ₃itp(a₂, p₂) ≈ τᶜ ? p₁ : 0) - p₂
+
+        Vᵉ = (1 - p₁) * V₂itp(a₂, p₁, τ₃itp(a₁, p₁)) + p₁ * V₂itp(a₂, p₁, τᶜ)
         return c(φ, firm) - firm.β * a₂ * τ₂ + firm.β * Vᵉ
     end
     
@@ -147,6 +150,7 @@ for jdx in CartesianIndices(S₀.welfare)
     p₀ = stategrid.ranges[2][jdx[2]]
     a₀ = stategrid.ranges[1][jdx[1]]
 
+    # FIXME: Move to a two stage problem for obj(τᶜ) < obj(τ)
     obj = @closure τ₂ -> begin
         φ₁ = φ₁itp(a₀, p₀, τ₂)
         a₁ = f(φ₁, a₀, firm)

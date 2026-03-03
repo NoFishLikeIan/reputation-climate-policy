@@ -22,6 +22,7 @@ function interpolate(V::TV, xs::TX, space::TR) where {X, S, TV <: AbstractVector
     map(x -> interpolate(V, x, space), xs)
 end
 
+"Interpolate matrix `V` at `point` assuming `spaces` ranges."
 function interpolate(V::TV, point, spaces::TR) where {S, X, Y, TV <: AbstractMatrix{S}, TR <: Tuple{AbstractVector{X}, AbstractVector{Y}}}
     x, y = point
     xspace, yspace = spaces
@@ -46,14 +47,35 @@ function interpolate(V::TV, point, spaces::TR) where {S, X, Y, TV <: AbstractMat
     return f₀ * (1 - ω) + f₁ * ω
 end
 
+"Interpolate 3D array `V` at `point` assuming `spaces` ranges."
+function interpolate(V::TV, point, spaces::TR) where {S, X, Y, Z, TV <: AbstractArray{S, 3}, TR <: Tuple{AbstractVector{X}, AbstractVector{Y}, AbstractVector{Z}}}
+    x, y, z = point
+    xspace, yspace, zspace = spaces
+    
+    # Clamp in z to edge slices if outside
+    if z ≤ zspace[1]
+        edge = @view V[:, :, 1]
+        return interpolate(edge, (x, y), (xspace, yspace))
+    elseif z ≥ zspace[end]
+        edge = @view V[:, :, end]
+        return interpolate(edge, (x, y), (xspace, yspace))
+    end
+
+    # Trilinear interpolation inside
+    k = searchsortedfirst(zspace, z) - 1
+    z₀ = zspace[k]
+    z₁ = zspace[k + 1]
+    lower = @view V[:, :, k]
+    upper = @view V[:, :, k + 1]
+    f₀ = interpolate(lower, (x, y), (xspace, yspace))
+    f₁ = interpolate(upper, (x, y), (xspace, yspace))
+    ω = (z - z₀) / (z₁ - z₀)
+    return f₀ * (1 - ω) + f₁ * ω
+end
+
 mutable struct Error{S <: Real}
     relative::S
     absolute::S
-end
-
-struct FirmValue{S <: Real}
-    V::Matrix{S}
-    Φ::Matrix{S}
 end
 
 # Error utilities
