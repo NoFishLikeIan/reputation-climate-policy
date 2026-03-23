@@ -50,7 +50,7 @@ function firmstep!(Vⁿ⁺¹, Vⁿ, Sⁿ, A, T, firm::Firm; ρ = 0.5)
         costs, φ = optimalinvestment(τ, a, Vⁿ, Sⁿ, A, T, firm)
 
         Vⁿ⁺¹.value[i, j]  = ρ * costs + (1 - ρ) * Vⁿ.value[i, j]
-        Vⁿ⁺¹.policy[i, j] = ρ * φ     + (1 - ρ) * Vⁿ.policy[i, j]
+        Vⁿ⁺¹.policy[i, j] = φ
     end
 end
 
@@ -62,7 +62,7 @@ function governmentstep!(Sⁿ⁺¹, Sⁿ, Vⁿ, A, T, firm::Firm, government::Go
         welfare, τ = optimaltax(a, Sⁿ⁺¹, Vⁿ, A, T, firm, government)
 
         Sⁿ⁺¹.value[i]  = ρ * welfare + (1 - ρ) * Sⁿ.value[i]
-        Sⁿ⁺¹.policy[i] = ρ * τ       + (1 - ρ) * Sⁿ.policy[i]
+        Sⁿ⁺¹.policy[i] = τ
     end
 end
 
