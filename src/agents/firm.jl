@@ -16,11 +16,8 @@ end
 function f(φ, a, firm::Firm)
 	(1 - firm.δ) * a + φ
 end
-function fᵩ(φ, a, firm::Firm)
+function fᵩ(φ, _, _::Firm)
 	one(φ)
-end
-function fᵩ(φ, a, firm::Firm)
-	(1 - firm.δ)
 end
 
 function e(a, firm::Firm)

@@ -72,36 +72,3 @@ function interpolate(V::TV, point, spaces::TR) where {S, X, Y, Z, TV <: Abstract
     ω = (z - z₀) / (z₁ - z₀)
     return f₀ * (1 - ω) + f₁ * ω
 end
-
-mutable struct Error{S <: Real}
-    relative::S
-    absolute::S
-end
-
-# Error utilities
-function zero!(error::Error{S}) where S
-    error.absolute = zero(S)
-    error.relative = zero(S)
-    return error
-end
-function typemax!(error)
-    error.absolute = typemax(S)
-    error.relative = typemax(S)
-    return error
-end
-
-function Base.isless(error::Error{S}, tolerance::Error{S}) where S
-    (error.absolute < tolerance.absolute) && (error.relative < tolerance.relative)
-end
-
-function errorupdate!(error::Error{S}, x::S, y::S) where S
-    a = abs(x - y)
-    if a > error.absolute error.absolute = a end
-    
-    r = abs(x / y) - 1
-    if r > error.relative error.relative = r end
-end
-
-function Base.show(io::IO, error::Error{S}) where S
-    Printf.@printf io "Error(abs=%.2e, rel=%.2e)" error.absolute error.relative
-end
