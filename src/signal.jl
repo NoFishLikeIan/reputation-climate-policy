@@ -1,10 +1,10 @@
-Base.@kwdef struct Signal{T}
-    μ::T = 1.0
-    σ::T = 1.0
+struct Signal{T, H <: NTuple{2, AbstractVector{T}}}
+    μ::T
+    σ::T
+    space::H
 end
 
 "Computes the logit-drift "
 function logitdrift(s, τ, τᶜ, signal::Signal)
-    δτ = s - (τ + τᶜ) / 2
-    return δτ * (τ - τᶜ) / signal.σ^2
+    (signal.μ * (τᶜ - τ) / signal.σ^2) * (s - signal.μ * (τ + τᶜ) / 2)
 end

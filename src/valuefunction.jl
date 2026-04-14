@@ -3,16 +3,25 @@ struct ValueFunction{N, T, TV <: AbstractArray{T, N}, TP <: AbstractArray{T, N}}
     P::TP
 end
 
-function ValueFunction(grid::G) where {N, T, G <: AbstractGrid{N, T}}
-    ValueFunction(
-        Array{T, N}(undef, size(grid)),
-        Array{T, N}(undef, size(grid))
-    )
+function ValueFunction(N, T, dims)
+    V = Array{T, N}(undef, dims)
+    P = similar(V)
+    return ValueFunction(V, P)
 end
 
-function ValueFunction(grid::G, init::NTuple{2, T}) where {N, T, G <: AbstractGrid{N, T}}
-    ValueFunction(
-        ones(size(grid)) * init[1],
-        ones(size(grid)) * init[2]
-    )
+function ValueFunction(grid::G) where {N, T, G <: AbstractGrid{N, T}}
+    ValueFunction(N, T, size(grid))
+end
+
+function ValueFunction(grid::G, signal::Signal) where {N, T, G <: AbstractGrid{N, T}}
+    ValueFunction(N + 1, T, (size(grid)..., length(signal.space[1])))
+end
+
+function Base.copy(valuefunction::V) where V <: ValueFunction
+    V(copy(valuefunction.V), copy(valuefunction.P))
+end
+
+function Base.copyto!(tovalue::V, fromvalue::V) where V <: ValueFunction
+    copyto!(tovalue.V, fromvalue.V)
+    copyto!(tovalue.P, fromvalue.P)
 end
