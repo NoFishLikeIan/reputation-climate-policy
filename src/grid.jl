@@ -18,6 +18,14 @@ function Base.axes(grid::G) where G <: AbstractGrid
     ntuple(dim -> axes(grid, dim), ndims(grid))
 end
 
+function Base.CartesianIndices(grid::G) where G <: AbstractGrid
+    CartesianIndices(axes(grid))
+end
+
+function Base.eachindex(grid::G) where G <: AbstractGrid
+    eachindex(CartesianIndices(grid))
+end
+
 function bounds(grid::G, dim) where G <: AbstractGrid
     extrema(getindex(grid.nodes, dim))
 end
