@@ -1,5 +1,7 @@
 ## Modules
 using Revise
+using UnPack
+using Plots
 
 using FastInterpolations
 using FastGaussQuadrature
@@ -9,47 +11,44 @@ using Optim
 
 using Printf
 
+default(label = false, dpi = 180)
+
 ## Imports
 includet("../src/constants.jl")
+includet("../src/signal.jl")
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
-includet("../src/signal.jl")
 
 includet("../src/grid.jl")
 includet("../src/valuefunction.jl")
+includet("../src/boundary.jl")
 includet("../src/pfi.jl")
 
 ## Setup
-ns = (20, 31, 15)
-zmax = 10.0
-abatementspace = range(0, 10, ns[1])
-logitspace = collect(range(-zmax, zmax, length = ns[2]))
+a₀ = 0.5
+τᶜ = optimize(τᶜ -> w̄(a, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
+ns = (101, 31, 15)
+abatementspace = range(0, 1.25blissabatement(τᶜ, firm, signal), ns[1])
+logitspace, _ = gausshermite(ns[2])
 stategrid = Grid((abatementspace, logitspace))
 
 firm = Firm()
 government = Government()
 signal = Signal(1., 1., gausshermite(ns[3]))
 
-τᶜ = 0.25
 
 ## Value Function
-welfare = ValueFunction(stategrid)
-firmvalue = ValueFunction(stategrid, signal)
+firmvalue = ValueFunction(stategrid, signal); firmvalue.V .= 0.
+welfare = ValueFunction(stategrid); welfare.V .= d(e(0., firm), government) / (1 - government.β)
 
-welfare.V .= 1.
-for (j, z) in enumerate(logitspace)
-	welfare.V[:, j] .+= 1e-3 * z
-	welfare.P[:, j] .= max.(zero(eltype(welfare.P)), τᶜ .+ 1e-3 * z)
+for (i, a) in enumerate(abatementspace)
+	firmvalue.V[i, 1, :] .= 0.
+	welfare.V[i, 1] = d(e(0., firm), government) / (1 - government.β)
+
+	firmvalue.V[i, end, :] .= v̄(a, τᶜ, firm, signal)
+	welfare.V[i, end] = w̄(a, τᶜ, firm, government, signal) 
 end
 
-signalspace, _ = signal.space
-for (j, z) in enumerate(logitspace)
-	for (k, ξ) in enumerate(signalspace)
-		s = signal.μ * τᶜ + sqrt2 * signal.σ * ξ
-		firmvalue.V[:, j, k] .= 1 .- 1e-2 .* abatementspace .* s .+ 1e-3 * z
-		firmvalue.P[:, j, k] .= max.(zero(eltype(firmvalue.P)), 1e-2 .+ 5e-4 * z .+ 5e-4 * ξ)
-	end
-end
 
 ## Iteration
 innerparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3)

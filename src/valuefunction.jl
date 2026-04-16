@@ -9,6 +9,10 @@ function ValueFunction(N, T, dims)
     return ValueFunction(V, P)
 end
 
+function ValueFunction(grid::V) where {T, V <: AbstractVector{T}}
+    ValueFunction(1, T, (length(grid), ))
+end
+
 function ValueFunction(grid::G) where {N, T, G <: AbstractGrid{N, T}}
     ValueFunction(N, T, size(grid))
 end

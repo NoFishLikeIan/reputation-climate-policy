@@ -5,6 +5,6 @@ Base.@kwdef struct Government{T}
 end
 
 # Climate damages
-function d(e, gov::Government)
-	(gov.ξ / 2) * e^2
+function d(e, government::Government)
+	(government.ξ / 2) * e^2
 end;

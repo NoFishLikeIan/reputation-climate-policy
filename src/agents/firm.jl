@@ -23,3 +23,10 @@ end
 function e(a, firm::Firm)
 	firm.e₀ - a
 end
+
+function blissabatement(τᶜ, firm::Firm, signal::Signal)
+	@unpack κ, ν, δ = firm
+	@unpack μ = signal
+
+	return (τᶜ * μ - κ * δ) / (ν * δ^2)
+end
