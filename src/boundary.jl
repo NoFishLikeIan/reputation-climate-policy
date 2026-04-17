@@ -51,7 +51,10 @@ function τ̲(a, ::Firm, ::Government)
 end
 
 function w̲(a, firm::Firm, government::Government)
-    return d(e(zero(a), firm), government) / (1 - government.β)
+    @unpack e₀, δ = firm
+    @unpack β, ξ = government
+
+    return (ξ / 2) * (e₀^2 / (1 - β) - 2 * e₀ * a / (1 - β * (1 - δ)) + a^2 / (1 - β * (1 - δ)^2))
 end
 
 function v̄₁(τᶜ, firm::Firm, signal::Signal)
@@ -110,5 +113,4 @@ end
 
 function w̄(a, τᶜ, firm::Firm, government::Government, signal::Signal)
     w̄₀(τᶜ, firm, government, signal) + w̄₁(τᶜ, firm, government, signal) * a + w̄₂(firm, government) * a^2 / 2
-
 end
