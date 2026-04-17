@@ -21,11 +21,19 @@ function ValueFunction(grid::G, signal::Signal) where {N, T, G <: AbstractGrid{N
     ValueFunction(N + 1, T, (size(grid)..., length(signal.space[1])))
 end
 
-function Base.copy(valuefunction::V) where V <: ValueFunction
-    V(copy(valuefunction.V), copy(valuefunction.P))
+function Base.similar(valuefunction::V) where V <: ValueFunction
+    V(similar(valuefunction.V), similar(valuefunction.P))
 end
 
 function Base.copyto!(tovalue::V, fromvalue::V) where V <: ValueFunction
     copyto!(tovalue.V, fromvalue.V)
     copyto!(tovalue.P, fromvalue.P)
+end
+
+
+function Base.copy(valuefunction::V) where V <: ValueFunction
+    newvaluefunction = similar(valuefunction)
+    copyto!(newvaluefunction, valuefunction)
+    
+    return newvaluefunction
 end

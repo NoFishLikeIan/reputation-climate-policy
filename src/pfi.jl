@@ -20,11 +20,57 @@ function expectedfirmvalue(valuefunction::TV, a′, z′, τ′, τᶜ, signal::
     return EV / sqrtπ
 end
 
-function firmstep!(nextfirmvalue::TV, firmvalue::TV, welfare::TW, τᶜ::Real, signal::Signal, grid::G, firm::Firm; φmax = one(T)) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    signalspace, _ = signal.space
+function setfirmboundaries!(firmvalue::TV, τᶜ, grid::G, firm::Firm, signal::Signal) where {T, TV <: ValueFunction{3, T}, G <: Grid{2}}
+    abatementspace, _ = grid.nodes
+
+    @inbounds for (i, a) in enumerate(abatementspace)
+        firmvalue.V[i, 1, :] .= v̲(a, firm, signal)
+        firmvalue.P[i, 1, :] .= φ̲(a, firm, signal)
+        firmvalue.V[i, end, :] .= v̄(a, τᶜ, firm, signal)
+        firmvalue.P[i, end, :] .= φ̄(τᶜ, firm, signal)
+    end
+
+    return firmvalue
+end
+
+function setgovernmentboundaries!(welfare::TW, τᶜ, grid::G, firm::Firm, government::Government, signal::Signal) where {T, TW <: ValueFunction{2, T}, G <: Grid{2}}
+    abatementspace = grid.nodes[1]
+
+    @inbounds for (i, a) in enumerate(abatementspace)
+        welfare.V[i, 1] = w̲(a, firm, government)
+        welfare.P[i, 1] = τ̲(a, firm, government)
+        welfare.V[i, end] = w̄(a, τᶜ, firm, government, signal)
+        welfare.P[i, end] = τ̄(τᶜ, firm, government)
+    end
+
+    return welfare
+end
+
+function logitinteriorindices(grid::G) where G <: Grid{2} 
+    abatementspace, logitspace = grid.nodes
+    interiorlogit = (firstindex(logitspace) + 1):(lastindex(logitspace) - 1)
+
+    nodes = (axes(abatementspace, 1), interiorlogit)
+    
+    return CartesianIndices(nodes)
+end
+
+function logitinteriorindices(grid::G, signal::Signal) where G <: Grid{2} 
+    signalspace = signal.space[1]
+    abatementspace, logitspace = grid.nodes
+    interiorlogit = (firstindex(logitspace) + 1):(lastindex(logitspace) - 1)
+
+    nodes = (axes(abatementspace, 1), interiorlogit, axes(signalspace, 1))
+    
+    return CartesianIndices(nodes)
+end
+
+function firmstep!(nextfirmvalue::TV, firmvalue::TV, welfare::TW, τᶜ, grid::G, firm::Firm, signal::Signal; φmax = one(T)) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+    signalspace = signal.space[1]
     abatementspace, logitspace = grid.nodes
     Θ = linear_interp(grid.nodes, welfare.P; extrap = ConstExtrap())
-    indices = CartesianIndices((axes(grid, 1), axes(grid, 2), axes(signalspace, 1)))
+
+    indices = logitinteriorindices(grid, signal)
 
     @inbounds Threads.@threads for idx in indices
         i, j, k = idx.I
@@ -50,11 +96,11 @@ function firmstep!(nextfirmvalue::TV, firmvalue::TV, welfare::TW, τᶜ::Real, s
     return nextfirmvalue
 end
 
-function solvefirm!(firmvalue::TV, welfare::TW, τᶜ::Real, signal::Signal, grid::G, firm::Firm; maxiter = 500, valtol = 1e-8, poltol = 1e-4, verbose = 0, iterkwargs...) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+function solvefirm!(firmvalue::TV, welfare::TW, τᶜ, grid::G, firm::Firm, signal::Signal; maxiter = 500, valtol = 1e-8, poltol = 1e-4, verbose = 0, iterkwargs...) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
     nextfirmvalue = copy(firmvalue)
 
     for iter in 1:maxiter
-        firmstep!(nextfirmvalue, firmvalue, welfare, τᶜ, signal, grid, firm; iterkwargs...)
+        firmstep!(nextfirmvalue, firmvalue, welfare, τᶜ, grid, firm, signal; iterkwargs...)
         
         εᵥ = maximum(abs, nextfirmvalue.V .- firmvalue.V)
         εₚ = maximum(abs, nextfirmvalue.P .- firmvalue.P)
@@ -77,14 +123,16 @@ function solvefirm!(firmvalue::TV, welfare::TW, τᶜ::Real, signal::Signal, gri
     return maxiter, firmvalue
 end
 
-function governmentstep!(nextwelfare::TW, welfare::TW, firmvalue::TV, τᶜ, signal::Signal, grid::G, firm::Firm, government::Government; τmax = 100.0) where {T, TW <: ValueFunction{2, T}, TV <: ValueFunction{3, T}, G <: Grid{2}}
+function governmentstep!(nextwelfare::TW, welfare::TW, firmvalue::TV, τᶜ, grid::G, firm::Firm, government::Government, signal::Signal; τmax = 100.0) where {T, TW <: ValueFunction{2, T}, TV <: ValueFunction{3, T}, G <: Grid{2}}
     signalspace, signalweights = signal.space
     abatementspace, logitspace = grid.nodes
 
     W = linear_interp(grid.nodes, welfare.V; extrap = ConstExtrap())
     Φ = linear_interp((abatementspace, logitspace, signalspace), firmvalue.P; extrap = ConstExtrap())
+    
+    indices = logitinteriorindices(grid)
 
-    @inbounds Threads.@threads for idx in CartesianIndices(grid)
+    @inbounds Threads.@threads for idx in indices
         i, j = idx.I
         a = abatementspace[i]
         z = logitspace[j]
@@ -114,10 +162,10 @@ function governmentstep!(nextwelfare::TW, welfare::TW, firmvalue::TV, τᶜ, sig
 end
 
 function solvegovernment!(welfare::TW, firmvalue::TV, τᶜ, signal::Signal, grid::G, firm::Firm, government::Government; maxiter = 500, valtol = 1e-8, poltol = 1e-4, verbose = 0, iterkwargs...) where {T, TW <: ValueFunction{2, T}, TV <: ValueFunction{3, T}, G <: Grid{2}}
-    nextwelfare = copy(welfare)
 
+    nextwelfare = copy(welfare)
     for iter in 1:maxiter
-        governmentstep!(nextwelfare, welfare, firmvalue, τᶜ, signal, grid, firm, government; iterkwargs...)
+        governmentstep!(nextwelfare, welfare, firmvalue, τᶜ, grid, firm, government, signal; iterkwargs...)
 
         εᵥ = maximum(abs, nextwelfare.V .- welfare.V)
         εₚ = maximum(abs, nextwelfare.P .- welfare.P)
@@ -140,14 +188,17 @@ function solvegovernment!(welfare::TW, firmvalue::TV, τᶜ, signal::Signal, gri
     return maxiter, welfare
 end
 
-function nestedpfi!(firmvalue::TV, welfare::TW, τᶜ::Real, signal::Signal, grid::G, firm::Firm, gov::Government; maxiter = 100, valtol = 1e-8, poltol = 1e-4, verbose = 0, firmparams = Dict{Symbol, T}(), welfareparams = Dict{Symbol, T}()) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    oldwelfare = copy(welfare)
-
+function nestedpfi!(firmvalue::TV, welfare::TW, τᶜ, grid::G, firm::Firm, government::Government, signal::Signal; maxiter = 100, valtol = 1e-8, poltol = 1e-4, verbose = 0, firmparams = Dict{Symbol, T}(), welfareparams = Dict{Symbol, T}()) where {T, TV <: ValueFunction{3, T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+    
+    setfirmboundaries!(firmvalue, τᶜ, stategrid, firm, signal)
+    setgovernmentboundaries!(welfare, τᶜ, stategrid, firm, government, signal)
+    
+    oldwelfare = similar(welfare)
     for iter in 1:maxiter
         copyto!(oldwelfare, welfare)
 
         firmiter, _ = solvefirm!(firmvalue, welfare, τᶜ, signal, grid, firm; verbose, firmparams...)
-        goviter, _ = solvegovernment!(welfare, firmvalue, τᶜ, signal, grid, firm, gov; verbose, welfareparams...)
+        goviter, _ = solvegovernment!(welfare, firmvalue, τᶜ, signal, grid, firm, government; verbose, welfareparams...)
 
         εᵥ = maximum(abs, oldwelfare.V .- welfare.V)
         εₚ = maximum(abs, oldwelfare.P .- welfare.P)

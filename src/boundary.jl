@@ -38,6 +38,22 @@ function boundarypfi!(firmboundary::TV, τᶜ, abatementspace, firm::Firm, signa
     return maxiter, firmboundary
 end
 
+function v̲(a, ::Firm, ::Signal)
+    return zero(a)
+end
+
+function φ̲(a, ::Firm, ::Signal)
+    return zero(a)
+end
+
+function τ̲(a, ::Firm, ::Government)
+    return zero(a)
+end
+
+function w̲(a, firm::Firm, government::Government)
+    return d(e(zero(a), firm), government) / (1 - government.β)
+end
+
 function v̄₁(τᶜ, firm::Firm, signal::Signal)
     @unpack β, δ = firm
     @unpack μ = signal
@@ -61,6 +77,10 @@ function φ̄(τᶜ, firm::Firm, signal::Signal)
     @unpack μ = signal
 
     return max((β * (v̄₁(τᶜ, firm, signal) + μ * τᶜ) - κ) / ν, zero(τᶜ))
+end
+
+function τ̄(τᶜ, ::Firm, ::Government)
+    return τᶜ
 end
 
 function w̄₂(firm::Firm, government::Government)

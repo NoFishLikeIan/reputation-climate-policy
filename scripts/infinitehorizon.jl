@@ -25,30 +25,23 @@ includet("../src/boundary.jl")
 includet("../src/pfi.jl")
 
 ## Setup
+firm = Firm()
+government = Government()
+
+ns = (51, 31, 15)
+signal = Signal(1., 1., gausshermite(ns[3]))
+
 a₀ = 0.5
-τᶜ = optimize(τᶜ -> w̄(a, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
-ns = (101, 31, 15)
+τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
 abatementspace = range(0, 1.25blissabatement(τᶜ, firm, signal), ns[1])
 logitspace, _ = gausshermite(ns[2])
 stategrid = Grid((abatementspace, logitspace))
 
-firm = Firm()
-government = Government()
-signal = Signal(1., 1., gausshermite(ns[3]))
-
-
 ## Value Function
 firmvalue = ValueFunction(stategrid, signal); firmvalue.V .= 0.
+firmvalue.P .= φ̄(τᶜ, firm, signal)
 welfare = ValueFunction(stategrid); welfare.V .= d(e(0., firm), government) / (1 - government.β)
-
-for (i, a) in enumerate(abatementspace)
-	firmvalue.V[i, 1, :] .= 0.
-	welfare.V[i, 1] = d(e(0., firm), government) / (1 - government.β)
-
-	firmvalue.V[i, end, :] .= v̄(a, τᶜ, firm, signal)
-	welfare.V[i, end] = w̄(a, τᶜ, firm, government, signal) 
-end
-
+welfare.P .= τ̄(τᶜ, firm, government)
 
 ## Iteration
 innerparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3)
