@@ -42,6 +42,10 @@ function v̲(a, q, firm::Firm)
     return e(a, firm) * q
 end
 
+function ψ̲(a, ::Firm, ::Signal)
+    return zero(a)
+end
+
 function φ̲(a, q, ::Firm, ::Signal)
     zero(a)
 end
@@ -84,6 +88,10 @@ end
 
 function v̄(a, q, τᶜ, firm::Firm, signal::Signal)
     v̄₀(τᶜ, firm, signal) + e(a, firm) * q - v̄₁(τᶜ, firm, signal) * a
+end
+
+function ψ̄(a, τᶜ, firm::Firm, signal::Signal)
+    v̄₀(τᶜ, firm, signal) + signal.μ * τᶜ * e(a, firm) - v̄₁(τᶜ, firm, signal) * a
 end
 
 function τ̄(τᶜ, ::Firm, ::Government)

@@ -28,8 +28,8 @@ includet("../src/pfi.jl")
 firm = Firm()
 government = Government()
 
-ns = (21, 21, 21)
-signal = Signal(1., 0.01, gausshermite(ns[3]))
+ns = (51, 31, 31)
+signal = Signal(1., 1e-3, gausshermite(ns[3]))
 
 a₀ = 0.
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
@@ -37,14 +37,16 @@ abatementspace = range(0, 1.25blissabatement(τᶜ, firm, signal), ns[1])
 logitspace = gausshermite(ns[2])[1] .* 5
 grid = Grid((abatementspace, logitspace))
 firmparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3)
-welfareparams = Dict(:maxiter => 5_000, :valtol => 1e-5, :poltol => 1e-3, :τmax => 100., :τgridpoints => 201)
+welfareparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3, :τmax => 2., :τgridpoints => 201)
 qspace = pricespace(signal, 0., max(τᶜ, welfareparams[:τmax]), ns[3])
 
 ## Value Function
 ### Initialise firm
-firmvalue = ValueFunction(grid, qspace)
-firmvalue.V .= 0.
-firmvalue.P .= φ̄(τᶜ, firm, signal)
+firmvalue = FirmValue(grid, qspace)
+firmvalue.continuation.V .= 0.
+firmvalue.continuation.P .= φ̄(τᶜ, firm, signal)
+firmvalue.expost.V .= 0.
+firmvalue.expost.P .= φ̄(τᶜ, firm, signal)
 
 ### Initialise welfare
 welfare = ValueFunction(grid)

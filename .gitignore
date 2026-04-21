@@ -359,3 +359,4 @@ papers
 figures
 data
 *.code-workspace
+.juliaup/juliaup/.juliaup-lock
