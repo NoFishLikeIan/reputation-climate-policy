@@ -4,24 +4,24 @@ struct Signal{T, H <: NTuple{2, AbstractVector{T}}}
     space::H
 end
 
-@inline function signalprice(ξ, τ, signal::Signal)
-    signal.μ * τ + √2 * signal.σ * ξ
+function Signal(μ, σ, n::Int)
+    space, weights = gausshermite(n)
+    unitaryweights = weights ./ √π
+
+    return Signal(μ, σ, (space, unitaryweights))
 end
 
-function pricespace(signal::Signal, τmin, τmax, n = length(signal.space[1]))
-    ξmin, ξmax = extrema(signal.space[1])
-    corners = (
-        signalprice(ξmin, τmin, signal),
-        signalprice(ξmin, τmax, signal),
-        signalprice(ξmax, τmin, signal),
-        signalprice(ξmax, τmax, signal),
-    )
+const sqrt2 = √2
 
-    qmin, qmax = extrema(corners)
-    collect(range(qmin, qmax, n))
+@inline function realisedprice(ξ, τ, signal::Signal)
+    signal.μ * τ + sqrt2 * signal.σ * ξ
 end
 
-"Computes the logit-drift "
-function logitdrift(s, τ, τᶜ, signal::Signal)
-    (signal.μ * (τᶜ - τ) / signal.σ^2) * (s - signal.μ * (τ + τᶜ) / 2)
+@inline function impliedsignal(q, τ, signal::Signal)
+    (q - signal.μ * τ) / (sqrt2 * signal.σ)
 end
+
+@inline function ℓ(q, τ, τᶜ, signal::Signal)
+    (signal.μ * (τᶜ - τ) / signal.σ^2) * (q - signal.μ * (τ + τᶜ) / 2)
+end
+

@@ -42,10 +42,6 @@ function v̲(a, q, firm::Firm)
     return e(a, firm) * q
 end
 
-function ψ̲(a, ::Firm, ::Signal)
-    return zero(a)
-end
-
 function φ̲(a, q, ::Firm, ::Signal)
     zero(a)
 end
