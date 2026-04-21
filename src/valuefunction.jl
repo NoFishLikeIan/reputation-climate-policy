@@ -17,8 +17,8 @@ function ValueFunction(grid::G) where {N, T, G <: AbstractGrid{N, T}}
     ValueFunction(N, T, size(grid))
 end
 
-function ValueFunction(grid::G, signal::Signal) where {N, T, G <: AbstractGrid{N, T}}
-    ValueFunction(N + 1, T, (size(grid)..., length(signal.space[1])))
+function ValueFunction(grid::G, space::V) where {N, T, G <: AbstractGrid{N, T}, V <: AbstractVector{T}}
+    ValueFunction(N + 1, T, (size(grid)..., length(space)))
 end
 
 function Base.similar(valuefunction::V) where V <: ValueFunction

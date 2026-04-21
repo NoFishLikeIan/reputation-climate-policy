@@ -38,12 +38,12 @@ function boundarypfi!(firmboundary::TV, τᶜ, abatementspace, firm::Firm, signa
     return maxiter, firmboundary
 end
 
-function v̲(a, ::Firm, ::Signal)
-    return zero(a)
+function v̲(a, q, firm::Firm)
+    return e(a, firm) * q
 end
 
-function φ̲(a, ::Firm, ::Signal)
-    return zero(a)
+function φ̲(a, q, ::Firm, ::Signal)
+    zero(a)
 end
 
 function τ̲(a, ::Firm, ::Government)
@@ -61,25 +61,29 @@ function v̄₁(τᶜ, firm::Firm, signal::Signal)
     @unpack β, δ = firm
     @unpack μ = signal
 
-    return β * (1 - δ) * μ * τᶜ / (1 - β * (1 - δ))
+    return (β * (1 - δ) * μ * τᶜ) / (1 - β * (1 - δ))
 end
 
-function v̄₀(τᶜ, firm::Firm, signal::Signal)
-    @unpack κ, β, ν = firm
-    @unpack μ = signal
-
-    - (κ - β * (v̄₁(τᶜ, firm, signal) + μ * τᶜ))^2 / (2ν * (1 - β))
-end
-
-function v̄(a, τᶜ, firm::Firm, signal::Signal)
-    return v̄₀(τᶜ, firm, signal) - v̄₁(τᶜ, firm, signal) * a
+function v̄ᵉ(τᶜ, firm::Firm, signal::Signal)
+    v̄₁(τᶜ, firm, signal) + signal.μ * τᶜ
 end
 
 function φ̄(τᶜ, firm::Firm, signal::Signal)
     @unpack β, κ, ν = firm
-    @unpack μ = signal
 
-    return max((β * (v̄₁(τᶜ, firm, signal) + μ * τᶜ) - κ) / ν, zero(τᶜ))
+    return max((β * v̄ᵉ(τᶜ, firm, signal) - κ) / ν, 0)
+end
+
+function v̄₀(τᶜ, firm::Firm, signal::Signal)
+    @unpack β, e₀ = firm
+    @unpack μ = signal
+    φ = φ̄(τᶜ, firm, signal)
+
+    return (β * μ * τᶜ * e₀ + c(φ, firm) - β * v̄ᵉ(τᶜ, firm, signal) * φ) / (1 - β)
+end
+
+function v̄(a, q, τᶜ, firm::Firm, signal::Signal)
+    v̄₀(τᶜ, firm, signal) + e(a, firm) * q - v̄₁(τᶜ, firm, signal) * a
 end
 
 function τ̄(τᶜ, ::Firm, ::Government)

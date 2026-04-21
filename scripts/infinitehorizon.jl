@@ -1,7 +1,6 @@
 ## Modules
 using Revise
 using UnPack
-using Plots
 
 using FastInterpolations
 using FastGaussQuadrature
@@ -11,7 +10,8 @@ using Optim
 
 using Printf
 
-default(label = false, dpi = 180)
+using Plots, LaTeXStrings
+Plots.default(label = false, dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, linewidth = 2.5)
 
 ## Imports
 includet("../src/constants.jl")
@@ -28,22 +28,49 @@ includet("../src/pfi.jl")
 firm = Firm()
 government = Government()
 
-ns = (51, 31, 15)
-signal = Signal(1., 1., gausshermite(ns[3]))
+ns = (21, 21, 21)
+signal = Signal(1., 0.01, gausshermite(ns[3]))
 
-a₀ = 0.5
+a₀ = 0.
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
 abatementspace = range(0, 1.25blissabatement(τᶜ, firm, signal), ns[1])
-logitspace, _ = gausshermite(ns[2])
-stategrid = Grid((abatementspace, logitspace))
+logitspace = gausshermite(ns[2])[1] .* 5
+grid = Grid((abatementspace, logitspace))
+firmparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3)
+welfareparams = Dict(:maxiter => 5_000, :valtol => 1e-5, :poltol => 1e-3, :τmax => 100., :τgridpoints => 201)
+qspace = pricespace(signal, 0., max(τᶜ, welfareparams[:τmax]), ns[3])
 
 ## Value Function
-firmvalue = ValueFunction(stategrid, signal); firmvalue.V .= 0.
+### Initialise firm
+firmvalue = ValueFunction(grid, qspace)
+firmvalue.V .= 0.
 firmvalue.P .= φ̄(τᶜ, firm, signal)
-welfare = ValueFunction(stategrid); welfare.V .= d(e(0., firm), government) / (1 - government.β)
+
+### Initialise welfare
+welfare = ValueFunction(grid)
+for (i, a) in enumerate(abatementspace)
+	welfare.V[i, :] .= w̄(a, τᶜ, firm, government, signal)
+end
 welfare.P .= τ̄(τᶜ, firm, government)
 
-## Iteration
-innerparams = Dict(:maxiter => 100, :valtol => 1e-5, :poltol => 1e-3)
 
-nestedpfi!(firmvalue, welfare, τᶜ, signal, stategrid, firm, government; maxiter = 50, valtol = 1e-5, poltol = 1e-5, verbose = 2, firmparams = innerparams, welfareparams = innerparams)
+## Check boundaries
+if isinteractive()
+	wboundaryfig = plot(xlabel = L"Abatement $a$", ylabel = "Trillion of USD", title = "Welfare", ylims = (0, Inf), xlims = extrema(abatementspace))
+
+	plot!(wboundaryfig, abatementspace, a -> w̄(a, τᶜ, firm, government, signal), label = L"\bar{w}", title = "Firm costs", c = :darkgreen)
+	plot!(wboundaryfig, abatementspace, a -> w̲(a, firm, government), label = L"\underbar{w}", c = :darkred)
+
+	wboundaryfig
+end
+
+if isinteractive()
+	vboundaryfig = plot(xlabel = L"Abatement $a$", ylabel = L"Price $q$", ylims = (0, Inf), xlims = extrema(abatementspace), camera = (50, 50))
+
+	surface!(vboundaryfig, abatementspace, qspace, (a, q) -> v̄(a, q, τᶜ, firm, signal))
+
+	vboundaryfig
+end
+
+## Iteration
+nestedpfi!(firmvalue, welfare, τᶜ, grid, qspace, firm, government, signal; maxiter = 50, valtol = 1e-5, poltol = 1e-5, verbose = 2, firmparams = firmparams, welfareparams = welfareparams)
