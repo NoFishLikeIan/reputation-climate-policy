@@ -26,10 +26,10 @@ includet("../src/boundary.jl")
 includet("../src/pfi.jl")
 
 ## Setup
-firm = Firm(κ = 0.)
+firm = Firm()
 government = Government()
 
-ns = (51, 51, 51)
+ns = (51, 101, 101)
 signal = Signal(1., 0.2, ns[3])
 a₀ = 0.
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Brent()).minimizer
@@ -55,3 +55,8 @@ firmparams = Dict(:maxiter => 1_000, :valtol => 1e-3, :poltol => 1e-1)
 welfareparams = Dict(:maxiter => 1_000, :valtol => 1e-3, :poltol => 1e-1)
 
 nestedpfi!(firmvalue, welfare, τᶜ, grid, pricespace, firm, government, signal; maxiter = 50, valtol = 1e-4, poltol = 1e-4, verbose = 2, firmparams = firmparams, welfareparams = welfareparams)
+
+## Analyse
+function plotoverspace(V::TV; kwargs...) where TV <: AbstractMatrix
+    contourf(reputationspace, abatementspace, V; xlabel = L"Reputation $z$", ylabel = L"Abatement $a$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
+end
