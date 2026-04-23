@@ -47,3 +47,14 @@ end
 struct Grid{N, T, A <: NTuple{N, AbstractVector{T}}} <: AbstractGrid{N, T, A}
     nodes::A
 end
+
+function Grid(grid::G, space::V) where {N, T, G <: AbstractGrid{N, T}, V <: AbstractVector{T}}
+    Grid((grid.nodes..., space))
+end
+
+@inline function clampnode(x, grid::G, dim) where G <: AbstractGrid
+    clamp(x, first(grid.nodes[dim]), last(grid.nodes[dim]))
+end
+
+@inline zlower(grid::G) where G <: AbstractGrid = first(grid.nodes[2])
+@inline zupper(grid::G) where G <: AbstractGrid = last(grid.nodes[2])
