@@ -92,7 +92,7 @@ let
         ylims = (0, maximum(signal_density_low) * 1.05),
         yformatter = _ -> ""
     )
-    vline!(densityfig, [signal_low_mean_usd]; c = beliefscolors[:brown], linestyle = :dot, label = L"\tau")
+    vline!(densityfig, [signal_low_mean_usd]; c = beliefscolors[:brown], linestyle = :dot, label = L"\mu \tau")
 
     plot!(
         densityfig,
@@ -102,7 +102,7 @@ let
         label = L"f(q \mid \tau^c)",
     )
 
-    vline!(densityfig, [signal_commit_mean_usd]; c = beliefscolors[:green], linestyle = :dot, label = L"\tau^{c}")
+    vline!(densityfig, [signal_commit_mean_usd]; c = beliefscolors[:green], linestyle = :dot, label = L"\mu \tau^{c}")
 
     zfig = plot(
         signal_zspace,
