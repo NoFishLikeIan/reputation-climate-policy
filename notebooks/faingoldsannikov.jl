@@ -378,7 +378,7 @@ md"
 # ╔═╡ 860109da-f4c4-4247-8fe3-f6f7c1b8e331
 let
 	cmin = :black
-	cmax = :darkorange
+	cmax = beliefscolors[:green]
 
 	zmin = 0.
 	zmax = 10_000

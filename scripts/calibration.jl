@@ -173,7 +173,7 @@ end
 
 begin
     regions = ["EU", "NA", "China", "India"]
-    colors = [:darkblue, :darkgreen, :darkorange, :darkred]
+    colors = [:darkblue, :darkgreen, beliefscolors[:green], :darkred]
     nregions = length(regions)
     
     αs_all = [αs_eu, αs_na, αs_china, αs_india]
