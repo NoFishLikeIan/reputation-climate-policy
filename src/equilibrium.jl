@@ -1,61 +1,173 @@
 using NonlinearSolve
 using Printf
 
-"Stores the ranges used to pack the joint equilibrium objects into one optimisation vector."
-struct EquilibriumLayout{R <: AbstractRange{Int}}
-    Ψ::R
-    v::R
-    φ::R
-    w::R
-    τ::R
+"The joint equilibrium unknown, stored as named arrays but usable as a vector by solvers."
+struct EquilibriumState{
+    T,
+    TΨ <: AbstractMatrix{T},
+    TV <: AbstractArray{T, 3},
+    TΦ <: AbstractArray{T, 3},
+    TW <: AbstractMatrix{T},
+    TΘ <: AbstractMatrix{T},
+} <: AbstractVector{T}
+    continuation::TΨ
+    expost::TV
+    investment::TΦ
+    welfare::TW
+    taxes::TΘ
 end
 
-"Construct the packing layout associated with the current dimensions of `firmvalue` and `welfare`."
-function EquilibriumLayout(firmvalue::FV, welfare::TW) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}}
-    start = 1
-
-    nΨ = length(firmvalue.continuation.V)
-    Ψ = start:start + nΨ - 1
-    start = last(Ψ) + 1
-
-    nv = length(firmvalue.expost.V)
-    v = start:start + nv - 1
-    start = last(v) + 1
-
-    nφ = length(firmvalue.expost.P)
-    φ = start:start + nφ - 1
-    start = last(φ) + 1
-
-    nw = length(welfare.V)
-    w = start:start + nw - 1
-    start = last(w) + 1
-
-    nτ = length(welfare.P)
-    τ = start:start + nτ - 1
-
-    return EquilibriumLayout(Ψ, v, φ, w, τ)
+"Copy the current `firmvalue` and `welfare` into the structured nonlinear state."
+function EquilibriumState(firmvalue::FV, welfare::TW) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}}
+    return EquilibriumState(
+        copy(firmvalue.continuation.V),
+        copy(firmvalue.expost.V),
+        copy(firmvalue.expost.P),
+        copy(welfare.V),
+        copy(welfare.P),
+    )
 end
 
-Base.length(layout::EquilibriumLayout) = last(layout.τ)
+Base.IndexStyle(::Type{<:EquilibriumState}) = IndexLinear()
+Base.size(x::EquilibriumState) = (length(x),)
+Base.length(x::EquilibriumState) = length(x.continuation) + length(x.expost) + length(x.investment) + length(x.welfare) + length(x.taxes)
 
-"Pack `firmvalue` and `welfare` into the vector `x` using the ranges stored in `layout`."
-function packequilibrium!(x::AbstractVector, firmvalue::FV, welfare::TW, layout::EquilibriumLayout) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}}
-    copyto!(view(x, layout.Ψ), vec(firmvalue.continuation.V))
-    copyto!(view(x, layout.v), vec(firmvalue.expost.V))
-    copyto!(view(x, layout.φ), vec(firmvalue.expost.P))
-    copyto!(view(x, layout.w), vec(welfare.V))
-    copyto!(view(x, layout.τ), vec(welfare.P))
+function Base.getindex(x::EquilibriumState, i::Int)
+    @boundscheck checkbounds(x, i)
+
+    n = length(x.continuation)
+    if i <= n
+        return x.continuation[i]
+    end
+
+    i -= n
+    n = length(x.expost)
+    if i <= n
+        return x.expost[i]
+    end
+
+    i -= n
+    n = length(x.investment)
+    if i <= n
+        return x.investment[i]
+    end
+
+    i -= n
+    n = length(x.welfare)
+    if i <= n
+        return x.welfare[i]
+    end
+
+    return x.taxes[i - n]
+end
+
+function Base.setindex!(x::EquilibriumState, value, i::Int)
+    @boundscheck checkbounds(x, i)
+
+    n = length(x.continuation)
+    if i <= n
+        x.continuation[i] = value
+        return x
+    end
+
+    i -= n
+    n = length(x.expost)
+    if i <= n
+        x.expost[i] = value
+        return x
+    end
+
+    i -= n
+    n = length(x.investment)
+    if i <= n
+        x.investment[i] = value
+        return x
+    end
+
+    i -= n
+    n = length(x.welfare)
+    if i <= n
+        x.welfare[i] = value
+        return x
+    end
+
+    x.taxes[i - n] = value
+    return x
+end
+
+function Base.similar(x::EquilibriumState, ::Type{T}, dims::Dims{1}) where T
+    if dims == size(x)
+        return EquilibriumState(
+            similar(x.continuation, T),
+            similar(x.expost, T),
+            similar(x.investment, T),
+            similar(x.welfare, T),
+            similar(x.taxes, T),
+        )
+    end
+
+    return Array{T}(undef, dims)
+end
+
+Base.similar(x::EquilibriumState, ::Type{T}, inds::Tuple{<:AbstractUnitRange}) where T = similar(x, T, (length(first(inds)),))
+Base.similar(x::EquilibriumState, ::Type{T}) where T = similar(x, T, size(x))
+Base.similar(x::EquilibriumState) = similar(x, eltype(x))
+
+function Base.copyto!(to::EquilibriumState, from::EquilibriumState)
+    copyto!(to.continuation, from.continuation)
+    copyto!(to.expost, from.expost)
+    copyto!(to.investment, from.investment)
+    copyto!(to.welfare, from.welfare)
+    copyto!(to.taxes, from.taxes)
+
+    return to
+end
+
+function Base.copy(x::EquilibriumState)
+    y = similar(x)
+    copyto!(y, x)
+
+    return y
+end
+
+function Base.fill!(x::EquilibriumState, value)
+    fill!(x.continuation, value)
+    fill!(x.expost, value)
+    fill!(x.investment, value)
+    fill!(x.welfare, value)
+    fill!(x.taxes, value)
 
     return x
 end
 
-"Unpack the optimisation vector `x` into `firmvalue` and `welfare`, and project the policy blocks onto the admissible sets."
-function unpackequilibrium!(firmvalue::FV, welfare::TW, x::AbstractVector, layout::EquilibriumLayout; φlims = (0., Inf), τlims = (0., Inf)) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}}
-    copyto!(vec(firmvalue.continuation.V), view(x, layout.Ψ))
-    copyto!(vec(firmvalue.expost.V), view(x, layout.v))
-    copyto!(vec(firmvalue.expost.P), view(x, layout.φ))
-    copyto!(vec(welfare.V), view(x, layout.w))
-    copyto!(vec(welfare.P), view(x, layout.τ))
+function Base.zero(x::EquilibriumState)
+    y = similar(x)
+    fill!(y, zero(eltype(x)))
+
+    return y
+end
+
+function firmvaluefromstate(state::EquilibriumState; φlims = nothing)
+    continuation = ValueFunction(state.continuation, similar(state.continuation))
+    policy = isnothing(φlims) ? state.investment : clamp.(state.investment, φlims[1], φlims[2])
+    expost = ValueFunction(state.expost, policy)
+
+    return FirmValue(continuation, expost)
+end
+
+function welfarefromstate(state::EquilibriumState; τlims = nothing)
+    policy = isnothing(τlims) ? state.taxes : clamp.(state.taxes, τlims[1], τlims[2])
+
+    return ValueFunction(state.welfare, policy)
+end
+
+"Copy the structured nonlinear state back into `firmvalue` and `welfare`."
+function unpackequilibrium!(firmvalue::FV, welfare::TW, state::EquilibriumState; φlims = (0., Inf), τlims = (0., Inf)) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}}
+    copyto!(firmvalue.continuation.V, state.continuation)
+    copyto!(firmvalue.expost.V, state.expost)
+    copyto!(firmvalue.expost.P, state.investment)
+    copyto!(welfare.V, state.welfare)
+    copyto!(welfare.P, state.taxes)
 
     @. firmvalue.expost.P = clamp(firmvalue.expost.P, φlims[1], φlims[2])
     @. welfare.P = clamp(welfare.P, τlims[1], τlims[2])
@@ -72,27 +184,21 @@ function equilibriumstep!(nextfirmvalue::FV, nextwelfare::TW, firmvalue::FV, wel
     return nextfirmvalue, nextwelfare
 end
 
-"Split the packed residual into firm and government value and policy blocks and return the associated errors."
-function equilibriumerrors(residual::AbstractVector, layout::EquilibriumLayout, valtol, poltol)
-    εΨᵛ = maximum(abs, view(residual, layout.Ψ))
-    εᵛ = maximum(abs, view(residual, layout.v))
-    εᶠₚ = maximum(abs, view(residual, layout.φ))
-    εʷᵛ = maximum(abs, view(residual, layout.w))
-    εʷₚ = maximum(abs, view(residual, layout.τ))
+"Split the structured residual into firm and government value and policy blocks and return the associated errors."
+function equilibriumerrors(residual::EquilibriumState, valtol, poltol)
+    εΨᵛ = maximum(abs, residual.continuation)
+    εᵛ = maximum(abs, residual.expost)
+    εᶠₚ = maximum(abs, residual.investment)
+    εʷᵛ = maximum(abs, residual.welfare)
+    εʷₚ = maximum(abs, residual.taxes)
     εᶠᵛ = max(εΨᵛ, εᵛ)
     ε = normalizederror(max(εᶠᵛ, εʷᵛ), max(εᶠₚ, εʷₚ), valtol, poltol)
 
     return εᶠᵛ, εᶠₚ, εʷᵛ, εʷₚ, ε
 end
 
-"Stores the parameters and workspaces needed to evaluate the packed equilibrium residual in place."
-struct EquilibriumResidual{L, FV, TW, TV, G, TP, TF, TG, TS, TLφ, TLτ}
-    layout::L
-    firmvalue::FV
-    welfare::TW
-    nextfirmvalue::FV
-    nextwelfare::TW
-    nextx::TV
+"Stores the parameters needed to evaluate the structured equilibrium residual in place."
+struct EquilibriumResidual{G, TP, TF, TG, TS, TLφ, TLτ}
     τᶜ
     exantegrid::G
     pricespace::TP
@@ -103,39 +209,26 @@ struct EquilibriumResidual{L, FV, TW, TV, G, TP, TF, TG, TS, TLφ, TLτ}
     τlims::TLτ
 end
 
-"Construct the parameter object and work arrays used by `NonlinearSolve.jl`."
+"Construct the parameter object used by `NonlinearSolve.jl`."
 function EquilibriumResidual(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; φlims = (0., 1.), τlims = (0., 2τᶜ)) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    layout = EquilibriumLayout(firmvalue, welfare)
-    nextx = Vector{T}(undef, length(layout))
     φlimst = (T(φlims[1]), T(φlims[2]))
     τlimst = (T(τlims[1]), T(τlims[2]))
 
-    return EquilibriumResidual(
-        layout,
-        similar(firmvalue),
-        similar(welfare),
-        similar(firmvalue),
-        similar(welfare),
-        nextx,
-        τᶜ,
-        exantegrid,
-        pricespace,
-        firm,
-        government,
-        signal,
-        φlimst,
-        τlimst,
-    )
+    return EquilibriumResidual(τᶜ, exantegrid, pricespace, firm, government, signal, φlimst, τlimst)
 end
 
 "Evaluate the fixed-point residual `T(x) - x` of the synchronous firm-government Bellman update."
-function equilibriumresidual!(residual::AbstractVector, x::AbstractVector, problem::EquilibriumResidual)
-    unpackequilibrium!(problem.firmvalue, problem.welfare, x, problem.layout; φlims = problem.φlims, τlims = problem.τlims)
+function equilibriumresidual!(residual::EquilibriumState, x::EquilibriumState, problem::EquilibriumResidual)
+    firmvalue = firmvaluefromstate(x; φlims = problem.φlims)
+    welfare = welfarefromstate(x; τlims = problem.τlims)
+    nextfirmvalue = firmvaluefromstate(residual)
+    nextwelfare = welfarefromstate(residual)
+
     equilibriumstep!(
-        problem.nextfirmvalue,
-        problem.nextwelfare,
-        problem.firmvalue,
-        problem.welfare,
+        nextfirmvalue,
+        nextwelfare,
+        firmvalue,
+        welfare,
         problem.τᶜ,
         problem.exantegrid,
         problem.pricespace,
@@ -145,8 +238,8 @@ function equilibriumresidual!(residual::AbstractVector, x::AbstractVector, probl
         φlims = problem.φlims,
         τlims = problem.τlims,
     )
-    packequilibrium!(problem.nextx, problem.nextfirmvalue, problem.nextwelfare, problem.layout)
-    @. residual = problem.nextx - x
+
+    @. residual = residual - x
 
     return residual
 end
@@ -154,22 +247,21 @@ end
 "Solve the packed equilibrium residual system with `NonlinearSolve.jl`."
 function nonlinearequilibrium!(
     firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; 
-    algorithm::AbstractNonlinearAlgorithm = LimitedMemoryBroyden(threshold = 10), maxiter = 100, valtol = 1e-8, poltol = 1e-4, φlims = (zero(T), one(T)), τlims = (zero(T), 2τᶜ), verbose = 0, kwargs...
+    algorithm::SciMLBase.AbstractNonlinearAlgorithm = LimitedMemoryBroyden(threshold = 10), maxiter = 100, valtol = 1e-8, poltol = 1e-4, φlims = (zero(T), one(T)), τlims = (zero(T), 2τᶜ), verbose = 0, kwargs...
 ) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
 
     problem = EquilibriumResidual(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; φlims, τlims)
-    x0 = Vector{T}(undef, length(problem.layout))
-    packequilibrium!(x0, firmvalue, welfare, problem.layout)
+    x₀ = EquilibriumState(firmvalue, welfare)
 
-    nonlinearproblem = NonlinearProblem{true}(equilibriumresidual!, x0, problem)
+    nonlinearproblem = NonlinearProblem{true}(equilibriumresidual!, x₀, problem)
 
     sol = solve(nonlinearproblem, algorithm; abstol = min(valtol, poltol), reltol = zero(T), maxiters = maxiter, show_trace = Val(verbose > 1), kwargs...)
 
-    unpackequilibrium!(firmvalue, welfare, sol.u, problem.layout; φlims, τlims)
+    unpackequilibrium!(firmvalue, welfare, sol.u; φlims, τlims)
 
     residual = similar(sol.u)
     equilibriumresidual!(residual, sol.u, problem)
-    εᶠᵛ, εᶠₚ, εʷᵛ, εʷₚ, ε = equilibriumerrors(residual, problem.layout, valtol, poltol)
+    εᶠᵛ, εᶠₚ, εʷᵛ, εʷₚ, ε = equilibriumerrors(residual, valtol, poltol)
 
     if verbose > 0
         @printf "NonlinearSolve finished with residual errors: firm value = %.2e, firm policy = %.2e, welfare value = %.2e, welfare policy = %.2e\n" εᶠᵛ εᶠₚ εʷᵛ εʷₚ
@@ -186,7 +278,7 @@ end
 function broydenequilibrium!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; memory = 10, kwargs...) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
     algorithm = LimitedMemoryBroyden(threshold = memory)
 
-    return nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; algorithm, memory, kwargs...)
+    return nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; algorithm, kwargs...)
 end
 
 "Run `nonlinearequilibrium!` along a path of signal-noise levels using the previous stage as the initial condition."
@@ -203,7 +295,7 @@ function homotopynonlinear!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pr
 
         signalᵢ = Signal(signal.μ, σᵢ, signal.space)
         algorithmᵢ = isnothing(algorithm) ? LimitedMemoryBroyden(threshold = memory) : algorithm
-        sol, _, _ = nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signalᵢ; algorithm = algorithmᵢ, memoryverbose, kwargs...)
+        sol, _, _ = nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signalᵢ; algorithm = algorithmᵢ, verbose, kwargs...)
         solutions[i] = sol
     end
 

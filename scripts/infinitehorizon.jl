@@ -2,13 +2,12 @@
 using Revise
 using UnPack
 
-using FastInterpolations
-using FastGaussQuadrature
-using LogExpFunctions
-using FastClosures
-using Optim, NonlinearSolve
 using StaticArrays
+using FastInterpolations, FastGaussQuadrature
+using FastClosures
 using LinearAlgebra
+using LogExpFunctions
+using Optim, NonlinearSolve, SciMLBase
 
 using Printf
 
@@ -31,7 +30,7 @@ includet("../src/equilibrium.jl")
 firm = Firm()
 government = Government()
 
-ns = (51, 101, 101)
+ns = (21, 21, 21)
 signal = Signal(1., 0.2, ns[3])
 a₀ = 0.
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Optim.Brent()).minimizer
@@ -51,19 +50,33 @@ pricespace = collect(range(qmin, qmax, length = ns[3]))
 
 
 ## Value Function
-### Initialise firm
 firmvalue = FirmValue(exantegrid, pricespace)
-### Initialise welfare
 welfare = ValueFunction(exantegrid)
 
 ## Iteration
 φlims = (0., 1.)
 σpath = range(3signal.σ, signal.σ, length = 4) # Homotopy path
-algorithm = LimitedMemoryBroyden(threshold = 6)
+algorithm = LimitedMemoryBroyden(max_resets = 10)
 
-homotopynonlinear!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; σpath, algorithm, maxiter = 50, valtol = 1e-4, poltol = 1e-4, φlims, τlims, verbose = 1)
+solutions, firmvalue, welfare = homotopynonlinear!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; σpath, algorithm, maxiter = 50, valtol = 1e-4, poltol = 1e-4, φlims, τlims, verbose = 2)
 
 ## Analyse
 function plotoverspace(V::TV; kwargs...) where TV <: AbstractMatrix
     contourf(reputationspace, abatementspace, V; xlabel = L"Reputation $z$", ylabel = L"Abatement $a$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
 end
+
+function plotvaluefunctionoverspace(valuefunction::TV, valuetitle, policytitle; kwargs...) where TV <: ValueFunction{2}
+    valuefig = plotoverspace(valuefunction.V; title = valuetitle)
+    policyfig = plotoverspace(valuefunction.P; title = policytitle)
+
+    plot(valuefig, policyfig; layout = (1, 2), size = 700 .* (16/9, 1), margins = 5Plots.mm, kwargs...)
+end
+
+plotpath = joinpath("figures", "infinitehorizon")
+mkpath(plotpath)
+
+welfarefig = plotvaluefunctionoverspace(welfare, L"Welfare value $w$", L"Policy $\tau$")
+savefig(welfarefig, joinpath(plotpath, "welfare-policy-value.png"))
+
+firmcontinuationfig = plotvaluefunctionoverspace(firmvalue.continuation, L"Firm continuation value $\Psi$", L"Continuation policy")
+savefig(firmcontinuationfig, joinpath(plotpath, "firm-continuation-policy-value.png"))
