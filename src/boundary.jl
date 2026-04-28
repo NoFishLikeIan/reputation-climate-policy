@@ -1,81 +1,4 @@
-const extrapstrategy = ExtendExtrap()
-
 @inline normalizederror(εᵥ, εₚ, valtol, poltol) = max(εᵥ / valtol, εₚ / poltol)
-
-@inline function errorincreased(ε, prevε, worsetol)
-    isfinite(prevε) || return false
-    ε > prevε * (one(prevε) + oftype(prevε, worsetol))
-end
-
-@inline function insufficientimprovement(ε, prevε, improvetol)
-    isfinite(prevε) || return false
-    prevε <= zero(prevε) && return false
-
-    prevε - ε <= prevε * oftype(prevε, improvetol)
-end
-
-function firmstep!(newboundary::TV, firmboundary::TV, τᶜ, abatementspace, firm::Firm, signal::Signal; φmax = 1000one(T)) where {T, TV <: ValueFunction{1, T}}
-
-    @inbounds Threads.@threads for i in eachindex(abatementspace)
-        a = abatementspace[i]
-        res = Optim.optimize(φ -> firmcosts(φ, a, τᶜ, firmboundary.V, abatementspace, firm, signal), zero(T), φmax, Brent())
-        newboundary.V[i] = Optim.minimum(res)
-        newboundary.P[i] = Optim.minimizer(res)
-    end
-
-    return newboundary
-end
-
-function boundarypfi!(firmboundary::TV, τᶜ, abatementspace, firm::Firm, signal::Signal; maxiter = 100, valtol = 1e-8, poltol = 1e-4, improvetol = 1e-3, worsetol = 1e-3, maxstall = 5, verbose = 0) where {T, TV <: ValueFunction{1, T}}
-    oldboundary = copy(firmboundary)
-    prevε = T(Inf)
-    stalliter = 0
-
-    for iter in 1:maxiter
-        copyto!(oldboundary, firmboundary)
-
-        firmstep!(firmboundary, oldboundary, τᶜ, abatementspace, firm, signal)
-        εᵥ = maximum(abs, oldboundary.V .- firmboundary.V)
-        εₚ = maximum(abs, oldboundary.P .- firmboundary.P)
-        ε = normalizederror(εᵥ, εₚ, valtol, poltol)
-
-        if verbose > 0
-            @printf "Boundary iteration %d, value error = %.2e, policy error %.2e\r" iter εᵥ εₚ
-        end
-
-        if ε < one(ε)
-            return iter, firmboundary
-        elseif errorincreased(ε, prevε, worsetol)
-            copyto!(firmboundary, oldboundary)
-
-            if verbose > 0
-                @warn @sprintf "Boundary policy iteration stopped after %d iterations because the normalized error increased\n" iter
-            end
-
-            return iter, firmboundary
-        elseif insufficientimprovement(ε, prevε, improvetol)
-            stalliter += 1
-
-            if stalliter >= maxstall
-                if verbose > 0
-                    @warn @sprintf "Boundary policy iteration stopped after %d iterations because the normalized error improved too slowly\n" iter
-                end
-
-                return iter, firmboundary
-            end
-        else
-            stalliter = 0
-        end
-
-        prevε = ε
-    end
-
-    if verbose > 0
-        @warn @sprintf "Boundary policy iteration not converged after %d iterations\n" maxiter
-    end
-
-    return maxiter, firmboundary
-end
 
 function v̲(a, q, firm::Firm)
     return e(a, firm) * q
@@ -162,11 +85,11 @@ function w̄(a, τᶜ, firm::Firm, government::Government, signal::Signal)
     w̄₀(τᶜ, firm, government, signal) + w̄₁(τᶜ, firm, government, signal) * a + w̄₂(firm, government) * a^2 / 2
 end
 
-@inline function evaluatefirmexpostvalue(V::LI, a, z, q, expostgrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{3}}
-    aclamped = clampnode(a, expostgrid, 1)
-    qclamped = clampnode(q, expostgrid, 3)
-    zmin = zlower(expostgrid)
-    zmax = zupper(expostgrid)
+@inline function evaluatefirmcontinuationvalue(V::LI, a, z, q, continuationgrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{3}}
+    aclamped = clampnode(a, continuationgrid, 1)
+    qclamped = clampnode(q, continuationgrid, 3)
+    zmin = zlower(continuationgrid)
+    zmax = zupper(continuationgrid)
 
     if z <= zmin
         return v̲(aclamped, qclamped, firm)
@@ -177,11 +100,11 @@ end
     return V((aclamped, z, qclamped))
 end
 
-@inline function evaluatefirmpolicy(Φ::LI, a, z, q, expostgrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{3}}
-    aclamped = clampnode(a, expostgrid, 1)
-    qclamped = clampnode(q, expostgrid, 3)
-    zmin = zlower(expostgrid)
-    zmax = zupper(expostgrid)
+@inline function evaluatefirmpolicy(Φ::LI, a, z, q, continuationgrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{3}}
+    aclamped = clampnode(a, continuationgrid, 1)
+    qclamped = clampnode(q, continuationgrid, 3)
+    zmin = zlower(continuationgrid)
+    zmax = zupper(continuationgrid)
 
     if z <= zmin
         return φ̲(aclamped, qclamped, firm, signal)
@@ -192,7 +115,7 @@ end
     return Φ((aclamped, z, qclamped))
 end
 
-@inline function evaluatefirmcontinuation(Ψ::LI, a, z, exantegrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{2}}
+@inline function evaluatefirmexantevalue(Ψ::LI, a, z, exantegrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{2}}
     aclamped = clampnode(a, exantegrid, 1)
     zmin = zlower(exantegrid)
     zmax = zupper(exantegrid)

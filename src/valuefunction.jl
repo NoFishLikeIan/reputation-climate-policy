@@ -3,9 +3,9 @@ struct ValueFunction{N, T, TV <: AbstractArray{T, N}, TP <: AbstractArray{T, N}}
     P::TP
 end
 
-struct FirmValue{T, TC <: ValueFunction{2, T}, TE <: ValueFunction{3, T}}
+struct FirmValue{T, TE <: AbstractMatrix{T}, TC <: ValueFunction{3, T}}
+    exante::TE
     continuation::TC
-    expost::TE
 end
 
 function ValueFunction(N, T, dims)
@@ -27,10 +27,10 @@ function ValueFunction(grid::G, space::V) where {N, T, G <: AbstractGrid{N, T}, 
 end
 
 function FirmValue(grid::G, space::V) where {T, G <: AbstractGrid{2, T}, V <: AbstractVector{T}}
-    continuation = ValueFunction(grid)
-    expost = ValueFunction(grid, space)
+    exante = Matrix{T}(undef, size(grid))
+    continuation = ValueFunction(grid, space)
 
-    return FirmValue(continuation, expost)
+    return FirmValue(exante, continuation)
 end
 
 function Base.similar(valuefunction::V) where V <: ValueFunction
@@ -38,7 +38,7 @@ function Base.similar(valuefunction::V) where V <: ValueFunction
 end
 
 function Base.similar(firmvalue::V) where V <: FirmValue
-    FirmValue(similar(firmvalue.continuation), similar(firmvalue.expost))
+    FirmValue(similar(firmvalue.exante), similar(firmvalue.continuation))
 end
 
 function Base.copyto!(tovalue::V, fromvalue::V) where V <: ValueFunction
@@ -49,8 +49,8 @@ function Base.copyto!(tovalue::V, fromvalue::V) where V <: ValueFunction
 end
 
 function Base.copyto!(tovalue::V, fromvalue::V) where V <: FirmValue
+    copyto!(tovalue.exante, fromvalue.exante)
     copyto!(tovalue.continuation, fromvalue.continuation)
-    copyto!(tovalue.expost, fromvalue.expost)
 
     return tovalue
 end

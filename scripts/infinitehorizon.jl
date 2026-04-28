@@ -7,7 +7,7 @@ using FastInterpolations, FastGaussQuadrature
 using FastClosures
 using LinearAlgebra
 using LogExpFunctions
-using Optim, NonlinearSolve, SciMLBase
+using Optim
 
 using Printf
 
@@ -59,13 +59,7 @@ firmvalue = FirmValue(exantegrid, pricespace)
 welfare = ValueFunction(exantegrid)
 
 ## Iteration
-algorithm = LimitedMemoryBroyden(
-    threshold = 6,
-    max_resets = 25,
-    linesearch = NonlinearSolve.LiFukushimaLineSearch(),
-)
-
-solutions, firmvalue, welfare = homotopynonlinear!(
+iterations, firmvalue, welfare = homotopysteadypolicies!(
     firmvalue,
     welfare,
     τᶜ,
@@ -75,16 +69,16 @@ solutions, firmvalue, welfare = homotopynonlinear!(
     government,
     signal;
     σpath,
-    algorithm,
-    warmstartiters = 75,
-    warmstartrelax = 0.05,
-    broydenstarttol = 10.0,
-    maxiter = 50,
+    maxiter = 500,
+    relax = 0.01,
     valtol = 1e-4,
     poltol = 1e-4,
+    τlims,
+    mimictol = 1e-8,
+    mimicband = 1e-7,
+    policyopttol = 1e-5,
+    taxseparation = 0.01τᶜ,
     verbose = 2,
-    traceblocks = true,
-    traceevery = 5,
 )
 
 ## Analyse
