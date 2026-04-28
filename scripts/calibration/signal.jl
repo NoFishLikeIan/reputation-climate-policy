@@ -58,6 +58,23 @@ priceta = TimeArray(pricedf; :timestamp => :DateTime)
 dailyta = retime(priceta, Day(1), downsample = Mean())
 
 ## Estimating
-pricevec = DataFrame(dailyta)[:, "Auction Price €/tCO2"]
+dailydf = DataFrame(dailyta)
+pricevec = dailydf[:, "Auction Price €/tCO2"]
 model = LocalLevel(pricevec); StateSpaceModels.fit!(model)
 smoothed = kalman_smoother(model)
+
+noisetrajectory = (pricevec - get_smoothed_state(smoothed)) ./ pricevec
+σ = √((365 / 7) * model.results.coef_table.coef[1])
+
+dailydf[!, "Auction Price Noise"] = vec(noisetrajectory)
+noisepriceta = TimeArray(dailydf; :timestamp => :timestamp)
+
+## Plotting
+tickyears = range(dailydf.timestamp[1], dailydf.timestamp[end]; step = Month(6))
+xticklabels = [Dates.format(t, "yyyy-mm") for t in tickyears]
+
+ymax = maximum(abs, dailydf[:, "Auction Price Noise"])
+
+resfig = plot(dailydf.timestamp, dailydf[:, "Auction Price Noise"], label = false, ylabel = "Residual [€/tCO2]", xlabel = "Year", c = :black, xticks = (tickyears, xticklabels), xrotation = 45, ylims = (-ylims, ylims), dpi = 280, size = 500 .* (16 / 9 , 1))
+
+savefig(resfig, "figures/calibration/ets/residuals.png")
