@@ -30,8 +30,10 @@ includet("../src/equilibrium.jl")
 firm = Firm()
 government = Government()
 
-ns = (21, 21, 21)
+ns = (51, 51, 51)
 signal = Signal(1., 0.2, ns[3])
+σpath = range(3signal.σ, signal.σ, length = 9) # Homotopy path
+homotopysignals = [Signal(signal.μ, σ, signal.space) for σ in σpath]
 a₀ = 0.
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Optim.Brent()).minimizer
 aᵇ = blissabatement(τᶜ, firm, signal)
@@ -39,13 +41,16 @@ aᵇ = blissabatement(τᶜ, firm, signal)
 ξmin, ξmax = extrema(signal.space[1])
 
 abatementspace = range(0, 1.25aᵇ, ns[1])
-Δzmax = maximum(abs, (ℓ(realisedprice(ξ, τ, signal), τ, τᶜ, signal) for ξ in (ξmin, ξmax), τ in τlims))
+Δzmax = maximum(abs, (
+    ℓ(realisedprice(ξ, τ, signalᵢ), τ, τᶜ, signalᵢ)
+    for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims
+))
 zmax = max(8.0, 6Δzmax)
 reputationspace = collect(range(-zmax, zmax, length = ns[2]))
 exantegrid = Grid((abatementspace, reputationspace))
 
-qmin = minimum(realisedprice(ξ, τ, signal) for ξ in (ξmin, ξmax), τ in τlims)
-qmax = maximum(realisedprice(ξ, τ, signal) for ξ in (ξmin, ξmax), τ in τlims)
+qmin = minimum(realisedprice(ξ, τ, signalᵢ) for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims)
+qmax = maximum(realisedprice(ξ, τ, signalᵢ) for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims)
 pricespace = collect(range(qmin, qmax, length = ns[3]))
 
 
@@ -54,12 +59,35 @@ firmvalue = FirmValue(exantegrid, pricespace)
 welfare = ValueFunction(exantegrid)
 
 ## Iteration
-σpath = range(3signal.σ, signal.σ, length = 4) # Homotopy path
-algorithm = LimitedMemoryBroyden(max_resets = 10)
+algorithm = LimitedMemoryBroyden(
+    threshold = 6,
+    max_resets = 25,
+    linesearch = NonlinearSolve.LiFukushimaLineSearch(),
+)
 
-solutions, firmvalue, welfare = homotopynonlinear!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; σpath, algorithm, maxiter = 50, valtol = 1e-4, poltol = 1e-4, verbose = 2)
+solutions, firmvalue, welfare = homotopynonlinear!(
+    firmvalue,
+    welfare,
+    τᶜ,
+    exantegrid,
+    pricespace,
+    firm,
+    government,
+    signal;
+    σpath,
+    algorithm,
+    warmstartiters = 75,
+    warmstartrelax = 0.05,
+    broydenstarttol = 10.0,
+    maxiter = 50,
+    valtol = 1e-4,
+    poltol = 1e-4,
+    verbose = 2,
+    traceblocks = true,
+    traceevery = 5,
+)
 
 ## Analyse
 function plotoverspace(V::TV; kwargs...) where TV <: AbstractMatrix
-    contourf(reputationspace, abatementspace, V; xlabel = L"Reputation $z$", ylabel = L"Abatement $a$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
+    heatmap(reputationspace, abatementspace, V; xlabel = L"Reputation $z$", ylabel = L"Abatement $a$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
 end
