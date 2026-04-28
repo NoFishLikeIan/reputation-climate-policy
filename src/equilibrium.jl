@@ -1,15 +1,5 @@
-using NonlinearSolve
-using Printf
-
 "The joint equilibrium unknown, stored as named arrays but usable as a vector by solvers."
-struct EquilibriumState{
-    T,
-    TΨ <: AbstractMatrix{T},
-    TV <: AbstractArray{T, 3},
-    TΦ <: AbstractArray{T, 3},
-    TW <: AbstractMatrix{T},
-    TΘ <: AbstractMatrix{T},
-} <: AbstractVector{T}
+struct EquilibriumState{ T, TΨ <: AbstractMatrix{T}, TV <: AbstractArray{T, 3}, TΦ <: AbstractArray{T, 3}, TW <: AbstractMatrix{T}, TΘ <: AbstractMatrix{T}} <: AbstractVector{T}
     continuation::TΨ
     expost::TV
     investment::TΦ
@@ -147,16 +137,16 @@ function Base.zero(x::EquilibriumState)
     return y
 end
 
-function firmvaluefromstate(state::EquilibriumState; φlims = nothing)
+function firmvaluefromstate(state::EquilibriumState)
     continuation = ValueFunction(state.continuation, similar(state.continuation))
-    policy = isnothing(φlims) ? state.investment : clamp.(state.investment, φlims[1], φlims[2])
+    policy = clamp.(state.investment, 0, 1)
     expost = ValueFunction(state.expost, policy)
 
     return FirmValue(continuation, expost)
 end
 
-function welfarefromstate(state::EquilibriumState; τlims = nothing)
-    policy = isnothing(τlims) ? state.taxes : clamp.(state.taxes, τlims[1], τlims[2])
+function welfarefromstate(state::EquilibriumState, τᶜ)
+    policy = clamp.(state.taxes, 0, 2τᶜ)
 
     return ValueFunction(state.welfare, policy)
 end
@@ -169,7 +159,7 @@ function unpackequilibrium!(firmvalue::FV, welfare::TW, state::EquilibriumState;
     copyto!(welfare.V, state.welfare)
     copyto!(welfare.P, state.taxes)
 
-    @. firmvalue.expost.P = clamp(firmvalue.expost.P, φlims[1], φlims[2])
+    @. firmvalue.expost.P = clamp(firmvalue.expost.P, 0, 1)
     @. welfare.P = clamp(welfare.P, τlims[1], τlims[2])
     @. firmvalue.continuation.P = T(NaN)
 
@@ -177,9 +167,9 @@ function unpackequilibrium!(firmvalue::FV, welfare::TW, state::EquilibriumState;
 end
 
 "Apply one joint Bellman update for the firm given the current government policy, and vice versa."
-function equilibriumstep!(nextfirmvalue::FV, nextwelfare::TW, firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; φlims = (0., 1.), τlims = (0., 2τᶜ)) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    firmstep!(nextfirmvalue, firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, signal; φlims)
-    governmentstep!(nextwelfare, welfare, firmvalue, τᶜ, exantegrid, pricespace, firm, government, signal; τlims)
+function equilibriumstep!(nextfirmvalue::FV, nextwelfare::TW, firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+    firmstep!(nextfirmvalue, firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, signal)
+    governmentstep!(nextwelfare, welfare, firmvalue, τᶜ, exantegrid, pricespace, firm, government, signal)
 
     return nextfirmvalue, nextwelfare
 end
@@ -197,47 +187,16 @@ function equilibriumerrors(residual::EquilibriumState, valtol, poltol)
     return εᶠᵛ, εᶠₚ, εʷᵛ, εʷₚ, ε
 end
 
-"Stores the parameters needed to evaluate the structured equilibrium residual in place."
-struct EquilibriumResidual{G, TP, TF, TG, TS, TLφ, TLτ}
-    τᶜ
-    exantegrid::G
-    pricespace::TP
-    firm::TF
-    government::TG
-    signal::TS
-    φlims::TLφ
-    τlims::TLτ
-end
-
-"Construct the parameter object used by `NonlinearSolve.jl`."
-function EquilibriumResidual(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; φlims = (0., 1.), τlims = (0., 2τᶜ)) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    φlimst = (T(φlims[1]), T(φlims[2]))
-    τlimst = (T(τlims[1]), T(τlims[2]))
-
-    return EquilibriumResidual(τᶜ, exantegrid, pricespace, firm, government, signal, φlimst, τlimst)
-end
-
 "Evaluate the fixed-point residual `T(x) - x` of the synchronous firm-government Bellman update."
-function equilibriumresidual!(residual::EquilibriumState, x::EquilibriumState, problem::EquilibriumResidual)
-    firmvalue = firmvaluefromstate(x; φlims = problem.φlims)
-    welfare = welfarefromstate(x; τlims = problem.τlims)
-    nextfirmvalue = firmvaluefromstate(residual)
-    nextwelfare = welfarefromstate(residual)
+function equilibriumresidual!(residual::EquilibriumState, x::EquilibriumState, parameters)
+    τᶜ, exantegrid, pricespace, firm, government, signal = parameters
 
-    equilibriumstep!(
-        nextfirmvalue,
-        nextwelfare,
-        firmvalue,
-        welfare,
-        problem.τᶜ,
-        problem.exantegrid,
-        problem.pricespace,
-        problem.firm,
-        problem.government,
-        problem.signal;
-        φlims = problem.φlims,
-        τlims = problem.τlims,
-    )
+    firmvalue = firmvaluefromstate(x)
+    welfare = welfarefromstate(x, τᶜ)
+    nextfirmvalue = firmvaluefromstate(residual)
+    nextwelfare = welfarefromstate(residual, τᶜ)
+
+    equilibriumstep!(nextfirmvalue, nextwelfare, firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal)
 
     @. residual = residual - x
 
@@ -247,27 +206,27 @@ end
 "Solve the packed equilibrium residual system with `NonlinearSolve.jl`."
 function nonlinearequilibrium!(
     firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; 
-    algorithm::SciMLBase.AbstractNonlinearAlgorithm = LimitedMemoryBroyden(threshold = 10), maxiter = 100, valtol = 1e-8, poltol = 1e-4, φlims = (zero(T), one(T)), τlims = (zero(T), 2τᶜ), verbose = 0, kwargs...
+    algorithm::SciMLBase.AbstractNonlinearAlgorithm = LimitedMemoryBroyden(threshold = 10), maxiter = 100, valtol = 1e-8, poltol = 1e-4, verbose = 0, kwargs...
 ) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
 
-    problem = EquilibriumResidual(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; φlims, τlims)
+    parameters = (τᶜ, exantegrid, pricespace, firm, government, signal)
     x₀ = EquilibriumState(firmvalue, welfare)
 
-    nonlinearproblem = NonlinearProblem{true}(equilibriumresidual!, x₀, problem)
+    nonlinearproblem = NonlinearProblem{true}(equilibriumresidual!, x₀, parameters)
 
     sol = solve(nonlinearproblem, algorithm; abstol = min(valtol, poltol), reltol = zero(T), maxiters = maxiter, show_trace = Val(verbose > 1), kwargs...)
 
-    unpackequilibrium!(firmvalue, welfare, sol.u; φlims, τlims)
+    unpackequilibrium!(firmvalue, welfare, sol.u)
 
     residual = similar(sol.u)
-    equilibriumresidual!(residual, sol.u, problem)
+    equilibriumresidual!(residual, sol.u, parameters)
     εᶠᵛ, εᶠₚ, εʷᵛ, εʷₚ, ε = equilibriumerrors(residual, valtol, poltol)
 
     if verbose > 0
         @printf "NonlinearSolve finished with residual errors: firm value = %.2e, firm policy = %.2e, welfare value = %.2e, welfare policy = %.2e\n" εᶠᵛ εᶠₚ εʷᵛ εʷₚ
     end
 
-    if ε >= one(ε) && verbose > 0
+    if ε ≥ 1 && verbose > 0
         @warn @sprintf "Equilibrium residual still above tolerance after NonlinearSolve: normalized error = %.2e\n" ε
     end
 
@@ -282,21 +241,20 @@ function broydenequilibrium!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, p
 end
 
 "Run `nonlinearequilibrium!` along a path of signal-noise levels using the previous stage as the initial condition."
-function homotopynonlinear!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; σpath::TP = [signal.σ], algorithm = nothing, memory = 10, verbose = 0, kwargs...) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}, TP <: AbstractVector{T}}
+function homotopynonlinear!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; σpath::TP = [signal.σ], algorithm::SciMLBase.AbstractNonlinearAlgorithm = LimitedMemoryBroyden(), verbose = 0, kwargs...) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}, TP <: AbstractVector{T}}
     initialsignal = Signal(signal.μ, σpath[1], signal.space)
     setfirmboundaries!(firmvalue, τᶜ, exantegrid, pricespace, firm, initialsignal)
     setgovernmentboundaries!(welfare, τᶜ, exantegrid, firm, government, initialsignal)
 
-    solutions = Vector{Any}(undef, length(σpath))
+    solutions = []
     for (i, σᵢ) in enumerate(σpath)
         if verbose > 0
             @printf "\nHomotopy %d/%d, σ = %.4f\n" i length(σpath) σᵢ
         end
 
         signalᵢ = Signal(signal.μ, σᵢ, signal.space)
-        algorithmᵢ = isnothing(algorithm) ? LimitedMemoryBroyden(threshold = memory) : algorithm
-        sol, _, _ = nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signalᵢ; algorithm = algorithmᵢ, verbose, kwargs...)
-        solutions[i] = sol
+        sol, _, _ = nonlinearequilibrium!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signalᵢ; algorithm, verbose, kwargs...)
+        push!(solutions, sol)
     end
 
     return solutions, firmvalue, welfare
