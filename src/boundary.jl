@@ -1,15 +1,15 @@
 @inline normalizederror(εᵥ, εₚ, valtol, poltol) = max(εᵥ / valtol, εₚ / poltol)
 
-function v̲(a, q, firm::Firm)
+function v̲(a, q, firm::AbstractFirm)
     return e(a, firm) * q
 end
 
-function φ̲(a, q, ::Firm, ::Signal)
+function φ̲(a, _, ::AbstractFirm, ::Signal)
     zero(a)
 end
 
-function τ̲(a, ::Firm, ::Government)
-    return zero(a)
+function τ̲(a, ::AbstractFirm, ::Government)
+    zero(a)
 end
 
 function w̲(a, firm::Firm, government::Government)
@@ -25,18 +25,24 @@ function v̄₁(τᶜ, firm::Firm, signal::Signal)
 
     return (β * (1 - δ) * μ * τᶜ) / (1 - β * (1 - δ))
 end
+function v̄₁(τᶜ, firm::FirmPermanentInvestment, signal::Signal)
+    @unpack β = firm
+    @unpack μ = signal
 
-function v̄ᵉ(τᶜ, firm::Firm, signal::Signal)
+    return (β * μ * τᶜ) / (1 - β)
+end
+
+function v̄ᵉ(τᶜ, firm::AbstractFirm, signal::Signal)
     v̄₁(τᶜ, firm, signal) + signal.μ * τᶜ
 end
 
-function φ̄(τᶜ, firm::Firm, signal::Signal)
+function φ̄(τᶜ, firm::AbstractFirm, signal::Signal)
     @unpack β, κ, ν = firm
 
     return max((β * v̄ᵉ(τᶜ, firm, signal) - κ) / ν, 0)
 end
 
-function v̄₀(τᶜ, firm::Firm, signal::Signal)
+function v̄₀(τᶜ, firm::AbstractFirm, signal::Signal)
     @unpack β, e₀ = firm
     @unpack μ = signal
     φ = φ̄(τᶜ, firm, signal)
@@ -44,12 +50,43 @@ function v̄₀(τᶜ, firm::Firm, signal::Signal)
     return (β * μ * τᶜ * e₀ + c(φ, firm) - β * v̄ᵉ(τᶜ, firm, signal) * φ) / (1 - β)
 end
 
-function v̄(a, q, τᶜ, firm::Firm, signal::Signal)
-    v̄₀(τᶜ, firm, signal) + e(a, firm) * q - v̄₁(τᶜ, firm, signal) * a
+function ψ̄(a, τᶜ, firm::FirmPermanentInvestment, signal::Signal)
+    @unpack β, e₀ = firm
+    m = signal.μ * τᶜ
+    flow = φ̄(τᶜ, firm, signal)
+    a = clamp(a, zero(a), e₀)
+    x = e₀ - a
+    tol = sqrt(eps(typeof(x))) * max(one(x), e₀)
+
+    if flow <= tol
+        return m * x / (1 - β)
+    end
+
+    value = zero(x + m + flow)
+    discount = one(value)
+
+    while x > tol
+        φ = min(flow, x)
+        value += discount * (m * x + c(φ, firm))
+        x -= φ
+        discount *= β
+    end
+
+    return value
 end
 
 function ψ̄(a, τᶜ, firm::Firm, signal::Signal)
     v̄₀(τᶜ, firm, signal) + signal.μ * τᶜ * e(a, firm) - v̄₁(τᶜ, firm, signal) * a
+end
+
+function v̄(a, q, τᶜ, firm::FirmPermanentInvestment, signal::Signal)
+    φ = φ̄(a, τᶜ, firm, signal)
+
+    return e(a, firm) * q + c(φ, firm) + firm.β * ψ̄(f(φ, a, firm), τᶜ, firm, signal)
+end
+
+function v̄(a, q, τᶜ, firm::Firm, signal::Signal)
+    v̄₀(τᶜ, firm, signal) + e(a, firm) * q - v̄₁(τᶜ, firm, signal) * a
 end
 
 function τ̄(τᶜ, ::Firm, ::Government)
@@ -85,6 +122,31 @@ function w̄(a, τᶜ, firm::Firm, government::Government, signal::Signal)
     w̄₀(τᶜ, firm, government, signal) + w̄₁(τᶜ, firm, government, signal) * a + w̄₂(firm, government) * a^2 / 2
 end
 
+function w̄(a, τᶜ, firm::FirmPermanentInvestment, government::Government, signal::Signal)
+    @unpack e₀ = firm
+    @unpack β = government
+    flow = φ̄(τᶜ, firm, signal)
+    a = clamp(a, zero(a), e₀)
+    x = e₀ - a
+    tol = sqrt(eps(typeof(x))) * max(one(x), e₀)
+
+    if flow <= tol
+        return d(x, government) / (1 - β)
+    end
+
+    value = zero(x + flow)
+    discount = one(value)
+
+    while x > tol
+        φ = min(flow, x)
+        value += discount * (d(x, government) + c(φ, firm))
+        x -= φ
+        discount *= β
+    end
+
+    return value
+end
+
 @inline function evaluatefirmcontinuationvalue(V::LI, a, z, q, continuationgrid::G, τᶜ, firm::Firm, signal::Signal) where {LI <: FastInterpolations.AbstractInterpolant, G <: Grid{3}}
     aclamped = clampnode(a, continuationgrid, 1)
     qclamped = clampnode(q, continuationgrid, 3)
@@ -92,9 +154,9 @@ end
     zmax = zupper(continuationgrid)
 
     if z <= zmin
-        return v̲(aclamped, qclamped, firm)
+        return v̲(a, qclamped, firm)
     elseif z >= zmax
-        return v̄(aclamped, qclamped, τᶜ, firm, signal)
+        return v̄(a, qclamped, τᶜ, firm, signal)
     end
 
     return V((aclamped, z, qclamped))
@@ -107,9 +169,9 @@ end
     zmax = zupper(continuationgrid)
 
     if z <= zmin
-        return φ̲(aclamped, qclamped, firm, signal)
+        return φ̲(a, qclamped, firm, signal)
     elseif z >= zmax
-        return φ̄(τᶜ, firm, signal)
+        return φ̄(a, τᶜ, firm, signal)
     end
 
     return Φ((aclamped, z, qclamped))
@@ -121,9 +183,9 @@ end
     zmax = zupper(exantegrid)
 
     if z <= zmin
-        return zero(aclamped)
+        return zero(a)
     elseif z >= zmax
-        return ψ̄(aclamped, τᶜ, firm, signal)
+        return ψ̄(a, τᶜ, firm, signal)
     end
 
     return Ψ((aclamped, z))
@@ -135,9 +197,9 @@ end
     zmax = zupper(exantegrid)
 
     if z <= zmin
-        return w̲(aclamped, firm, government)
+        return w̲(a, firm, government)
     elseif z >= zmax
-        return w̄(aclamped, τᶜ, firm, government, signal)
+        return w̄(a, τᶜ, firm, government, signal)
     end
 
     return W((aclamped, z))

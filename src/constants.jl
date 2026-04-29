@@ -6,3 +6,5 @@ const scctotax = CtoCO₂ * 1e9 * 1e-12; # $ / tCO₂ → t$ / GtC
 const dicescc = 66 / 1000
 const dietzφ = 3e-5 
 const abatementdepreciation = 2e-2
+
+const baldwinκ = 0.11 # TODO: Double check

@@ -11,7 +11,7 @@ function applyfirmreputationboundaries!(firmvalue::FV, τᶜ, exantegrid::G, pri
             firmvalue.continuation.V[i, jmin, k] = v̲(a, q, firm)
             firmvalue.continuation.P[i, jmin, k] = φ̲(a, q, firm, signal)
             firmvalue.continuation.V[i, jmax, k] = v̄(a, q, τᶜ, firm, signal)
-            firmvalue.continuation.P[i, jmax, k] = φ̄(τᶜ, firm, signal)
+            firmvalue.continuation.P[i, jmax, k] = φ̄(a, τᶜ, firm, signal)
         end
     end
 

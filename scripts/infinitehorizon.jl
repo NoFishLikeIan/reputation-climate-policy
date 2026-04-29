@@ -27,20 +27,19 @@ includet("../src/pfi.jl")
 includet("../src/equilibrium.jl")
 
 ## Setup
-firm = Firm()
+δ = 0.0
+firm = Firm(δ = δ)
 government = Government()
 
-ns = (51, 51, 51)
-signal = Signal(1., 0.2, ns[3])
-σpath = range(3signal.σ, signal.σ, length = 9) # Homotopy path
-homotopysignals = [Signal(signal.μ, σ, signal.space) for σ in σpath]
-a₀ = 0.
+ns = (101, 51, 51)
+signal = Signal(1., 1.1 * scctotax, ns[3])
+
 τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Optim.Brent()).minimizer
-aᵇ = blissabatement(τᶜ, firm, signal)
+aᵘ = abatementgridupper(τᶜ, firm, signal)
 τlims = (0., 2τᶜ)
 ξmin, ξmax = extrema(signal.space[1])
 
-abatementspace = range(0, 1.25aᵇ, ns[1])
+abatementspace = range(0, aᵘ, ns[1])
 Δzmax = maximum(abs, (
     ℓ(realisedprice(ξ, τ, signalᵢ), τ, τᶜ, signalᵢ)
     for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims
@@ -59,7 +58,7 @@ firmvalue = FirmValue(exantegrid, pricespace)
 welfare = ValueFunction(exantegrid)
 
 ## Iteration
-iterations, firmvalue, welfare = homotopysteadypolicies!(
+iteration, firmvalue, welfare = steadypolicies!(
     firmvalue,
     welfare,
     τᶜ,
@@ -68,7 +67,6 @@ iterations, firmvalue, welfare = homotopysteadypolicies!(
     firm,
     government,
     signal;
-    σpath,
     maxiter = 500,
     relax = 0.01,
     valtol = 1e-4,
@@ -80,6 +78,7 @@ iterations, firmvalue, welfare = homotopysteadypolicies!(
     taxseparation = 0.01τᶜ,
     verbose = 2,
 )
+iterations = [iteration]
 
 ## Analyse
 function plotoverspace(V::TV; kwargs...) where TV <: AbstractMatrix

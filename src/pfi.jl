@@ -43,7 +43,7 @@ function setfirmboundaries!(firmvalue::FV, τᶜ, exantegrid::G, pricespace, fir
 
         for (k, q) in enumerate(pricespace)
             v = v̲(a, q, firm) * (1 - ω) + v̄(a, q, τᶜ, firm, signal) * ω
-            φ = φ̲(a, q, firm, signal) * (1 - ω) + φ̄(τᶜ, firm, signal) * ω
+            φ = φ̲(a, q, firm, signal) * (1 - ω) + φ̄(a, τᶜ, firm, signal) * ω
 
             firmvalue.continuation.V[i, j, k] = v
             firmvalue.continuation.P[i, j, k] = φ
@@ -88,11 +88,19 @@ function firmstep!(nextfirmvalue::FV, firmvalue::FV, welfare::TW, τᶜ, exanteg
         q = pricespace[k]
         τ = welfare.P[i, j]
         z′ = z + ℓ(q, τ, τᶜ, signal)
+        φmax = min(φlims[2], max(firm.e₀ - (1 - firm.δ) * a, zero(T)))
 
-        res = Optim.optimize(φ -> firmobjective(φ, a, z′, Ψ, exantegrid, τᶜ, firm, signal), φlims[1], φlims[2], brent)
+        if φmax <= φlims[1]
+            φ = φlims[1]
+            value = firmobjective(φ, a, z′, Ψ, exantegrid, τᶜ, firm, signal)
+        else
+            res = Optim.optimize(φ -> firmobjective(φ, a, z′, Ψ, exantegrid, τᶜ, firm, signal), φlims[1], φmax, brent)
+            φ = Optim.minimizer(res)
+            value = Optim.minimum(res)
+        end
 
-        nextfirmvalue.continuation.V[i, j, k] = e(a, firm) * q + Optim.minimum(res)
-        nextfirmvalue.continuation.P[i, j, k] = Optim.minimizer(res)
+        nextfirmvalue.continuation.V[i, j, k] = e(a, firm) * q + value
+        nextfirmvalue.continuation.P[i, j, k] = φ
     end
 
     updateexantevalue!(nextfirmvalue, welfare, τᶜ, exantegrid, pricespace, firm, signal)
