@@ -55,95 +55,101 @@ zlabel = L"Reputation $z$"
 
 normalpdf(x, μ, σ) = @inline exp(-0.5 * ((x - μ) / σ)^2) / (σ * sqrt(2π))
 
-signal_price = qspace ./ taxfactor
-signal_shift_nc = [ℓ(q, 0.5τᶜ, τᶜ, signal) for q in qspace]
-signal_shift_commit = [ℓ(q, τᶜ, τᶜ, signal) for q in qspace]
-
 ## Plots
 let
-    
-    signal_policy_low = 0.6τᶜ
-    signal_policy_commit = τᶜ
-    signal_qmin = minimum(realisedprice(-4.0, τ, signal) for τ in (signal_policy_low, signal_policy_commit))
-    signal_qmax = maximum(realisedprice(4.0, τ, signal) for τ in (signal_policy_low, signal_policy_commit))
-    signal_qspace = collect(range(signal_qmin, signal_qmax; length = 500))
-    signal_qspace_usd = signal_qspace ./ taxfactor
-    signal_density_low = [normalpdf(q, signal.μ * signal_policy_low, signal.σ) * taxfactor for q in signal_qspace]
-    signal_density_commit = [normalpdf(q, signal.μ * signal_policy_commit, signal.σ) * taxfactor for q in signal_qspace]
-    signal_z_low = [ℓ(q, signal_policy_low, signal_policy_commit, signal) for q in signal_qspace]
-    signal_low_mean_usd = signal.μ * signal_policy_low / taxfactor
-    signal_commit_mean_usd = signal.μ * signal_policy_commit / taxfactor
-    signal_low_mean_z = ℓ(signal.μ * signal_policy_low, signal_policy_low, signal_policy_commit, signal)
-    signal_commit_mean_z = ℓ(signal.μ * signal_policy_commit, signal_policy_low, signal_policy_commit, signal)
-    signal_z_slope = signal.μ * (signal_policy_commit - signal_policy_low) / signal.σ^2
-    signal_zcenter = signal.μ * (signal_policy_low + signal_policy_commit) / 2
-    signal_zspace = collect(range(first(signal_z_low), last(signal_z_low); length = length(signal_qspace)))
-    signal_qfromz = [signal_zcenter + Δz / signal_z_slope for Δz in signal_zspace]
-    signal_z_density_low = [normalpdf(q, signal.μ * signal_policy_low, signal.σ) / abs(signal_z_slope) for q in signal_qfromz]
-    signal_z_density_commit = [normalpdf(q, signal.μ * signal_policy_commit, signal.σ) / abs(signal_z_slope) for q in signal_qfromz]
+    signalτshares = [0.2, 0.5, 1.]
+    signalτs = signalτshares .* τᶜ
+    browncolor = beliefscolors[:brown]
+    greencolor = beliefscolors[:green]
+    signalcolors = [
+        RGB(
+            (1 - x) * red(browncolor) + x * red(greencolor),
+            (1 - x) * green(browncolor) + x * green(greencolor),
+            (1 - x) * blue(browncolor) + x * blue(greencolor),
+        )
+        for x in range(0.0, 1.0; length = length(signalτshares))
+    ]
+
+    signallabels = [L"%$(frac)" for frac in signalτshares]
+
+    signalξ = 4.0
+    signalqmin = minimum(realisedprice(-signalξ, τ, signal) for τ in signalτs)
+    signalqmax = maximum(realisedprice(signalξ, τ, signal) for τ in signalτs)
+    signalqspace = collect(range(signalqmin, signalqmax; length = 600))
+    signalqspaceusd = signalqspace ./ taxfactor
+
+    signalzτs = signalτs[1:(end - 1)]
+    signalzmin = minimum(ℓ(realisedprice(-signalξ, τ, signal), τ, τᶜ, signal) for τ in signalzτs)
+    signalzmax = maximum(ℓ(realisedprice(signalξ, τ, signal), τ, τᶜ, signal) for τ in signalzτs)
+    signalzbound = max(abs(signalzmin), abs(signalzmax))
+    signalzspace = collect(range(-signalzbound, signalzbound; length = 600))
+
+    signaldensity(q, τ) = normalpdf(q, signal.μ * τ, signal.σ) * taxfactor
+    function reputationdensity(z, τ)
+        zslope = signal.μ * (τᶜ - τ) / signal.σ^2
+        zcenter = signal.μ * (τ + τᶜ) / 2
+        q = zcenter + z / zslope
+        return normalpdf(q, signal.μ * τ, signal.σ) / abs(zslope)
+    end
 
     densityfig = plot(
-        signal_qspace_usd,
-        signal_density_low;
-        c = beliefscolors[:brown],
-        xlabel = L"Signal-implied price $q$ (USD/tCO$_2$)",
-        legend = :topright,
-        label = L"f(q \mid \tau)",
-        ylims = (0, maximum(signal_density_low) * 1.05),
+        xlabel = L"Carbon price $q$ (USD/tCO$_2$)",
+        ylabel = "Density",
+        legend = false,
+        ylims = (0, normalpdf(0.0, 0.0, signal.σ) * taxfactor * 1.08),
         yformatter = _ -> ""
     )
-    vline!(densityfig, [signal_low_mean_usd]; c = beliefscolors[:brown], linestyle = :dot, label = L"\mu \tau")
 
-    plot!(
-        densityfig,
-        signal_qspace_usd,
-        signal_density_commit;
-        c = beliefscolors[:green],
-        label = L"f(q \mid \tau^c)",
-    )
-
-    vline!(densityfig, [signal_commit_mean_usd]; c = beliefscolors[:green], linestyle = :dot, label = L"\mu \tau^{c}")
+    for (i, τ) in enumerate(signalτs)
+        plot!(
+            densityfig,
+            signalqspaceusd,
+            [signaldensity(q, τ) for q in signalqspace];
+            c = signalcolors[i],
+            label = signallabels[i],
+        )
+        vline!(
+            densityfig,
+            [signal.μ * τ / taxfactor];
+            c = signalcolors[i],
+            linestyle = :dot,
+            label = false,
+        )
+    end
 
     zfig = plot(
-        signal_zspace,
-        signal_z_density_low;
-        c = beliefscolors[:brown],
-        xlabel = L"Reputation change $z^\prime - z$",
+        xlabel = L"Signal-implied reputation update $z^\prime-z$",
+        ylabel = "Density",
         legend = :topright,
-        label = L"f(z^\prime-z \mid \tau)",
-        ylims = (0, maximum(signal_z_density_low) * 1.05),
-        yformatter = _ -> ""
-    )
-    vline!(zfig, [signal_low_mean_z]; c = beliefscolors[:brown], linestyle = :dot, label = L"\mathbb{E}[z^\prime-z\mid\tau]")
-
-    plot!(
-        zfig,
-        signal_zspace,
-        signal_z_density_commit;
-        c = beliefscolors[:green],
-        label = L"f(z^\prime-z \mid \tau^c)",
+        legendtitle = L"Policy $\tau  /\tau^c$",
+        yformatter = _ -> "",
+        ylims = (0, Inf)
     )
 
-    vline!(zfig, [signal_commit_mean_z]; c = beliefscolors[:green], linestyle = :dot, label = L"\mathbb{E}[z^\prime-z\mid\tau^c]")
+    for (i, τ) in enumerate(signalzτs)
+        plot!(
+            zfig,
+            signalzspace,
+            [reputationdensity(z, τ) for z in signalzspace];
+            c = signalcolors[i],
+            label = signallabels[i],
+        )
+        vline!(
+            zfig,
+            [ℓ(signal.μ * τ, τ, τᶜ, signal)];
+            c = signalcolors[i],
+            linestyle = :dot,
+            label = false,
+        )
+    end
 
-    arrowfig = plot(
-        xlims = (0, 1),
-        ylims = (0, 1),
-        framestyle = :none,
-        grid = false,
-        legend = false,
-        ticks = false,
-        foreground_color_subplot = :transparent,
-        background_color_subplot = :transparent,
-    )
-    annotate!(arrowfig, 0.5, 0.5, text(L"\Longrightarrow", 34, :black))
+    vline!(zfig, [0.0]; c = signalcolors[end], label = signallabels[end])
 
     fig = plot(
         densityfig,
-        arrowfig,
         zfig;
-        layout = @layout([left{0.46w} arrow{0.08w} right{0.46w}]),
-        size = (980, 360),
+        layout = (1, 2),
+        size = (980, 380),
         margins = 5Plots.mm,
     )
 	savefig(fig, joinpath(plotpath, "signal-distribution-reputation.png"))
@@ -151,54 +157,69 @@ let
 end
 
 let
-    boundary_aspace = collect(range(0.0, aspace[end]; length = 250))
-    wlower = [w̲(a, firm, government) for a in boundary_aspace]
-    wupper = [w̄(a, τᶜ, firm, government, signal) for a in boundary_aspace]
-    mlower = zeros(length(boundary_aspace))
-    mupper = [ψ̄(a, τᶜ, firm, signal) for a in boundary_aspace]
-    boundary_ymax = maximum((maximum(wlower), maximum(wupper), maximum(mlower), maximum(mupper)))
-    boundary_ylims = (0.0, boundary_ymax)
+    boundaryaspace = collect(range(0.0, aspace[end]; length = 250))
+    signalξs, signalweights = signal.space
+
+    expectedfirmboundary(a, τ, firmboundary) = sum(
+        signalweights[i] * firmboundary(a, realisedprice(signalξs[i], τ, signal))
+        for i in eachindex(signalξs)
+    )
+
+    wlower = [w̲(a, firm, government) for a in boundaryaspace]
+    wupper = [w̄(a, τᶜ, firm, government, signal) for a in boundaryaspace]
+    vlower = [
+        expectedfirmboundary(a, τ̲(a, firm, government), (a, q) -> v̲(a, q, firm))
+        for a in boundaryaspace
+    ]
+    vupper = [
+        expectedfirmboundary(a, τ̄(τᶜ, firm, government), (a, q) -> v̄(a, q, τᶜ, firm, signal))
+        for a in boundaryaspace
+    ]
+    boundaryymax = maximum((maximum(wlower), maximum(wupper), maximum(vlower), maximum(vupper)))
+    boundaryylims = (-5., boundaryymax)
     valueylabel = "Value [trUSD]"
 
     wfig = plot(
-        boundary_aspace,
+        boundaryaspace,
         wlower;
         c = beliefscolors[:brown],
         xlabel = alabel,
         ylabel = valueylabel,
         label = L"\underbar{w}(a)",
         legend = :topright,
-        ylims = boundary_ylims,
+        ylims = boundaryylims,
+        xlims = extrema(boundaryaspace)
     )
     plot!(
         wfig,
-        boundary_aspace,
+        boundaryaspace,
         wupper;
         c = beliefscolors[:dark],
         label = L"\bar{w}(a)",
     )
 
-    mfig = plot(
-        boundary_aspace,
-        mlower;
+    vfig = plot(
+        boundaryaspace,
+        vlower;
         c = beliefscolors[:brown],
         xlabel = alabel,
         ylabel = valueylabel,
-        label = L"\underbar{m}(a)",
+        label = L"\mathrm{E}_q[\underbar{v}(a,q)]",
         legend = :topright,
-        ylims = boundary_ylims
+        ylims = boundaryylims,
+        xlims = extrema(boundaryaspace)
     )
     plot!(
-        mfig,
-        boundary_aspace,
-        mupper;
+        vfig,
+        boundaryaspace,
+        vupper;
         c = beliefscolors[:dark],
-        label = L"\bar{m}(a)",
+        label = L"\mathrm{E}_q[\bar{v}(a,q)]",
     )
 
     fig = plot(
         wfig,
-        mfig;
+        vfig;
         layout = (1, 2),
         size = (1100, 420),
         margins = 6Plots.mm,

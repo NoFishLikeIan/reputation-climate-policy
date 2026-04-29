@@ -5,7 +5,7 @@ using XLSX, DataFrames
 using Dates, TimeSeries
 using Statistics, StateSpaceModels
 
-using Plots; Plots.default(dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm)
+using Plots; Plots.default(dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, background = :transparent)
 
 ## Load data
 etsdatapath = "data/emission-spot-primary-market-auction-report-2012-2025-data"
@@ -75,6 +75,8 @@ xticklabels = [Dates.format(t, "yyyy-mm") for t in tickyears]
 
 ymax = maximum(abs, dailydf[:, "Auction Price Noise"])
 
-resfig = plot(dailydf.timestamp, dailydf[:, "Auction Price Noise"], label = false, ylabel = "Residual [€/tCO2]", xlabel = "Year", c = :black, xticks = (tickyears, xticklabels), xrotation = 45, ylims = (-ylims, ylims), dpi = 280, size = 500 .* (16 / 9 , 1))
+resfig = plot(dailydf.timestamp, dailydf[:, "Auction Price Noise"], label = false, ylabel = "Residual [€/tCO2]", xlabel = "Year", c = :black, xticks = (tickyears, xticklabels), xrotation = 45, ylims = (-ymax, ymax), dpi = 280, size = 500 .* (16 / 9 , 1))
 
 savefig(resfig, "figures/calibration/ets/residuals.png")
+
+resfig
