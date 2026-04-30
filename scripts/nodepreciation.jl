@@ -15,20 +15,20 @@ using Plots, LaTeXStrings
 Plots.default(label = false, dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, linewidth = 2.5)
 
 ## Imports
-includet("../src/constants.jl")
-includet("../src/signal.jl")
+includet("../src/primitives/constants.jl")
+includet("../src/primitives/signal.jl")
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
-includet("../src/grid.jl")
-includet("../src/valuefunction.jl")
-includet("../src/boundary.jl")
-includet("../src/pfi.jl")
-includet("../src/equilibrium.jl")
+includet("../src/primitives/grid.jl")
+
+includet("../src/solve/valuefunction.jl")
+includet("../src/solve/boundary.jl")
+includet("../src/solve/pfi.jl")
+includet("../src/solve/equilibrium.jl")
 
 ## Setup
-δ = 0.0
-firm = Firm(δ = δ)
+firm = Firm(δ = 0.)
 government = Government()
 
 ns = (101, 51, 51)

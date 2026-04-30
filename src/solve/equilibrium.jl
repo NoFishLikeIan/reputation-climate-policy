@@ -1,3 +1,5 @@
+@inline normalizederror(εᵥ, εₚ, valtol, poltol) = max(εᵥ / valtol, εₚ / poltol)
+
 function applyfirmreputationboundaries!(firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::Firm, signal::Signal) where {T, FV <: FirmValue{T}, G <: Grid{2}}
     abatementspace, reputationspace = exantegrid.nodes
     jmin = firstindex(reputationspace)

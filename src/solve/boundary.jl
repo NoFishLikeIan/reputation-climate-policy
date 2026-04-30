@@ -1,5 +1,3 @@
-@inline normalizederror(εᵥ, εₚ, valtol, poltol) = max(εᵥ / valtol, εₚ / poltol)
-
 function v̲(a, q, firm::AbstractFirm)
     return e(a, firm) * q
 end
