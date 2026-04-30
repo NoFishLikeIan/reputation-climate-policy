@@ -1,41 +1,41 @@
 @inline normalizederror(εᵥ, εₚ, valtol, poltol) = max(εᵥ / valtol, εₚ / poltol)
 
-function applyfirmreputationboundaries!(firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::Firm, signal::Signal) where {T, FV <: FirmValue{T}, G <: Grid{2}}
-    abatementspace, reputationspace = exantegrid.nodes
+function applyfirmreputationboundaries!(firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, signal::Signal) where {T, FV <: FirmValue{T}, G <: Grid{2}}
+    emissionsspace, reputationspace = exantegrid.nodes
     jmin = firstindex(reputationspace)
     jmax = lastindex(reputationspace)
 
-    @inbounds for (i, a) in enumerate(abatementspace)
+    @inbounds for (i, emissions) in enumerate(emissionsspace)
         firmvalue.exante[i, jmin] = zero(T)
-        firmvalue.exante[i, jmax] = ψ̄(a, τᶜ, firm, signal)
+        firmvalue.exante[i, jmax] = m̄(emissions, τᶜ, firm, signal)
 
         for (k, q) in enumerate(pricespace)
-            firmvalue.continuation.V[i, jmin, k] = v̲(a, q, firm)
-            firmvalue.continuation.P[i, jmin, k] = φ̲(a, q, firm, signal)
-            firmvalue.continuation.V[i, jmax, k] = v̄(a, q, τᶜ, firm, signal)
-            firmvalue.continuation.P[i, jmax, k] = φ̄(a, τᶜ, firm, signal)
+            firmvalue.continuation.V[i, jmin, k] = v̲(emissions, q, firm)
+            firmvalue.continuation.P[i, jmin, k] = φ̲(emissions, q, firm, signal)
+            firmvalue.continuation.V[i, jmax, k] = v̄(emissions, q, τᶜ, firm, signal)
+            firmvalue.continuation.P[i, jmax, k] = φ̄(emissions, τᶜ, firm, signal)
         end
     end
 
     return firmvalue
 end
 
-function applygovernmentreputationboundaries!(welfare::TW, τᶜ, exantegrid::G, firm::Firm, government::Government, signal::Signal) where {T, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    abatementspace, reputationspace = exantegrid.nodes
+function applygovernmentreputationboundaries!(welfare::TW, τᶜ, exantegrid::G, firm::AbstractFirm, government::Government, signal::Signal) where {T, TW <: ValueFunction{2, T}, G <: Grid{2}}
+    emissionsspace, reputationspace = exantegrid.nodes
     jmin = firstindex(reputationspace)
     jmax = lastindex(reputationspace)
 
-    @inbounds for (i, a) in enumerate(abatementspace)
-        welfare.V[i, jmin] = w̲(a, firm, government)
-        welfare.P[i, jmin] = τ̲(a, firm, government)
-        welfare.V[i, jmax] = w̄(a, τᶜ, firm, government, signal)
+    @inbounds for (i, emissions) in enumerate(emissionsspace)
+        welfare.V[i, jmin] = w̲(emissions, firm, government)
+        welfare.P[i, jmin] = τ̲(emissions, firm, government)
+        welfare.V[i, jmax] = w̄(emissions, τᶜ, firm, government, signal)
         welfare.P[i, jmax] = τ̄(τᶜ, firm, government)
     end
 
     return welfare
 end
 
-function applyreputationboundaries!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+function applyreputationboundaries!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, government::Government, signal::Signal) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
     applyfirmreputationboundaries!(firmvalue, τᶜ, exantegrid, pricespace, firm, signal)
     applygovernmentreputationboundaries!(welfare, τᶜ, exantegrid, firm, government, signal)
 
@@ -131,8 +131,8 @@ function interiorstats(A, exantegrid)
     return minimum(interiorview), sum(interiorview) / length(interiorview), maximum(interiorview)
 end
 
-function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 0., mimicmask = nothing, policyopttol = 1e-8, taxseparation = 0., mimicgap = nothing, deviationpolicy = nothing) where {T, TW <: ValueFunction{2, T}, FV <: FirmValue{T}, G <: Grid{2}}
-    abatementspace, reputationspace = exantegrid.nodes
+function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, government::Government, signal::Signal; τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 0., mimicmask = nothing, policyopttol = 1e-8, taxseparation = 0., mimicgap = nothing, deviationpolicy = nothing) where {T, TW <: ValueFunction{2, T}, FV <: FirmValue{T}, G <: Grid{2}}
+    emissionsspace, reputationspace = exantegrid.nodes
     continuationgrid = Grid(exantegrid, pricespace)
     jmin = firstindex(reputationspace)
     jmax = lastindex(reputationspace)
@@ -144,19 +144,19 @@ function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, �
 
     @inbounds Threads.@threads for idx in indices
         i, j = idx.I
-        a = abatementspace[i]
+        emissions = emissionsspace[i]
         z = reputationspace[j]
-        damages = d(e(a, firm), government)
+        damages = d(emissions, government)
 
         if j == jmin
-            nextwelfare.V[i, j] = w̲(a, firm, government)
-            nextwelfare.P[i, j] = τ̲(a, firm, government)
+            nextwelfare.V[i, j] = w̲(emissions, firm, government)
+            nextwelfare.P[i, j] = τ̲(emissions, firm, government)
             !isnothing(mimicmask) && (mimicmask[i, j] = false)
             !isnothing(mimicgap) && (mimicgap[i, j] = zero(T))
             !isnothing(deviationpolicy) && (deviationpolicy[i, j] = τlims[1])
             continue
         elseif j == jmax
-            nextwelfare.V[i, j] = w̄(a, τᶜ, firm, government, signal)
+            nextwelfare.V[i, j] = w̄(emissions, τᶜ, firm, government, signal)
             nextwelfare.P[i, j] = τ̄(τᶜ, firm, government)
             !isnothing(mimicmask) && (mimicmask[i, j] = true)
             !isnothing(mimicgap) && (mimicgap[i, j] = zero(T))
@@ -164,7 +164,7 @@ function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, �
             continue
         end
 
-        objective = τ -> governmentobjective(τ, τᶜ, a, z, Φ, W, continuationgrid, exantegrid, firm, government, signal) + damages
+        objective = τ -> governmentobjective(τ, τᶜ, emissions, z, Φ, W, continuationgrid, exantegrid, firm, government, signal) + damages
         mimicvalue = objective(τᶜ)
         devvalue, devpolicy = optimizedeviation(objective, τlims, τᶜ, taxseparation)
         gap = mimicvalue - devvalue
@@ -194,7 +194,71 @@ function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, �
     return nextwelfare
 end
 
-function steadypolicystep!(nextfirmvalue::FV, nextwelfare::TW, firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 0., mimicmask = nothing, policyopttol = 1e-8, taxseparation = 0., mimicgap = nothing, deviationpolicy = nothing) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
+function governmentmimickingstep!(nextwelfare::TW, welfare::TW, firmvalue::FV, τᶜ, exantegrid::G, pricespace, firm::FirmPermanentInvestment, government::Government, signal::Signal; τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 0., mimicmask = nothing, policyopttol = 1e-8, taxseparation = 0., mimicgap = nothing, deviationpolicy = nothing) where {T, TW <: ValueFunction{2, T}, FV <: FirmValue{T}, G <: Grid{2}}
+    emissionsspace, reputationspace = exantegrid.nodes
+    continuationgrid = Grid(exantegrid, pricespace)
+    jmin = firstindex(reputationspace)
+    jmax = lastindex(reputationspace)
+
+    Φ = linear_interp(continuationgrid.nodes, firmvalue.continuation.P; extrap = constextrap)
+    copyto!(nextwelfare, welfare)
+
+    # Since e′ ≤ e, use already updated lower-emissions rows in the interpolation.
+    @inbounds for (i, emissions) in enumerate(emissionsspace)
+        W = linear_interp(exantegrid.nodes, nextwelfare.V; extrap = constextrap)
+
+        Threads.@threads for j in eachindex(reputationspace)
+            z = reputationspace[j]
+            damages = d(emissions, government)
+
+            if j == jmin
+                nextwelfare.V[i, j] = w̲(emissions, firm, government)
+                nextwelfare.P[i, j] = τ̲(emissions, firm, government)
+                !isnothing(mimicmask) && (mimicmask[i, j] = false)
+                !isnothing(mimicgap) && (mimicgap[i, j] = zero(T))
+                !isnothing(deviationpolicy) && (deviationpolicy[i, j] = τlims[1])
+                continue
+            elseif j == jmax
+                nextwelfare.V[i, j] = w̄(emissions, τᶜ, firm, government, signal)
+                nextwelfare.P[i, j] = τ̄(τᶜ, firm, government)
+                !isnothing(mimicmask) && (mimicmask[i, j] = true)
+                !isnothing(mimicgap) && (mimicgap[i, j] = zero(T))
+                !isnothing(deviationpolicy) && (deviationpolicy[i, j] = τᶜ)
+                continue
+            end
+
+            objective = τ -> governmentobjective(τ, τᶜ, emissions, z, Φ, W, continuationgrid, exantegrid, firm, government, signal) + damages
+            mimicvalue = objective(τᶜ)
+            devvalue, devpolicy = optimizedeviation(objective, τlims, τᶜ, taxseparation)
+            gap = mimicvalue - devvalue
+            !isnothing(mimicgap) && (mimicgap[i, j] = gap)
+            !isnothing(deviationpolicy) && (deviationpolicy[i, j] = devpolicy)
+
+            mimic = if isnothing(mimicmask)
+                gap <= mimictol
+            else
+                shouldmimic(gap, mimicmask[i, j], mimictol, mimicband)
+            end
+
+            if mimic
+                nextwelfare.V[i, j] = mimicvalue
+                nextwelfare.P[i, j] = τᶜ
+            else
+                devvalue, devpolicy = selecteddeviation(welfare.P[i, j], devvalue, devpolicy, objective, τlims, τᶜ, policyopttol)
+                nextwelfare.V[i, j] = devvalue
+                nextwelfare.P[i, j] = devpolicy
+            end
+
+            if !isnothing(mimicmask)
+                mimicmask[i, j] = mimic
+            end
+        end
+    end
+
+    return nextwelfare
+end
+
+function steadypolicystep!(nextfirmvalue::FV, nextwelfare::TW, firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, government::Government, signal::Signal; φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 0., mimicmask = nothing, policyopttol = 1e-8, taxseparation = 0., mimicgap = nothing, deviationpolicy = nothing) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
     firmstep!(nextfirmvalue, firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, signal; φlims)
     governmentmimickingstep!(nextwelfare, welfare, nextfirmvalue, τᶜ, exantegrid, pricespace, firm, government, signal; τlims, mimictol, mimicband, mimicmask, policyopttol, taxseparation, mimicgap, deviationpolicy)
     applyreputationboundaries!(nextfirmvalue, nextwelfare, τᶜ, exantegrid, pricespace, firm, government, signal)
@@ -232,22 +296,18 @@ function relaxstationaryupdate!(firmvalue::FV, welfare::TW, nextfirmvalue::FV, n
     return firmvalue, welfare
 end
 
-function steadypolicies!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; initialize = true, maxiter = 500, relax = 0.1, valtol = 1e-8, poltol = 1e-4, φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 10mimictol, policyopttol = 1e-8, taxseparation = 0., mimicmask = nothing, verbose = 0) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
-    if initialize
-        setfirmboundaries!(firmvalue, τᶜ, exantegrid, pricespace, firm, signal)
-        setgovernmentboundaries!(welfare, τᶜ, exantegrid, firm, government, signal)
-        applyreputationboundaries!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal)
-    end
+function steadypolicies!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, government::Government, signal::Signal; maxiter = 500, relax::T = 0.1, valtol = 1e-8, poltol = 1e-4, φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 10mimictol, policyopttol = 1e-8, taxseparation = 0., verbose = 0) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}}
 
-    if isnothing(mimicmask)
-        mimicmask = abs.(welfare.P .- τᶜ) .<= sqrt(eps(T)) * max(one(T), abs(τᶜ))
-    end
+    setfirmboundaries!(firmvalue, τᶜ, exantegrid, pricespace, firm, signal)
+    setgovernmentboundaries!(welfare, τᶜ, exantegrid, firm, government, signal)
+    applyreputationboundaries!(firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal)
+
+    mimicmask = abs.(welfare.P .- τᶜ) .<= sqrt(eps(T)) * max(1, abs(τᶜ))
 
     nextfirmvalue = similar(firmvalue)
     nextwelfare = similar(welfare)
     mimicgap = verbose > 1 ? similar(welfare.V) : nothing
     deviationpolicy = verbose > 1 ? similar(welfare.P) : nothing
-    relax = T(relax)
 
     for iter in 1:maxiter
         steadypolicystep!(nextfirmvalue, nextwelfare, firmvalue, welfare, τᶜ, exantegrid, pricespace, firm, government, signal; φlims, τlims, mimictol, mimicband, mimicmask, policyopttol, taxseparation, mimicgap, deviationpolicy)
@@ -280,7 +340,7 @@ function steadypolicies!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, price
     return maxiter, firmvalue, welfare
 end
 
-function homotopysteadypolicies!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::Firm, government::Government, signal::Signal; σpath::TP = [signal.σ], maxiter = 500, relax = 0.1, valtol = 1e-8, poltol = 1e-4, φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 10mimictol, policyopttol = 1e-8, taxseparation = 0., verbose = 0) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}, TP <: AbstractVector{T}}
+function homotopysteadypolicies!(firmvalue::FV, welfare::TW, τᶜ, exantegrid::G, pricespace, firm::AbstractFirm, government::Government, signal::Signal; σpath::TP = [signal.σ], maxiter = 500, relax = 0.1, valtol = 1e-8, poltol = 1e-4, φlims = (0., 1.), τlims = (0., 2τᶜ), mimictol = 1e-8, mimicband = 10mimictol, policyopttol = 1e-8, taxseparation = 0., verbose = 0) where {T, FV <: FirmValue{T}, TW <: ValueFunction{2, T}, G <: Grid{2}, TP <: AbstractVector{T}}
     initialsignal = Signal(signal.μ, σpath[1], signal.space)
     setfirmboundaries!(firmvalue, τᶜ, exantegrid, pricespace, firm, initialsignal)
     setgovernmentboundaries!(welfare, τᶜ, exantegrid, firm, government, initialsignal)

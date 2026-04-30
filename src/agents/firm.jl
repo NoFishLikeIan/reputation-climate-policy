@@ -1,12 +1,12 @@
 abstract type AbstractFirm{T <: Real} end
-Base.@kwdef struct FirmPermanentInvestment{T} <: AbstractFirm{T}
+struct FirmPermanentInvestment{T} <: AbstractFirm{T}
 	e₀::T
 	ν::T
 	κ::T
 	β::T
 end
 
-Base.@kwdef struct Firm{T} <: AbstractFirm{T}
+struct Firm{T} <: AbstractFirm{T}
 	e₀::T
 	ν::T
 	κ::T
@@ -25,22 +25,22 @@ function cᵩ(φ, firm::AbstractFirm)
 	firm.κ + firm.ν * φ
 end
 
-function f(φ, a, firm::Firm)
-	min((1 - firm.δ) * a + φ, firm.e₀)
+function f(φ, emissions, δ, e₀)
+	max(δ * e₀ + (1 - δ) * emissions - φ, zero(emissions))
 end
-function fᵩ(φ, a, firm::Firm)
-	(1 - firm.δ) * a + φ < firm.e₀ ? one(φ) : zero(φ)
+function f(φ, e, firm::Firm)
+	f(φ, e, firm.δ, firm.e₀)
 end
-
-function f(φ, a, firm::FirmPermanentInvestment)
-	min(a + φ, firm.e₀)
-end
-function fᵩ(φ, a, firm::Firm)
-	a + φ < firm.e₀ ? one(φ) : zero(φ)
+function f(φ, e, ::FirmPermanentInvestment)
+	max(e - φ, zero(e))
 end
 
-function e(a, firm::Firm)
-	max(firm.e₀ - a, zero(a))
+function investmentupper(e, firm::Firm)
+	firm.δ * firm.e₀ + (1 - firm.δ) * e
+end
+
+function investmentupper(e, ::FirmPermanentInvestment)
+	e
 end
 
 function blissabatement(τᶜ, firm::Firm, signal::Signal)

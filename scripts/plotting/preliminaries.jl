@@ -18,30 +18,30 @@ plotpath = "papers/figures/preliminaries"
 if !isdir(plotpath) mkdir(plotpath) end
 
 includet("colors.jl")
-includet("../../src/constants.jl")
-includet("../../src/signal.jl")
+includet("../../src/primitives/constants.jl")
+includet("../../src/primitives/signal.jl")
 includet("../../src/agents/firm.jl")
 includet("../../src/agents/government.jl")
 
-includet("../../src/grid.jl")
-includet("../../src/valuefunction.jl")
-includet("../../src/boundary.jl")
+includet("../../src/primitives/grid.jl")
+includet("../../src/solve/valuefunction.jl")
+includet("../../src/solve/boundary.jl")
 
 const taxfactor = scctotax
 
 firm = Firm()
 government = Government()
-signal = Signal(1.0, 1e-2, 41)
+
+σestimated = 1.1;
+signal = Signal(1., σestimated * scctotax, 101)
 
 ## Compute figure values
-a0 = 0.0
-τᶜ = optimize(τ -> w̄(a0, τ, firm, government, signal), 0.0, 1.0, Brent()).minimizer
+τᶜ = optimize(τ -> w̄(e₀, τ, firm, government, signal), 0.0, 1.0, Brent()).minimizer
 φstar = φ̄(τᶜ, firm, signal)
-a_bliss = blissabatement(τᶜ, firm, signal)
 
 τspace_usd = collect(range(0.0, 250.0; length = 251))
 τspace = τspace_usd .* taxfactor
-aspace = collect(range(0.0, 1.25 * max(a_bliss, φstar, 1e-6); length = 250))
+emissionsspace = collect(range(0.0, e₀; length = 250))
 φspace = collect(range(0.0, 1.5 * max(φstar, 1e-6); length = 250))
 ξspace = collect(range(-3.0, 3.0; length = 250))
 qspace = realisedprice.(ξspace, τᶜ, Ref(signal))
@@ -49,7 +49,7 @@ zspace = collect(range(-0.25, 0.05; length = 250))
 zs = [0.0, -0.025, -0.05, -0.10]
 
 τlabel = L"Carbon tax $\tau$ (USD/tCO$_2$)"
-alabel = L"Abatement stock $a$ [GtCO$_2$ / year]"
+emissionslabel = L"Emissions $e$ [GtCO$_2$ / year]"
 φlabel = L"Abatement investment $\phi$ [GtCO$_2$ / year]"
 zlabel = L"Reputation $z$"
 
@@ -59,7 +59,106 @@ signal_price = qspace ./ taxfactor
 signal_shift_nc = [ℓ(q, 0.5τᶜ, τᶜ, signal) for q in qspace]
 signal_shift_commit = [ℓ(q, τᶜ, τᶜ, signal) for q in qspace]
 
-## Plots
+# Plots
+## Compare boundaries by δ
+let
+    deltavalues = [0.0, 1e-2]
+    deltafirms = [Firm(δ = δ) for δ in deltavalues]
+    deltalabels = ["0", "0.025"]
+    deltalinestyles = [:solid, :dot]
+    lowercolor = beliefscolors[:brown]
+    uppercolor = beliefscolors[:dark]
+    boundaryemissionsspace = emissionsspace
+    committedtaxes = [
+        optimize(τ -> w̄(e₀, τ, deltafirm, government, signal), 0.0, 1.0, Brent()).minimizer
+        for deltafirm in deltafirms
+    ]
+
+    wlowers = [
+        [w̲(emissions, deltafirm, government) for emissions in boundaryemissionsspace]
+        for deltafirm in deltafirms
+    ]
+    wuppers = [
+        [w̄(emissions, committedtax, deltafirm, government, signal) for emissions in boundaryemissionsspace]
+        for (deltafirm, committedtax) in zip(deltafirms, committedtaxes)
+    ]
+    muppers = [
+        [m̄(emissions, committedtax, deltafirm, signal) for emissions in boundaryemissionsspace]
+        for (deltafirm, committedtax) in zip(deltafirms, committedtaxes)
+    ]
+
+    valuemax = maximum((
+        maximum(maximum, wlowers),
+        maximum(maximum, wuppers),
+        maximum(maximum, muppers),
+    ))
+    valueylims = (0.0, valuemax)
+    valueylabel = "Value [trUSD]"
+
+    wfig = plot(
+        xlabel = emissionslabel,
+        ylabel = valueylabel,
+        legend = :topright,
+        ylims = valueylims,
+    )
+    mfig = plot(
+        xlabel = emissionslabel,
+        ylabel = valueylabel,
+        legend = :topright,
+        ylims = valueylims,
+    )
+
+    for (i, deltalabel) in enumerate(deltalabels)
+        plot!(
+            wfig,
+            boundaryemissionsspace,
+            wlowers[i];
+            c = lowercolor,
+            linestyle = deltalinestyles[i],
+            label = latexstring("\\underbar{w}(e), \\delta = ", deltalabel),
+        )
+        plot!(
+            wfig,
+            boundaryemissionsspace,
+            wuppers[i];
+            c = uppercolor,
+            linestyle = deltalinestyles[i],
+            label = latexstring("\\bar{w}(e), \\delta = ", deltalabel),
+        )
+
+        plot!(
+            mfig,
+            boundaryemissionsspace,
+            zeros(length(boundaryemissionsspace));
+            c = lowercolor,
+            linestyle = deltalinestyles[i],
+            label = latexstring("\\underbar{m}(e), \\delta = ", deltalabel),
+        )
+        plot!(
+            mfig,
+            boundaryemissionsspace,
+            muppers[i];
+            c = uppercolor,
+            linestyle = deltalinestyles[i],
+            label = latexstring("\\bar{m}(e), \\delta = ", deltalabel),
+        )
+    end
+
+    fig = plot(
+        wfig,
+        mfig;
+        layout = (1, 2),
+        size = (1100, 420),
+        margins = 6Plots.mm,
+        link = :y,
+    )
+
+    savefig(fig, joinpath(plotpath, "boundary-values-delta.png"))
+    fig
+end
+
+
+## Boundary Values
 let
     
     signal_policy_low = 0.6τᶜ
@@ -151,49 +250,49 @@ let
 end
 
 let
-    boundary_aspace = collect(range(0.0, aspace[end]; length = 250))
-    wlower = [w̲(a, firm, government) for a in boundary_aspace]
-    wupper = [w̄(a, τᶜ, firm, government, signal) for a in boundary_aspace]
-    mlower = zeros(length(boundary_aspace))
-    mupper = [ψ̄(a, τᶜ, firm, signal) for a in boundary_aspace]
+    boundaryemissionsspace = emissionsspace
+    wlower = [w̲(emissions, firm, government) for emissions in boundaryemissionsspace]
+    wupper = [w̄(emissions, τᶜ, firm, government, signal) for emissions in boundaryemissionsspace]
+    mlower = zeros(length(boundaryemissionsspace))
+    mupper = [m̄(emissions, τᶜ, firm, signal) for emissions in boundaryemissionsspace]
     boundary_ymax = maximum((maximum(wlower), maximum(wupper), maximum(mlower), maximum(mupper)))
     boundary_ylims = (0.0, boundary_ymax)
     valueylabel = "Value [trUSD]"
 
     wfig = plot(
-        boundary_aspace,
+        boundaryemissionsspace,
         wlower;
         c = beliefscolors[:brown],
-        xlabel = alabel,
+        xlabel = emissionslabel,
         ylabel = valueylabel,
-        label = L"\underbar{w}(a)",
+        label = L"\underbar{w}(e)",
         legend = :topright,
         ylims = boundary_ylims,
     )
     plot!(
         wfig,
-        boundary_aspace,
+        boundaryemissionsspace,
         wupper;
         c = beliefscolors[:dark],
-        label = L"\bar{w}(a)",
+        label = L"\bar{w}(e)",
     )
 
     mfig = plot(
-        boundary_aspace,
+        boundaryemissionsspace,
         mlower;
         c = beliefscolors[:brown],
-        xlabel = alabel,
+        xlabel = emissionslabel,
         ylabel = valueylabel,
-        label = L"\underbar{m}(a)",
+        label = L"\underbar{m}(e)",
         legend = :topright,
         ylims = boundary_ylims
     )
     plot!(
         mfig,
-        boundary_aspace,
+        boundaryemissionsspace,
         mupper;
         c = beliefscolors[:dark],
-        label = L"\bar{m}(a)",
+        label = L"\bar{m}(e)",
     )
 
     fig = plot(

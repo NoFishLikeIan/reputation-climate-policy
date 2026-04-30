@@ -11,9 +11,6 @@ using Optim
 
 using Printf
 
-using Plots, LaTeXStrings
-Plots.default(label = false, dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, linewidth = 2.5)
-
 ## Imports
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -22,8 +19,8 @@ includet("../src/agents/government.jl")
 
 includet("../src/primitives/grid.jl")
 
-includet("../src/solve/valuefunction.jl")
 includet("../src/solve/boundary.jl")
+includet("../src/solve/valuefunction.jl")
 includet("../src/solve/pfi.jl")
 includet("../src/solve/equilibrium.jl")
 
@@ -32,24 +29,25 @@ firm = Firm(δ = 0.)
 government = Government()
 
 ns = (101, 51, 51)
-signal = Signal(1., 1.1 * scctotax, ns[3])
 
-τᶜ = optimize(τᶜ -> w̄(a₀, τᶜ, firm, government, signal), 0., 1., Optim.Brent()).minimizer
-aᵘ = abatementgridupper(τᶜ, firm, signal)
+σestimated = 1.1;
+signal = Signal(1., σestimated * scctotax, ns[3])
+
+τᶜ = optimize(τᶜ -> w̄(e₀, τᶜ, firm, government, signal), 0., 1., Optim.Brent()).minimizer
 τlims = (0., 2τᶜ)
 ξmin, ξmax = extrema(signal.space[1])
 
-abatementspace = range(0, aᵘ, ns[1])
+emissionsspace = range(0, e₀, ns[1])
 Δzmax = maximum(abs, (
-    ℓ(realisedprice(ξ, τ, signalᵢ), τ, τᶜ, signalᵢ)
-    for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims
+    ℓ(realisedprice(ξ, τ, signal), τ, τᶜ, signal)
+    for ξ in (ξmin, ξmax), τ in τlims
 ))
 zmax = max(8.0, 6Δzmax)
 reputationspace = collect(range(-zmax, zmax, length = ns[2]))
-exantegrid = Grid((abatementspace, reputationspace))
+exantegrid = Grid((emissionsspace, reputationspace))
 
-qmin = minimum(realisedprice(ξ, τ, signalᵢ) for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims)
-qmax = maximum(realisedprice(ξ, τ, signalᵢ) for signalᵢ in homotopysignals, ξ in (ξmin, ξmax), τ in τlims)
+qmin = minimum(realisedprice(ξ, τ, signal) for ξ in (ξmin, ξmax), τ in τlims)
+qmax = maximum(realisedprice(ξ, τ, signal) for ξ in (ξmin, ξmax), τ in τlims)
 pricespace = collect(range(qmin, qmax, length = ns[3]))
 
 
@@ -78,9 +76,11 @@ iteration, firmvalue, welfare = steadypolicies!(
     taxseparation = 0.01τᶜ,
     verbose = 2,
 )
-iterations = [iteration]
 
 ## Analyse
+using Plots, LaTeXStrings
+Plots.default(label = false, dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, linewidth = 2.5)
+
 function plotoverspace(V::TV; kwargs...) where TV <: AbstractMatrix
-    heatmap(reputationspace, abatementspace, V; xlabel = L"Reputation $z$", ylabel = L"Abatement $a$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
+    heatmap(reputationspace, emissionsspace, V; xlabel = L"Reputation $z$", ylabel = L"Emissions $e$", linewidth = 0.5, c = :Reds, clims = (0, Inf), kwargs...)
 end

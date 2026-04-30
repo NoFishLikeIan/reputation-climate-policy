@@ -55,6 +55,3 @@ end
 @inline function clampnode(x, grid::G, dim) where G <: AbstractGrid
     clamp(x, first(grid.nodes[dim]), last(grid.nodes[dim]))
 end
-
-@inline zlower(grid::G) where G <: AbstractGrid = first(grid.nodes[2])
-@inline zupper(grid::G) where G <: AbstractGrid = last(grid.nodes[2])
