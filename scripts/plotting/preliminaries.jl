@@ -256,7 +256,7 @@ let
     mlower = zeros(length(boundaryemissionsspace))
     mupper = [m̄(emissions, τᶜ, firm, signal) for emissions in boundaryemissionsspace]
     boundary_ymax = maximum((maximum(wlower), maximum(wupper), maximum(mlower), maximum(mupper)))
-    boundary_ylims = (0.0, boundary_ymax)
+    boundary_ylims = (-0.05, boundary_ymax)
     valueylabel = "Value [trUSD]"
 
     wfig = plot(
