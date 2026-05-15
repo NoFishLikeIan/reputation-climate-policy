@@ -1,79 +1,57 @@
-import Optim
-
-function committedwelfare(tax, government::Government, firm::Firm)
-    abatement = committedabatement(tax, firm)
-    welfare(tax, abatement, government, firm)
+function wᶜ(τ, government::Government, firm::Firm)
+    w(τ, aᶜ(τ, firm), government, firm)
 end
 
-function committedtax(government::Government, firm::Firm)
-    upperbound = firm.nu * firm.e0
-    result = Optim.optimize(tax -> committedwelfare(tax, government, firm), zero(upperbound), upperbound)
+function computeτᶜ(government::Government, firm::Firm)
+    upperτ = firm.ν * firm.e₀
+    result = Optim.optimize(τ -> wᶜ(τ, government, firm), zero(upperτ), upperτ)
 
-    Optim.minimizer(result)
+    return Optim.minimizer(result)
 end
 
-function lagrangian(tax, abatement, reputation, taxc, signal::Signal, government::Government, firm::Firm)
-    reputationvalue =
-        reputation *
-        signaldrift(tax, signal) *
-        signalgap(tax, taxc, signal) /
-        signal.sigma^2
+function L(τ, a, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    reputationvalue = z * μ(τ, signal) * (μ(τᶜ, signal) - μ(τ, signal)) / signal.σ^2
 
-    welfare(tax, abatement, government, firm) - reputationvalue
+    return w(τ, a, government, firm) - reputationvalue
 end
 
-function b(reputation, signal::Signal, government::Government, firm::Firm)
-    if reputation <= zero(reputation)
-        return oftype(reputation, Inf)
-    end
+function b(z, signal::Signal, government::Government, firm::Firm)
+	@unpack ϵ, σ = signal
+	@unpack δ, y₀ = government
+	@unpack e₀ = firm
 
-    government.delta * firm.e0 / (government.y0 * reputation * (signal.epsilon / signal.sigma)^2)
+	return (δ * e₀ / y₀) / (z * (ϵ / σ)^2)
 end
 
-function taxshare(abatement, reputation, signal::Signal, government::Government, firm::Firm)
-    burden = b(reputation, signal, government, firm)
+function η(a, z, signal::Signal, government::Government, firm::Firm)	
+    inv(2 + b(z, signal, government, firm) * e(a, firm))
+end;
 
-    if !isfinite(burden)
-        return zero(abatement + reputation)
-    end
-
-    1 / (2 + burden * emissions(abatement, firm))
+function ηᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    if z < 1e-3
+		return zero(z)
+	end
+	
+	ā = (firm.e₀ - φ * τᶜ / firm.ν)
+	bᶻ = b(z, signal, government, firm)
+	x = ā * bᶻ
+	d = (2 + x)^2 - 4bᶻ * (1 - φ) * τᶜ / firm.ν
+	
+	return 1 / (1 + (x + √d) / 2)
 end
 
-function taxshare(belief, reputation, signal::Signal, government::Government, firm::Firm, taxc)
-    maxabatement = taxc * (belief + (1 - belief) / 2) / firm.nu
-
-    if maxabatement >= firm.e0
-        return one(taxc) / 2
-    end
-
-    burden = b(reputation, signal, government, firm)
-
-    if !isfinite(burden)
-        return zero(taxc)
-    elseif burden <= zero(burden)
-        return one(taxc) / 2
-    end
-
-    residual = firm.e0 - taxc * belief / firm.nu
-    linearpart = 2 + burden * residual
-    discriminant = linearpart^2 - 4 * burden * (1 - belief) * taxc / firm.nu
-
-    2 / (linearpart + sqrt(max(discriminant, zero(discriminant))))
+function τᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    ηᵉ(φ, z, τᶜ, signal, government, firm) * τᶜ
 end
 
-function equilibriumtax(belief, reputation, signal::Signal, government::Government, firm::Firm, taxc)
-    taxshare(belief, reputation, signal, government, firm, taxc) * taxc
+function aᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    τ = τᵉ(φ, z, τᶜ, signal, government, firm)
+    return aᵇ(τ, φ, τᶜ, firm)
 end
 
-function equilibriumabatement(belief, reputation, signal::Signal, government::Government, firm::Firm, taxc)
-    tax = equilibriumtax(belief, reputation, signal, government, firm, taxc)
-    bestresponseabatement(tax, belief, taxc, firm)
-end
+function wᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    τ = τᵉ(φ, z, τᶜ, signal, government, firm)
+    a = aᵉ(τ, φ, τᶜ, firm)
 
-function equilibriumwelfare(belief, reputation, signal::Signal, government::Government, firm::Firm, taxc)
-    tax = equilibriumtax(belief, reputation, signal, government, firm, taxc)
-    abatement = bestresponseabatement(tax, belief, taxc, firm)
-
-    welfare(tax, abatement, government, firm)
+    return w(τ, a, government, firm)
 end

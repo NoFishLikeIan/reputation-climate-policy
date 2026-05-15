@@ -1,8 +1,8 @@
-const ctoCO2 = 44 / 12
-const taxfactor = ctoCO2 * 1e9 * 1e-12 # USD / tCO2 to trillion USD / GtC
+const CtoCO2 = 44 / 12
+const taxfactor = CtoCO2 * 1e9 * 1e-12 # USD / tCO2 to trillion USD / GtC
 
-const defaulte0 = 37.8 / ctoCO2
-const defaulty0 = 197.231
+const e₀ = 37.8 / CtoCO2
+const y₀ = 197.231
 const defaultscc = 66 / 1000
-const defaultdietzphi = 3e-5
-const defaulttax0 = 3 * taxfactor
+const defaultdietzϕ = 3e-5
+const τ₀ = 3 * taxfactor

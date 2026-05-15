@@ -1,28 +1,29 @@
 Base.@kwdef struct Firm{T <: Real}
-    e0::T = defaulte0
-    nu::T = defaultdietzphi * defaulty0 * ctoCO2^2
+    e₀::T = e₀
+    ν::T = defaultdietzϕ * y₀ * CtoCO2^2
 end
 
-emissions(abatement, firm::Firm) = firm.e0 - abatement
-
-function abatementcost(abatement, firm::Firm)
-    firm.nu * abatement^2 / 2
+function e(a, firm::Firm)
+    firm.e₀ - a
 end
 
-function firmcost(abatement, tax, firm::Firm)
-    emissions(abatement, firm) * tax + abatementcost(abatement, firm)
+function c(a, firm::Firm)
+    firm.ν * a^2 / 2
 end
 
-function committedabatement(tax, firm::Firm)
-    min(tax / firm.nu, firm.e0)
+function k(a, τ, firm::Firm)
+    e(a, firm) * τ + abatementcost(a, firm)
 end
 
-function expectedfirmcost(abatement, tax, belief, committedtax, firm::Firm)
-    belief * firmcost(abatement, committedtax, firm) +
-        (1 - belief) * firmcost(abatement, tax, firm)
+function aᶜ(τ, firm::Firm)
+    min(τ / firm.ν, firm.e₀)
 end
 
-function bestresponseabatement(tax, belief, committedtax, firm::Firm)
-    expectedtax = belief * committedtax + (1 - belief) * tax
-    min(expectedtax / firm.nu, firm.e0)
+function kᵉ(a, τ, φ, τᶜ, firm::Firm)
+    φ * firmcost(a, τᶜ, firm) + (1 - φ) * firmcost(a, τ, firm)
+end
+
+"Best response abatement to tax τ given belief φ."
+function aᵇ(τ, φ, τᶜ, firm::Firm)
+    min((φ * τᶜ + (1 - φ) * τ) / firm.ν, firm.e₀)
 end
