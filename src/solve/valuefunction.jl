@@ -1,71 +1,88 @@
-struct ValueFunction{N, T, TV <: AbstractArray{T, N}, TP <: AbstractArray{T, N}}
-    V::TV
-    P::TP
+using BoundaryValueDiffEq: MIRK4, TwoPointBVProblem
+using DifferentialEquations: solve
+
+struct ReputationProblem{TF, TG, TS, TT, TP}
+    firm::TF
+    government::TG
+    signal::TS
+    taxc::TT
+    phispan::TP
 end
 
-struct FirmValue{T, TE <: AbstractMatrix{T}, TC <: ValueFunction{3, T}}
-    exante::TE
-    continuation::TC
+function ReputationProblem(;
+    firm = Firm(),
+    government = Government(),
+    signal = Signal(),
+    taxc = committedtax(government, firm),
+    phiepsilon = 1e-2,
+)
+    phispan = (phiepsilon, 1 - phiepsilon)
+    ReputationProblem(firm, government, signal, taxc, phispan)
 end
 
-function ValueFunction(N, T, dims)
-    V = Array{T, N}(undef, dims)
-    P = similar(V)
-    return ValueFunction(V, P)
+function boundarycosts(problem::ReputationProblem)
+    firm = problem.firm
+    government = problem.government
+    taxc = problem.taxc
+
+    lowercost = welfare(zero(taxc), zero(taxc), government, firm)
+    uppercost = committedwelfare(taxc, government, firm)
+
+    lowercost, uppercost
 end
 
-function ValueFunction(grid::V) where {T, V <: AbstractVector{T}}
-    ValueFunction(1, T, (length(grid), ))
+function valueguess(belief, problem::ReputationProblem)
+    government = problem.government
+    philower, phiupper = problem.phispan
+    lowercost, uppercost = boundarycosts(problem)
+
+    valueslope = (uppercost - lowercost) / (phiupper - philower)
+    value = lowercost + valueslope * (belief - philower)
+    reputation = -valueslope * belief * (1 - belief) / government.r
+
+    [value, reputation]
 end
 
-function ValueFunction(grid::G) where {N, T, G <: AbstractGrid{N, T}}
-    ValueFunction(N, T, size(grid))
+function valuedynamics!(dx, x, problem::ReputationProblem, belief)
+    firm = problem.firm
+    government = problem.government
+    signal = problem.signal
+    taxc = problem.taxc
+
+    value, reputation = x
+    abatement = equilibriumabatement(belief, reputation, signal, government, firm, taxc)
+    tax = equilibriumtax(belief, reputation, signal, government, firm, taxc)
+    beliefvariance = belief * (1 - belief)
+    taxgap = max(taxc - tax, sqrt(eps(typeof(taxc))) * max(one(taxc), abs(taxc)))
+    signalfactor = signal.sigma / (signal.epsilon * taxgap)
+
+    dx[1] = -government.r * reputation / beliefvariance
+    dx[2] = (reputation + 2 * signalfactor^2 * (welfare(tax, abatement, government, firm) - value)) / beliefvariance
+
+    dx
 end
 
-function ValueFunction(grid::G, space::V) where {N, T, G <: AbstractGrid{N, T}, V <: AbstractVector{T}}
-    ValueFunction(N + 1, T, (size(grid)..., length(space)))
+function boundaryvalueproblem(problem::ReputationProblem)
+    lowercost, uppercost = boundarycosts(problem)
+
+    function leftboundary!(resid, x, problem)
+        resid[1] = x[1] - lowercost
+    end
+
+    function rightboundary!(resid, x, problem)
+        resid[1] = x[1] - uppercost
+    end
+
+    TwoPointBVProblem(
+        valuedynamics!,
+        (leftboundary!, rightboundary!),
+        belief -> valueguess(belief, problem),
+        problem.phispan,
+        problem;
+        bcresid_prototype = (zeros(1), zeros(1)),
+    )
 end
 
-function FirmValue(grid::G, space::V) where {T, G <: AbstractGrid{2, T}, V <: AbstractVector{T}}
-    exante = Matrix{T}(undef, size(grid))
-    continuation = ValueFunction(grid, space)
-
-    return FirmValue(exante, continuation)
-end
-
-function Base.similar(valuefunction::V) where V <: ValueFunction
-    V(similar(valuefunction.V), similar(valuefunction.P))
-end
-
-function Base.similar(firmvalue::V) where V <: FirmValue
-    FirmValue(similar(firmvalue.exante), similar(firmvalue.continuation))
-end
-
-function Base.copyto!(tovalue::V, fromvalue::V) where V <: ValueFunction
-    copyto!(tovalue.V, fromvalue.V)
-    copyto!(tovalue.P, fromvalue.P)
-
-    return tovalue
-end
-
-function Base.copyto!(tovalue::V, fromvalue::V) where V <: FirmValue
-    copyto!(tovalue.exante, fromvalue.exante)
-    copyto!(tovalue.continuation, fromvalue.continuation)
-
-    return tovalue
-end
-
-
-function Base.copy(valuefunction::V) where V <: ValueFunction
-    newvaluefunction = similar(valuefunction)
-    copyto!(newvaluefunction, valuefunction)
-    
-    return newvaluefunction
-end
-
-function Base.copy(firmvalue::V) where V <: FirmValue
-    newfirmvalue = similar(firmvalue)
-    copyto!(newfirmvalue, firmvalue)
-
-    return newfirmvalue
+function solvevaluefunction(problem::ReputationProblem; dt = first(problem.phispan), abstol = 1e-8, reltol = 1e-8)
+    solve(boundaryvalueproblem(problem), MIRK4(); dt, abstol, reltol)
 end

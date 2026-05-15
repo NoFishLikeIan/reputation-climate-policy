@@ -1,58 +1,28 @@
-abstract type AbstractFirm{T <: Real} end
-struct FirmPermanentInvestment{T} <: AbstractFirm{T}
-	e₀::T
-	ν::T
-	κ::T
-	β::T
+Base.@kwdef struct Firm{T <: Real}
+    e0::T = defaulte0
+    nu::T = defaultdietzphi * defaulty0 * ctoCO2^2
 end
 
-struct Firm{T} <: AbstractFirm{T}
-	e₀::T
-	ν::T
-	κ::T
-	β::T
-	δ::T
+emissions(abatement, firm::Firm) = firm.e0 - abatement
+
+function abatementcost(abatement, firm::Firm)
+    firm.nu * abatement^2 / 2
 end
 
-function Firm(; e₀ = e₀, ν = dietzφ * y₀ * (e₀ * CtoCO₂)^2, κ = baldwinκ, δ = 2e-2,  β = 1 - 1e-3)	
-	δ > 0 ? Firm(e₀, ν, κ, β, δ) : FirmPermanentInvestment(e₀, ν, κ, β)
+function firmcost(abatement, tax, firm::Firm)
+    emissions(abatement, firm) * tax + abatementcost(abatement, firm)
 end
 
-function c(φ, firm::AbstractFirm)
-	firm.κ * φ + (firm.ν / 2) * φ^2
-end
-function cᵩ(φ, firm::AbstractFirm)
-	firm.κ + firm.ν * φ
+function committedabatement(tax, firm::Firm)
+    min(tax / firm.nu, firm.e0)
 end
 
-function f(φ, emissions, δ, e₀)
-	max(δ * e₀ + (1 - δ) * emissions - φ, zero(emissions))
-end
-function f(φ, e, firm::Firm)
-	f(φ, e, firm.δ, firm.e₀)
-end
-function f(φ, e, ::FirmPermanentInvestment)
-	max(e - φ, zero(e))
+function expectedfirmcost(abatement, tax, belief, committedtax, firm::Firm)
+    belief * firmcost(abatement, committedtax, firm) +
+        (1 - belief) * firmcost(abatement, tax, firm)
 end
 
-function investmentupper(e, firm::Firm)
-	firm.δ * firm.e₀ + (1 - firm.δ) * e
-end
-
-function investmentupper(e, ::FirmPermanentInvestment)
-	e
-end
-
-function blissabatement(τᶜ, firm::Firm, signal::Signal)
-	@unpack κ, ν, δ = firm
-	@unpack μ = signal
-
-	return (τᶜ * μ - κ * δ) / (ν * δ^2)
-end
-
-function blissabatement(τᶜ, firm::FirmPermanentInvestment, ::Signal)
-	blissabatement(τᶜ, firm)
-end
-function blissabatement(τᶜ, firm::FirmPermanentInvestment)
-	(τᶜ > 0) ? firm.e₀ : zero(firm.e₀)
+function bestresponseabatement(tax, belief, committedtax, firm::Firm)
+    expectedtax = belief * committedtax + (1 - belief) * tax
+    min(expectedtax / firm.nu, firm.e0)
 end

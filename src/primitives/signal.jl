@@ -1,27 +1,14 @@
-struct Signal{T, H <: NTuple{2, AbstractVector{T}}}
-    μ::T
-    σ::T
-    space::H
+Base.@kwdef struct Signal{T <: Real}
+    sigma::T = sqrt(defaulttax0)
+    epsilon::T = 1e-2
 end
 
-function Signal(μ, σ, n::Int)
-    space, weights = gausshermite(n)
-    unitaryweights = weights ./ √π
+signaldrift(tax, signal::Signal) = signal.epsilon * tax
 
-    return Signal(μ, σ, (space, unitaryweights))
+function signalgap(tax, committedtax, signal::Signal)
+    signaldrift(committedtax, signal) - signaldrift(tax, signal)
 end
 
-const sqrt2 = √2
-
-@inline function realisedprice(ξ, τ, signal::Signal)
-    signal.μ * τ + sqrt2 * signal.σ * ξ
+function beliefloading(tax, committedtax, signal::Signal)
+    signalgap(tax, committedtax, signal) / signal.sigma
 end
-
-@inline function impliedsignal(q, τ, signal::Signal)
-    (q - signal.μ * τ) / (sqrt2 * signal.σ)
-end
-
-@inline function ℓ(q, τ, τᶜ, signal::Signal)
-    (signal.μ * (τᶜ - τ) / signal.σ^2) * (q - signal.μ * (τ + τᶜ) / 2)
-end
-

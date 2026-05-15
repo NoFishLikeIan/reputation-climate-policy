@@ -1,10 +1,8 @@
-const CtoCO₂ = 44 / 12
-const e₀ = 37.8 / CtoCO₂
-const y₀ = 197.231
-const scctotax = CtoCO₂ * 1e9 * 1e-12; # $ / tCO₂ → t$ / GtC
+const ctoCO2 = 44 / 12
+const taxfactor = ctoCO2 * 1e9 * 1e-12 # USD / tCO2 to trillion USD / GtC
 
-const dicescc = 66 / 1000
-const dietzφ = 3e-5 
-const abatementdepreciation = 2e-2
-
-const baldwinκ = 0.11 # TODO: Double check
+const defaulte0 = 37.8 / ctoCO2
+const defaulty0 = 197.231
+const defaultscc = 66 / 1000
+const defaultdietzphi = 3e-5
+const defaulttax0 = 3 * taxfactor
