@@ -28,7 +28,7 @@ function η(a, z, signal::Signal, government::Government, firm::Firm)
 end;
 
 function ηᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
-    if z < 1e-3
+    if z <= 0
 		return zero(z)
 	end
 	
@@ -51,7 +51,7 @@ end
 
 function wᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
     τ = τᵉ(φ, z, τᶜ, signal, government, firm)
-    a = aᵉ(τ, φ, τᶜ, firm)
+    a = aᵉ(φ, z, τᶜ, signal, government, firm)
 
     return w(τ, a, government, firm)
 end
