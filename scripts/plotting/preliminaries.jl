@@ -146,7 +146,7 @@ let
 
     fig = plot(
         wfig,
-        mfig;
+        vfig;
         layout = (1, 2),
         size = (1100, 420),
         margins = 6Plots.mm,
