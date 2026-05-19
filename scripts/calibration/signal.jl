@@ -3,7 +3,8 @@ using Revise
 
 using XLSX, DataFrames
 using Dates, TimeSeries
-using Statistics, StateSpaceModels
+using Statistics
+using Printf
 
 using Plots; Plots.default(dpi = 180, size = 350 .* (16/9, 1), margins = 5Plots.mm, background = :transparent)
 
@@ -55,28 +56,20 @@ sort!(eudf, :DateTime)
 
 pricedf = coalesce.(eudf[:, ["DateTime", "Auction Price €/tCO2"]], NaN)
 priceta = TimeArray(pricedf; :timestamp => :DateTime)
-dailyta = retime(priceta, Day(1), downsample = Mean())
 
 ## Estimating
-dailydf = DataFrame(dailyta)
-pricevec = dailydf[:, "Auction Price €/tCO2"]
-model = LocalLevel(pricevec); StateSpaceModels.fit!(model)
-smoothed = kalman_smoother(model)
+const daysperyear = 365.25
+const millisecondsperday = 1000 * 60 * 60 * 24
+const millisecondsperyear = millisecondsperday * daysperyear
 
-noisetrajectory = (pricevec - get_smoothed_state(smoothed)) ./ pricevec
-σ = √((365 / 7) * model.results.coef_table.coef[1])
+toyears(Δt::Day) = Dates.value(Δt) / daysperyear
+toyears(Δt::Millisecond) = Dates.value(Δt) / millisecondsperyear
 
-dailydf[!, "Auction Price Noise"] = vec(noisetrajectory)
-noisepriceta = TimeArray(dailydf; :timestamp => :timestamp)
+pricevec = dropnan(priceta)
+r = percentchange(pricevec, :log)
+Δt = toyears.(diff(timestamp(pricevec)))
 
-## Plotting
-tickyears = range(dailydf.timestamp[1], dailydf.timestamp[end]; step = Month(6))
-xticklabels = [Dates.format(t, "yyyy-mm") for t in tickyears]
-
-ymax = maximum(abs, dailydf[:, "Auction Price Noise"])
-
-resfig = plot(dailydf.timestamp, dailydf[:, "Auction Price Noise"], label = false, ylabel = "Residual [€/tCO2]", xlabel = "Year", c = :black, xticks = (tickyears, xticklabels), xrotation = 45, ylims = (-ymax, ymax), dpi = 280, size = 500 .* (16 / 9 , 1))
-
-savefig(resfig, "figures/calibration/ets/residuals.png")
-
-resfig
+α = only(values(sum(r)) / sum(Δt))
+ε = r .- α * Δt
+σ = @. ε^2 / Δt
+@printf "Estimated annual σ = %.5f" mean(σ) |> values |> only

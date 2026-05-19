@@ -22,7 +22,7 @@ includet("../src/solve/valuefunction.jl")
 ## Defaults
 firm = Firm()
 government = Government()
-signal = Signal(σ = Signal().σ / 10)
+signal = Signal()
 
 τᶜ = computeτᶜ(government, firm)
 
@@ -94,14 +94,14 @@ odeprob = ODEProblem(Flogit!, xinit, ℓspan, parameters)
 ## Solve TwoPointBVProblem
 bcresiduals = (zeros(1), zeros(1))
 solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
-guess = xinit
+global guess = xinit
 
 for (i, φstep) in enumerate(φsteps)
     @printf "Solving problem %d/%d with φ = %.2e\n" i length(φsteps) φstep
 
-    φspan = (φstep, 1 - φstep)
-    ℓspan = logit.(φspan)
-    ℓstep = min(0.05, (last(ℓspan) - first(ℓspan)) / 200)
+    local φspan = (φstep, 1 - φstep)
+    local ℓspan = logit.(φspan)
+    local ℓstep = min(0.05, (last(ℓspan) - first(ℓspan)) / 200)
     prob = TwoPointBVProblem(Flogit!, (leftboundary!, rightboundary!), guess, ℓspan, parameters; bcresid_prototype = bcresiduals)
     sol = solve(prob, MIRK4(); dt = ℓstep, abstol = 1e-6, reltol = 1e-6)
 
@@ -110,7 +110,7 @@ for (i, φstep) in enumerate(φsteps)
     end
 
     push!(solutions, (φstep, sol.t, sol.u))
-    guess = continuationguess(sol, φstep, parameters)
+    global guess = continuationguess(sol, φstep, parameters)
 end
 
 JLD2.@save "data/solutions/continuous-time.jld2" solutions τᶜ signal government firm
