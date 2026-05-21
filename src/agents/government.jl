@@ -13,6 +13,9 @@ function l(a, τ, government::Government, firm::Firm)
     (government.δ / government.y₀) * τ^2 * firm.e₀ * e(a, firm) / 2
 end
 
-function w(τ, a, government::Government, firm::Firm)
+function w(τ, a, government::Government, firm::StaticFirm)
     government.y₀ * d(e(a, firm), government) + c(a, firm) + l(a, τ, government, firm)
+end
+function w(t, τ, a, government::Government, firm::DynamicFirm)
+    government.y₀ * d(e(a, firm), government) + c(t, a, firm) + l(a, τ, government, firm)
 end

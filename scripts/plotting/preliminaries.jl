@@ -29,7 +29,7 @@ includet("../../src/solve/boundary.jl")
 
 const taxfactor = scctotax
 
-firm = Firm()
+firm = StaticFirm()
 government = Government()
 
 σestimated = 1.1;
