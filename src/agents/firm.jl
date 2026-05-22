@@ -1,19 +1,20 @@
 abstract type Firm{T <: Real} end
 
+const ν₀ = defaultdietzϕ * y₀ * CtoCO2^2
 Base.@kwdef struct StaticFirm{T} <: Firm{T}
     e₀::T = e₀
-    ν::T = defaultdietzϕ * y₀ * CtoCO2^2
+    ν::T = ν₀
 end
 
 Base.@kwdef struct DynamicFirm{T} <: Firm{T}
     e₀::T = e₀
-    ν₀::T = defaultdietzϕ * y₀ * CtoCO2^2
-    ν::T = (defaultdietzϕ * y₀ * CtoCO2^2) * 0.1
-    ω::T = 1e-2
+    ν₀::T = ν₀ * 1.5
+    ν::T = ν₀ * 0.05
+    ω::T = 5e-2
 end
 
 function StaticFirm(t, firm::DynamicFirm)
-    StaticFirm(e₀ = firm.e₀, ν = ν(t, firm))
+    StaticFirm(firm.e₀, ν(t, firm))
 end
 
 function ν(firm::StaticFirm)

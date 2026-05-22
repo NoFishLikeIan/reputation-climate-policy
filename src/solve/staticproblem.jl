@@ -42,16 +42,17 @@ function staticcontinuationguess(previoussol, previousstep, parameters)
     end
 end
 
-function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = [1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4], verbose = true, solvekwargs...)
+function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = [1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4], verbose = false, solvekwargs...)
     parameters = (τᶜ, signal, government, firm)
     bcresiduals = (zeros(1), zeros(1))
     solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
-    solution = nothing
+
     guess = staticinitialguess
+    n = length(φsteps)
 
     for (i, φstep) in enumerate(φsteps)
         if verbose
-            @printf "Solving problem %d/%d with φ = %.2e\n" i length(φsteps) φstep
+            @printf "Solving problem %d/%d with φ = %.2e\n" i n φstep
         end
 
         ℓspan = logit.((φstep, 1 - φstep))
@@ -73,9 +74,8 @@ function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm:
         end
 
         push!(solutions, (φstep, sol.t, sol.u))
-        solution = sol
         guess = staticcontinuationguess(sol, φstep, parameters)
     end
 
-    return (solutions = solutions, solution = solution)
+    return solutions
 end

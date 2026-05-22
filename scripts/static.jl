@@ -29,10 +29,9 @@ signal = Signal()
 parameters = (τᶜ, signal, government, firm)
 
 α = leftboundaryexponent(parameters)
-@printf "Left boundary exponent α = %.4f\n" α
+@printf "Left boundary exponent α = %.4e\n" α
 
 ## Solve value function
-staticresult = solvestaticproblem(τᶜ, signal, government, firm)
-solutions = staticresult.solutions
+solutions = solvestaticproblem(τᶜ, signal, government, firm; verbose = true)
 
-JLD2.@save "data/solutions/continuous-time.jld2" solutions τᶜ signal government firm
+JLD2.@save "data/solutions/static.jld2" solutions τᶜ signal government firm
