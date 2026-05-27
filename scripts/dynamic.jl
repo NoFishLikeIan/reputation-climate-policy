@@ -1,16 +1,21 @@
 ## Setup
 using Revise
-using Optim
-using UnPack
-using FastClosures
 using BenchmarkTools
 using Printf
-using JLD2
 
-using Roots
-using FastInterpolations
-using DifferentialEquations, OrdinaryDiffEqSDIRK, BoundaryValueDiffEq
-using SciMLBase: successful_retcode
+import UnPack: @unpack
+import FastClosures: @closure
+
+import Optim
+import JLD2
+
+import Roots
+import FastInterpolations
+
+import SciMLBase
+import OrdinaryDiffEqSDIRK
+import BoundaryValueDiffEq as BVP
+import OrdinaryDiffEq as ODE
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -24,20 +29,20 @@ includet("../src/solve/staticproblem.jl")
 includet("../src/solve/dynamicvaluefunction.jl")
 
 ## Defaults
-firm = DynamicFirm()
+firm = DynamicFirm(ω = 5e-2, ν = ν₀ * 0.1)
 government = Government()
 signal = Signal()
 
 ## Committed policy
 terminaltime = 100.
 tsteps = 1200
-tgrid = range(0., terminaltime; length = tsteps)
+tgrid = range(0., terminaltime, tsteps)
 τᶜtraj = [computeτᶜ(t, government, firm) for t in tgrid]
 
 ## Terminal condition
 τᶜterminal = last(τᶜtraj)
 terminalfirm = StaticFirm(terminaltime, firm)
-terminalsolutions = solvestaticproblem(τᶜtraj[end], signal, government, terminalfirm; verbose = true)
+terminalsolutions = solvestaticproblem(τᶜterminal, signal, government, terminalfirm; verbose = true)
 
 _, ℓgrid, terminalvalue = terminalsolutions[end]
 uₜ = first.(terminalvalue)
@@ -62,4 +67,5 @@ if !successful_retcode(solution.retcode)
 end
 
 ## Save
+solution = SciMLBase.strip_solution(solution)
 JLD2.@save "data/solutions/dynamic.jld2" solution ℓgrid tgrid τᶜtraj signal government firm

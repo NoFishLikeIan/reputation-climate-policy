@@ -35,14 +35,23 @@ function Flogit!(dx, x, parameters, ℓ)
 	@unpack r = government
 
     φ = belief(ℓ)
-	ηᵩ = ηᵉ(φ, z, τᶜ, signal, government, firm)
-	τ = ηᵩ * τᶜ
+	τ = ηᵉ(φ, z, τᶜ, signal, government, firm) * τᶜ
 	a = aᵇ(τ, φ, τᶜ, firm)
 
 	ε = σ / (ϵ * (τᶜ - τ))
 
 	dx[1] = -r * z
 	dx[2] = z + 2 * ε^2 * (w(τ, a, government, firm) - u)
+end
+
+function positivequadraticroot(b, c)
+    discriminantroot = hypot(b, sqrt(c))
+
+    if b ≥ 0
+        return (b + discriminantroot) / 2
+    else
+        return c / (2 * (discriminantroot - b))
+    end
 end
 
 function leftboundaryexponent(parameters)
@@ -52,7 +61,7 @@ function leftboundaryexponent(parameters)
     @unpack r, δ, y₀, ξ = government
     @unpack e₀, ν = firm
 
-    if δ <= 0
+    if δ ≤ 0
         return one(r)
     end
 
@@ -62,9 +71,9 @@ function leftboundaryexponent(parameters)
     m = wa * τᶜ * ηz / ν
 
     b = 1 + 2 * A * m
-    α = (b + sqrt(b^2 + 8 * A * r)) / 2
+    α = positivequadraticroot(b, 8 * A * r)
 
-    return min(one(α), α)
+    return min(1, α)
 end
 
 function leftboundary!(resid, u, parameters)

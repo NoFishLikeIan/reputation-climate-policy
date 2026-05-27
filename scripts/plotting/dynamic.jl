@@ -169,7 +169,7 @@ beliefinitialconditions = [0.2, 0.4, 0.6, 0.8]
 isoutofdomain = @closure (φ, p, t) -> !(0 < φ < 1)
 
 beliefproblem = SDEProblem(driftbeliefs, variancebeliefs, 1 / 2, extrema(monthlytime), dynamicparameters; isoutofdomain = isoutofdomain)
-solve(beliefproblem, SRIW1()) # Checks that the model runs
+solve(beliefproblem, SRIW2()) # Checks that the model runs
 
 beliefensembleproblem = EnsembleProblem(beliefproblem)
 

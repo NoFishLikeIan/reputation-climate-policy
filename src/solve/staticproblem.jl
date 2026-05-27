@@ -42,7 +42,9 @@ function staticcontinuationguess(previoussol, previousstep, parameters)
     end
 end
 
-function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = [1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4], verbose = false, solvekwargs...)
+const defaultφsteps = [1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4];
+
+function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, solvekwargs...)
     parameters = (τᶜ, signal, government, firm)
     bcresiduals = (zeros(1), zeros(1))
     solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
@@ -56,22 +58,11 @@ function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm:
         end
 
         ℓspan = logit.((φstep, 1 - φstep))
-        ℓstep = min(0.05, (last(ℓspan) - first(ℓspan)) / 200)
+        ℓstep = ℓspan[end] / 400
 
-        prob = TwoPointBVProblem(
-            Flogit!,
-            (leftboundary!, rightboundary!),
-            guess,
-            ℓspan,
-            parameters;
-            bcresid_prototype = bcresiduals,
-        )
-        
-        sol = solve(prob, MIRK4(); dt = ℓstep, solvekwargs...)
+        prob = BVP.TwoPointBVProblem(Flogit!, (leftboundary!, rightboundary!),guess, ℓspan, parameters; bcresid_prototype = bcresiduals,)
 
-        if verbose && !successful_retcode(sol.retcode)
-            @warn "Static BVP failed at φstep = $(φstep) with retcode $(sol.retcode)"
-        end
+        sol = BVP.solve(prob, BVP.MIRK6(); dt = ℓstep, progress = verbose, solvekwargs...)
 
         push!(solutions, (φstep, sol.t, sol.u))
         guess = staticcontinuationguess(sol, φstep, parameters)
