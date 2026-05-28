@@ -13,10 +13,11 @@ import Roots
 import FastInterpolations
 
 import SciMLBase
-import OrdinaryDiffEqSDIRK
+import OrdinaryDiffEqBDF as BDF
 import BoundaryValueDiffEq as BVP
 import OrdinaryDiffEq as ODE
 
+includet("../src/utils/saving.jl")
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 
@@ -29,9 +30,9 @@ includet("../src/solve/staticproblem.jl")
 includet("../src/solve/dynamicvaluefunction.jl")
 
 ## Defaults
-firm = DynamicFirm(ω = 5e-2, ν = ν₀ * 0.1)
+firm = DynamicFirm(ω = 5e-2, ν = 4e-2)
 government = Government()
-signal = Signal()
+signal = Signal(σ = 0.20666 / 10)
 
 ## Committed policy
 terminaltime = 100.
@@ -42,7 +43,11 @@ tgrid = range(0., terminaltime, tsteps)
 ## Terminal condition
 τᶜterminal = last(τᶜtraj)
 terminalfirm = StaticFirm(terminaltime, firm)
-terminalsolutions = solvestaticproblem(τᶜterminal, signal, government, terminalfirm; verbose = true)
+terminalνsteps = defaultνsteps(terminalfirm)
+
+terminalνcontinuation = solvestaticνcontinuation(τᶜterminal, signal, government, terminalfirm; verbose = true, φsteps = [1e-3], νsteps = terminalνsteps)
+
+terminalsolutions = terminalνcontinuation[end].solutions
 
 _, ℓgrid, terminalvalue = terminalsolutions[end]
 uₜ = first.(terminalvalue)
@@ -59,13 +64,15 @@ dynamicHJB!(duₜ, uₜ, parameters, terminaltime)
 @printf "Solving dynamic HJB on %d time nodes and %d belief nodes\n" tsteps φnodes
 
 tspan = (terminaltime, 0.)
-prob = ODEProblem(dynamicHJB!, uₜ, tspan, parameters)
-solution = solve(prob, TRBDF2(); saveat = reverse(tgrid), abstol = 1e-6, reltol = 1e-6)
+prob = ODE.ODEProblem(dynamicHJB!, uₜ, tspan, parameters)
+solution = ODE.solve(prob, ODE.Tsit5(); saveat = reverse(tgrid), abstol = 1e-6, reltol = 1e-6, progress = true)
 
-if !successful_retcode(solution.retcode)
+if !SciMLBase.successful_retcode(solution.retcode)
     @warn "Dynamic HJB failed with retcode $(solution.retcode)"
 end
 
 ## Save
 solution = SciMLBase.strip_solution(solution)
-JLD2.@save "data/solutions/dynamic.jld2" solution ℓgrid tgrid τᶜtraj signal government firm
+solutionpath = joinpath("data", "solutions", dynamicsolutionlabel(firm))
+
+JLD2.@save solutionpath solution ℓgrid tgrid τᶜtraj signal government firm terminalνcontinuation

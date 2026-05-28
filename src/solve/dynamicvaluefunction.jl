@@ -1,7 +1,10 @@
+const brent = Optim.Brent()
+
 "Government's welfare costs as φ → 0"
 function leftcost(t, τᶜ, government::Government, firm::DynamicFirm)
     upperτ = ν(t, firm) * firm.e₀
-    result = Optim.optimize(τ -> w(t, τ, aᵇ(t, τ, zero(τ), τᶜ, firm), government, firm), zero(upperτ), upperτ)
+    obj = @closure τ -> w(t, τ, aᵇ(t, τ, zero(τ), τᶜ, firm), government, firm)
+    result = Optim.optimize(obj, zero(upperτ), upperτ, brent)
 
     return Optim.minimum(result)
 end
@@ -132,7 +135,7 @@ end
 function dynamicHJB!(du, u, parameters, t)
     ℓgrid, tgrid, τᶜgrid, signal, government, firm = parameters
 
-    τᶜ = linear_interp(tgrid, τᶜgrid, t)
+    τᶜ = FastInterpolations.linear_interp(tgrid, τᶜgrid, t)
 
     du[1] = government.r * (u[1] - leftcost(t, τᶜ, government, firm))
     du[end] = government.r * (u[end] - rightcost(t, τᶜ, government, firm))

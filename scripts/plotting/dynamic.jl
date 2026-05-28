@@ -1,24 +1,34 @@
 using Revise
-using UnPack
+using BenchmarkTools
+using Printf
 
-using JLD2
-using DifferentialEquations, BoundaryValueDiffEq, StochasticDiffEq
-using DiffEqCallbacks
-using RecursiveArrayTools
-using FastInterpolations
-using FastClosures
-using Roots
+import UnPack: @unpack
+import FastClosures: @closure
 
-using Statistics
+import Optim
+import JLD2
+
+import Roots
+import FastInterpolations
+
+import SciMLBase
+import OrdinaryDiffEqSDIRK
+import BoundaryValueDiffEq as BVP
+import OrdinaryDiffEq as ODE
+import StochasticDiffEq as SDE
+import RecursiveArrayTools as RA
+
+
 using LaTeXStrings, Printf
 using Colors
-using Plots
+
+import Statistics
+import Plots
 
 Plots.default(linewidth = 2.5, dpi = 180, size = 550 .* (√2, 1))
-plotpath = "figures/dynamic"
-if !ispath(plotpath) mkpath(plotpath) end
 includet("colors.jl")
 
+includet("../../src/utils/saving.jl")
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 
@@ -30,23 +40,33 @@ includet("../../src/solve/valuefunction.jl")
 includet("../../src/solve/staticproblem.jl")
 includet("../../src/solve/dynamicvaluefunction.jl")
 
-JLD2.@load "data/solutions/dynamic.jld2" solution ℓgrid tgrid τᶜtraj signal government firm
+firm = DynamicFirm(ω = 5e-2, ν = 4e-2)
+solutionpath = joinpath("data", "solutions", dynamicsolutionlabel(firm))
+
+if !isfile(solutionpath)
+    error("No dynamic solution found at $(solutionpath). Run scripts/dynamic.jl with the same firm parameters first.")
+end
+
+JLD2.@load solutionpath solution ℓgrid tgrid τᶜtraj signal government firm
+
+plotpath = joinpath("figures", "dynamic", dynamicsolutionlabel(firm))
+if !ispath(plotpath) mkpath(plotpath) end
 
 ## Solution GIF
 φgrid = belief.(ℓgrid)
 
-anim = @animate for (i, t) in enumerate(tgrid)
-    print("Plotting $round(t, digits = 0) / $(tgrid[end])\r")
+anim = Plots.@animate for (i, t) in enumerate(tgrid)
+    print("Plotting $(round(t, digits = 0)) / $(tgrid[end])\r")
     τᶜᵢ = τᶜtraj[i]
     uᵢ = solution(t)
 
-    plot(φgrid, uᵢ; ylims = (0., 8.), c = :black, xlabel = L"\varphi", xlims = (0, 1), ylabel = L"Value $u_t$", label = false, title = "Value at time t = $(round(t; digits = 2))")
+    Plots.Plots.plot(φgrid, uᵢ; ylims = (0., 8.), c = :black, xlabel = L"\varphi", xlims = (0, 1), ylabel = L"Value $u_t$", label = false, title = "Value at time t = $(round(t; digits = 2))")
 end
 
-gif(anim, joinpath(plotpath, "solution.gif"), fps = 30)
+Plots.gif(anim, joinpath(plotpath, "solution.gif"), fps = 30)
 
 ## Define dynamic policies
-const clampextrap = ClampExtrap()
+const clampextrap = FastInterpolations.ClampExtrap()
 dynamicparameters = (solution, ℓgrid, tgrid, τᶜtraj, signal, government, firm);
 
 "Computes the linear interpolation of the finite difference first and second derivative of `u` at time `t` and belief `φ`."
@@ -78,7 +98,7 @@ end
 "Computes the optimal tax `τ` t time `t` and belief `φ`."
 function dynamictax(t, φ, dynamicparameters)
     _, _, tgrid, τᶜtraj, signal, government, firm = dynamicparameters
-    τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+    τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
     uₗ, uₗₗ = valuedifferential(t, φ, dynamicparameters)
 
     return ηᵈ(t, φ, uₗ, uₗₗ, τᶜ, signal, government, firm) * τᶜ
@@ -87,7 +107,7 @@ end
 "Computes the optimal abatement `a` at time `t` and belief `φ`."
 function dynamicabatement(t, φ, dynamicparameters)
     _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
-    τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+    τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
     τ = dynamictax(t, φ, dynamicparameters)
 
     return aᵇ(t, τ, φ, τᶜ, firm)
@@ -95,27 +115,27 @@ end
 
 begin # Plot optimal tax
     tsamples = (0., 10., 100.)
-    timecolors = palette(:viridis, length(tsamples))
-    taxfigure = plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\tau", legendtitle = L"t")
+    timecolors = Plots.palette(:viridis, length(tsamples))
+    taxfigure = Plots.Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\tau", legendtitle = L"t")
 
 
     for (i, t) in enumerate(tsamples)
-        τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
-        hline!([τᶜ]; c = timecolors[i], linestyle = :dash, label = false)
-        plot!(taxfigure, φgrid, φ -> dynamictax(t, φ, dynamicparameters); label = t, c = timecolors[i])
+        τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+        Plots.hline!([τᶜ]; c = timecolors[i], linestyle = :dash, label = false)
+        Plots.plot!(taxfigure, φgrid, φ -> dynamictax(t, φ, dynamicparameters); label = t, c = timecolors[i])
     end
 
     taxfigure
 end
 
 begin # Plot optimal abatement
-    abatementfigure = plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\tau", legendtitle = L"t")
+    abatementfigure = Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\tau", legendtitle = L"t")
 
     for (i, t) in enumerate(tsamples)
-        τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+        τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
         
-        hline!([aᶜ(t, τᶜ, firm)]; c = timecolors[i], linestyle = :dash, label = false)
-        plot!(abatementfigure, φgrid, φ -> dynamicabatement(t, φ, dynamicparameters); label = t, c = timecolors[i])
+        Plots.hline!([aᶜ(t, τᶜ, firm)]; c = timecolors[i], linestyle = :dash, label = false)
+        Plots.plot!(abatementfigure, φgrid, φ -> dynamicabatement(t, φ, dynamicparameters); label = t, c = timecolors[i])
     end
 
     abatementfigure
@@ -125,7 +145,7 @@ end
 ## Define belief dynamics function
 function precision(t, φ, dynamicparameters)
     _, _, tgrid, τᶜtraj, signal, _, _ = dynamicparameters
-    τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+    τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
     τ = dynamictax(t, φ, dynamicparameters)
 
     return signal.ϵ * (τᶜ - τ) / signal.σ
@@ -144,20 +164,20 @@ function variancebeliefs(φ, dynamicparameters, t)
 end
 
 begin # Plot drift E[dϕ]
-    driftfigure = plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\dot{\phi}", legendtitle = L"t")
+    driftfigure = Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\dot{\phi}", legendtitle = L"t")
 
     for t in (0., 1., 5.)
-        plot!(driftfigure, φgrid, φ -> driftbeliefs(φ, dynamicparameters, t); label = t)
+        Plots.plot!(driftfigure, φgrid, φ -> driftbeliefs(φ, dynamicparameters, t); label = t)
     end
 
     driftfigure
 end
 
 begin # Plot variance V[dϕ]
-    variancefigure = plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\dot{\phi}", legendtitle = L"t")
+    variancefigure = Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\dot{\phi}", legendtitle = L"t")
 
     for t in (0., 1., 5.)
-        plot!(variancefigure, φgrid, φ -> variancebeliefs(φ, dynamicparameters, t); label = t)
+        Plots.plot!(variancefigure, φgrid, φ -> variancebeliefs(φ, dynamicparameters, t); label = t)
     end
 
     variancefigure
@@ -168,14 +188,14 @@ monthlytime = 0:(1 / 12):80
 beliefinitialconditions = [0.2, 0.4, 0.6, 0.8]
 isoutofdomain = @closure (φ, p, t) -> !(0 < φ < 1)
 
-beliefproblem = SDEProblem(driftbeliefs, variancebeliefs, 1 / 2, extrema(monthlytime), dynamicparameters; isoutofdomain = isoutofdomain)
-solve(beliefproblem, SRIW2()) # Checks that the model runs
+beliefproblem = SDE.SDEProblem(driftbeliefs, variancebeliefs, 1 / 2, extrema(monthlytime), dynamicparameters; isoutofdomain = isoutofdomain)
+SDE.solve(beliefproblem, SDE.SRIW2()) # Checks that the model runs
 
-beliefensembleproblem = EnsembleProblem(beliefproblem)
+beliefensembleproblem = SDE.EnsembleProblem(beliefproblem)
 
 function timepointtaxabatementquantiles(sim, quantilelevels, t, dynamicparameters)
     _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
-    τᶜ = linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
+    τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
 
     taxvalues = Float64[]
     abatementvalues = Float64[]
@@ -191,7 +211,7 @@ function timepointtaxabatementquantiles(sim, quantilelevels, t, dynamicparameter
         push!(abatementvalues, a)
     end
 
-    return quantile(taxvalues, quantilelevels), quantile(abatementvalues, quantilelevels)
+    return Statistics.quantile(taxvalues, quantilelevels), Statistics.quantile(abatementvalues, quantilelevels)
 end
 
 function timeseriestaxabatementquantiles(sim, quantilelevels, times, dynamicparameters)
@@ -202,19 +222,19 @@ function timeseriestaxabatementquantiles(sim, quantilelevels, times, dynamicpara
         taxseries[i], abatementseries[i] = timepointtaxabatementquantiles(sim, quantilelevels, t, dynamicparameters)
     end
 
-    return DiffEqArray(taxseries, times), DiffEqArray(abatementseries, times)
+    return RA.DiffEqArray(taxseries, times), RA.DiffEqArray(abatementseries, times)
 end
 
 trajectories = 1000
 quantilelevels = [0.05, 0.5, 0.95]
-quantiles = DiffEqArray[]
-taxquantiles = DiffEqArray[]
-abatementquantiles = DiffEqArray[]
+quantiles = RA.DiffEqArray[]
+taxquantiles = RA.DiffEqArray[]
+abatementquantiles = RA.DiffEqArray[]
 
 for φ₀ in beliefinitialconditions
-    sim = solve(beliefensembleproblem; u0 = φ₀, trajectories)
+    sim = SDE.solve(beliefensembleproblem; u0 = φ₀, trajectories)
 
-    summ = EnsembleAnalysis.timeseries_point_quantile(sim, quantilelevels, monthlytime)
+    summ = SDE.EnsembleAnalysis.timeseries_point_quantile(sim, quantilelevels, monthlytime)
     taxsumm, abatementsumm = timeseriestaxabatementquantiles(sim, quantilelevels, monthlytime, dynamicparameters)
 
     push!(quantiles, summ)
@@ -223,21 +243,21 @@ for φ₀ in beliefinitialconditions
 end
 
 begin
-    belieftrajectoryfig = plot(
+    belieftrajectoryfig = Plots.plot(
         xlabel = L"Year $t$",
         ylabel = L"Belief $\phi_t$",
         ylims = (0, 1),
         legendtitle = L"\phi_0",
     )
 
-    trajectorycolors = palette(:viridis, length(beliefinitialconditions))
+    trajectorycolors = Plots.palette(:viridis, length(beliefinitialconditions))
 
     for (i, φ₀) in enumerate(beliefinitialconditions)
         summ = quantiles[i]
 
-        plot!(belieftrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
+        Plots.plot!(belieftrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
 
-        plot!(belieftrajectoryfig, summ.t, getindex.(summ.u, 1);
+        Plots.plot!(belieftrajectoryfig, summ.t, getindex.(summ.u, 1);
             fillrange = getindex.(summ.u, 3),
             linewidth = 0,
             color = trajectorycolors[i],
@@ -245,7 +265,7 @@ begin
         )
     end
 
-    savefig(belieftrajectoryfig, joinpath(plotpath, "belief-trajectories.png"))
+    Plots.savefig(belieftrajectoryfig, joinpath(plotpath, "belief-trajectories.png"))
 
     belieftrajectoryfig
 end
@@ -254,7 +274,7 @@ end
 policyfigures = Plots.Plot[]
 
 begin
-    taxtrajectoryfig = plot(
+    taxtrajectoryfig = Plots.plot(
         xlabel = L"Year $t$",
         ylabel = L"Tax $\tau_t$",
         legendtitle = L"\phi_0",
@@ -263,9 +283,9 @@ begin
     for (i, φ₀) in enumerate(beliefinitialconditions)
         summ = taxquantiles[i]
 
-        plot!(taxtrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
+        Plots.plot!(taxtrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
 
-        plot!(taxtrajectoryfig, summ.t, getindex.(summ.u, 1);
+        Plots.plot!(taxtrajectoryfig, summ.t, getindex.(summ.u, 1);
             fillrange = getindex.(summ.u, 3),
             linewidth = 0,
             color = trajectorycolors[i],
@@ -273,7 +293,7 @@ begin
         )
     end
 
-    savefig(taxtrajectoryfig, joinpath(plotpath, "belief-trajectories.png"))
+    Plots.savefig(taxtrajectoryfig, joinpath(plotpath, "tax-trajectories.png"))
 
     push!(policyfigures, taxtrajectoryfig)
 
@@ -281,7 +301,7 @@ begin
 end
 
 begin
-    abatementtrajectoryfig = hline([firm.e₀];
+    abatementtrajectoryfig = Plots.hline([firm.e₀];
         xlabel = L"Year $t$",
         ylabel = L"Abatement $a_t$",
         legendtitle = L"\phi_0",
@@ -291,9 +311,9 @@ begin
     for (i, φ₀) in enumerate(beliefinitialconditions)
         summ = abatementquantiles[i]
 
-        plot!(abatementtrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
+        Plots.plot!(abatementtrajectoryfig, summ.t, getindex.(summ.u, 2); c = trajectorycolors[i], label = @sprintf("%.1f", φ₀))
 
-        plot!(abatementtrajectoryfig, summ.t, getindex.(summ.u, 1);
+        Plots.plot!(abatementtrajectoryfig, summ.t, getindex.(summ.u, 1);
             fillrange = getindex.(summ.u, 3),
             linewidth = 0,
             color = trajectorycolors[i],
@@ -301,7 +321,7 @@ begin
         )
     end
 
-    savefig(abatementtrajectoryfig, joinpath(plotpath, "belief-trajectories.png"))
+    Plots.savefig(abatementtrajectoryfig, joinpath(plotpath, "abatement-trajectories.png"))
 
     push!(policyfigures, abatementtrajectoryfig)
     
@@ -309,13 +329,13 @@ begin
 end
 
 
-dynamicpolicyfig = plot(
+dynamicpolicyfig = Plots.plot(
     policyfigures...;
     layout = (1, 2),
     size = 500 .* (2√2, 1),
     margins = 6Plots.mm,
 )
 
-savefig(dynamicpolicyfig, joinpath(plotpath, "tax-abatement-policy-grid.png"))
+Plots.savefig(dynamicpolicyfig, joinpath(plotpath, "tax-abatement-policy-grid.png"))
 
 dynamicpolicyfig

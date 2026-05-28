@@ -32,6 +32,8 @@ parameters = (τᶜ, signal, government, firm)
 @printf "Left boundary exponent α = %.4e\n" α
 
 ## Solve value function
-solutions = solvestaticproblem(τᶜ, signal, government, firm; verbose = true)
+νsteps = defaultνsteps(firm)
+νcontinuation = solvestaticνcontinuation(τᶜ, signal, government, firm; νsteps, verbose = true)
+solutions = νcontinuation[end].solutions
 
-JLD2.@save "data/solutions/static.jld2" solutions τᶜ signal government firm
+JLD2.@save "data/solutions/static.jld2" solutions νcontinuation τᶜ signal government firm

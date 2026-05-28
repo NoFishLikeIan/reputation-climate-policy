@@ -8,7 +8,7 @@ end
 
 Base.@kwdef struct DynamicFirm{T} <: Firm{T}
     e₀::T = e₀
-    ν₀::T = ν₀ * 1.5
+    ν₀::T = ν₀
     ν::T = ν₀ * 0.05
     ω::T = 5e-2
 end
