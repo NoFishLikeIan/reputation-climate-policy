@@ -1,8 +1,14 @@
-function staticinitialguess(parameters, ℓ)
-    τᶜ, _, government, firm = parameters
+function staticvalue(τ, a, climate::Climate, government::Government, firm::StaticFirm)
+    m = e(a, firm) / climate.δₘ
+    return w(m, τ, a, climate, government, firm)
+end
 
-    u₀ = w(0., 0., government, firm)
-    u₁ = w(0., aᶜ(τᶜ, firm), government, firm)
+function staticinitialguess(parameters, ℓ)
+    τᶜ, _, climate, government, firm = parameters
+
+    u₀ = staticvalue(0., 0., climate, government, firm)
+    a₁ = aᶜ(τᶜ, firm)
+    u₁ = staticvalue(0., a₁, climate, government, firm)
 
     ∂u = u₁ - u₀
     α = leftboundaryexponent(parameters)
@@ -15,9 +21,10 @@ function staticinitialguess(parameters, ℓ)
 end
 
 function staticcontinuationguess(previoussol, previousstep, parameters)
-    τᶜ, _, government, firm = parameters
-    u₀ = w(0., 0., government, firm)
-    u₁ = w(0., aᶜ(τᶜ, firm), government, firm)
+    τᶜ, _, climate, government, firm = parameters
+    u₀ = staticvalue(0., 0., climate, government, firm)
+    a₁ = aᶜ(τᶜ, firm)
+    u₁ = staticvalue(0., a₁, climate, government, firm)
     α = leftboundaryexponent(parameters)
 
     leftx = previoussol(logit(previousstep))
@@ -43,13 +50,15 @@ function staticcontinuationguess(previoussol, previousstep, parameters)
 end
 
 function staticνcontinuationguess(previoussol, previousparameters, parameters)
-    previousτᶜ, _, previousgovernment, previousfirm = previousparameters
-    τᶜ, _, government, firm = parameters
+    previousτᶜ, _, previousclimate, previousgovernment, previousfirm = previousparameters
+    τᶜ, _, climate, government, firm = parameters
 
-    previousu₀ = w(0., 0., previousgovernment, previousfirm)
-    previousu₁ = w(0., aᶜ(previousτᶜ, previousfirm), previousgovernment, previousfirm)
-    u₀ = w(0., 0., government, firm)
-    u₁ = w(0., aᶜ(τᶜ, firm), government, firm)
+    previousu₀ = staticvalue(0., 0., previousclimate, previousgovernment, previousfirm)
+    previousa₁ = aᶜ(previousτᶜ, previousfirm)
+    previousu₁ = staticvalue(0., previousa₁, previousclimate, previousgovernment, previousfirm)
+    u₀ = staticvalue(0., 0., climate, government, firm)
+    a₁ = aᶜ(τᶜ, firm)
+    u₁ = staticvalue(0., a₁, climate, government, firm)
 
     previousrange = previousu₁ - previousu₀
     valuerange = u₁ - u₀
@@ -97,8 +106,8 @@ function νcontinuationpath(νsteps, firm::StaticFirm)
     return νpath
 end
 
-function solvestaticproblemdata(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
-    parameters = (τᶜ, signal, government, firm)
+function solvestaticproblemdata(τᶜ, signal::Signal, climate::Climate, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
+    parameters = (τᶜ, signal, climate, government, firm)
     bcresiduals = (zeros(1), zeros(1))
     solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
 
@@ -129,10 +138,11 @@ function solvestaticproblemdata(τᶜ, signal::Signal, government::Government, f
     return solutions, sol
 end
 
-function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
+function solvestaticproblem(τᶜ, signal::Signal, climate::Climate, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
     solutions, _ = solvestaticproblemdata(
         τᶜ,
         signal,
+        climate,
         government,
         firm;
         φsteps,
@@ -145,7 +155,7 @@ function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm:
     return solutions
 end
 
-function solvestaticνcontinuation(τᶜ, signal::Signal, government::Government, firm::StaticFirm; νsteps = defaultνsteps(firm), φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, solvekwargs...)
+function solvestaticνcontinuation(τᶜ, signal::Signal, climate::Climate, government::Government, firm::StaticFirm; νsteps = defaultνsteps(firm), φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, solvekwargs...)
     νpath = νcontinuationpath(νsteps, firm)
     νsolutions = NamedTuple[]
     previoussol = nothing
@@ -154,8 +164,8 @@ function solvestaticνcontinuation(τᶜ, signal::Signal, government::Government
 
     for (i, νstep) in enumerate(νpath)
         stepfirm = StaticFirm(e₀ = firm.e₀, ν = νstep)
-        stepτᶜ = i == n ? τᶜ : computeτᶜ(government, stepfirm)
-        parameters = (stepτᶜ, signal, government, stepfirm)
+        stepτᶜ = i == n ? τᶜ : computeτᶜ(climate, government, stepfirm)
+        parameters = (stepτᶜ, signal, climate, government, stepfirm)
         initialguess = previoussol === nothing ? staticinitialguess : staticνcontinuationguess(previoussol, previousparameters, parameters)
 
         if verbose
@@ -165,6 +175,7 @@ function solvestaticνcontinuation(τᶜ, signal::Signal, government::Government
         solutions, sol = solvestaticproblemdata(
             stepτᶜ,
             signal,
+            climate,
             government,
             stepfirm;
             φsteps,

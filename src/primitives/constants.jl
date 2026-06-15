@@ -1,8 +1,10 @@
 const CtoCO2 = 44 / 12
-const taxfactor = CtoCO2 * 1e9 * 1e-12 # USD / tCO2 to trillion USD / GtC
+const taxfactor = 1e9 * 1e-12 # USD / tCO2e to trillion USD / GtCO2e
 
-const e₀ = 37.8 / CtoCO2
-const y₀ = 197.231
-const defaultscc = 66 / 1000
+const m₀ = 2_500 # [GtCO2e] cumulative emissions since 1860
+const e₀ = 36 + 5.9 # [GtCO2e / year] Acutal emissions in 2026 + estimated no-policy additional emissions
+
+const y₀ = 197.231 # [USD / year]
+const defaultscc = 66 * taxfactor # [tUSD / GtCO2e]
 const defaultdietzϕ = 3e-5
 const τ₀ = 3 * taxfactor

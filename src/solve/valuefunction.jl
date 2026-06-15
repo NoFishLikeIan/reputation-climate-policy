@@ -1,5 +1,5 @@
 function F!(dx, x, parameters, φ)
-    τᶜ, signal, government, firm = parameters
+    τᶜ, signal, climate, government, firm = parameters
 	u, z = x
 
 	@unpack σ, ϵ = signal
@@ -8,12 +8,13 @@ function F!(dx, x, parameters, φ)
 	ηᵩ = ηᵉ(φ, z, τᶜ, signal, government, firm)
 	τ = ηᵩ * τᶜ
 	a = aᵇ(τ, φ, τᶜ, firm)
+    m = e(a, firm) / climate.δₘ
 
 	s = φ * (1 - φ)
 	ε = σ / (ϵ * (τᶜ - τ))
 	
 	du = -r * z
-	dz = z + 2 * ε^2 * (w(τ, a, government, firm) - u)
+	dz = z + 2 * ε^2 * (w(m, τ, a, climate, government, firm) - u)
 
 	dx[1] = du / s
 	dx[2] = dz / s
@@ -28,7 +29,7 @@ function logit(φ)
 end
 
 function Flogit!(dx, x, parameters, ℓ)
-    τᶜ, signal, government, firm = parameters
+    τᶜ, signal, climate, government, firm = parameters
 	u, z = x
 
 	@unpack σ, ϵ = signal
@@ -37,11 +38,12 @@ function Flogit!(dx, x, parameters, ℓ)
     φ = belief(ℓ)
 	τ = ηᵉ(φ, z, τᶜ, signal, government, firm) * τᶜ
 	a = aᵇ(τ, φ, τᶜ, firm)
+    m = e(a, firm) / climate.δₘ
 
 	ε = σ / (ϵ * (τᶜ - τ))
 
 	dx[1] = -r * z
-	dx[2] = z + 2 * ε^2 * (w(τ, a, government, firm) - u)
+	dx[2] = z + 2 * ε^2 * (w(m, τ, a, climate, government, firm) - u)
 end
 
 function positivequadraticroot(b, c)
@@ -55,10 +57,11 @@ function positivequadraticroot(b, c)
 end
 
 function leftboundaryexponent(parameters)
-    τᶜ, signal, government, firm = parameters
+    τᶜ, signal, climate, government, firm = parameters
 
     @unpack σ, ϵ = signal
-    @unpack r, δ, y₀, ξ = government
+    @unpack r, δ, y₀ = government
+    @unpack ξ = climate
     @unpack e₀, ν = firm
 
     if δ ≤ 0
@@ -77,14 +80,19 @@ function leftboundaryexponent(parameters)
 end
 
 function leftboundary!(resid, u, parameters)
-    _, _, government, firm = parameters
+    _, _, climate, government, firm = parameters
     α = leftboundaryexponent(parameters)
+    a = 0.
+    m = e(a, firm) / climate.δₘ
     
-    resid[1] = u[1] + government.r * u[2] / α - w(0., 0., government, firm)
+    resid[1] = u[1] + government.r * u[2] / α - w(m, 0., a, climate, government, firm)
 end
 
 function rightboundary!(resid, u, parameters)
-    τᶜ, _, government, firm = parameters
+    τᶜ, _, climate, government, firm = parameters
+    τ = 0.
+    a = aᶜ(τᶜ, firm)
+    m = e(a, firm) / climate.δₘ
     
-    resid[1] = u[1] - government.r * u[2] - w(0., aᶜ(τᶜ, firm), government, firm)
+    resid[1] = u[1] - government.r * u[2] - w(m, τ, a, climate, government, firm)
 end

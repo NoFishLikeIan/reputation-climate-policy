@@ -1,17 +1,25 @@
 const brent = Optim.Brent()
 
 "Government's welfare costs as φ → 0"
-function leftcost(t, τᶜ, government::Government, firm::DynamicFirm)
+function leftcost(t, τᶜ, climate::Climate, government::Government, firm::DynamicFirm)
     upperτ = ν(t, firm) * firm.e₀
-    obj = @closure τ -> w(t, τ, aᵇ(t, τ, zero(τ), τᶜ, firm), government, firm)
+    obj = @closure τ -> begin
+        a = aᵇ(t, τ, zero(τ), τᶜ, firm)
+        m = e(a, firm) / climate.δₘ
+        w(t, m, τ, a, climate, government, firm)
+    end
     result = Optim.optimize(obj, zero(upperτ), upperτ, brent)
 
     return Optim.minimum(result)
 end
 
 "Government's welfare costs as φ → 1"
-function rightcost(t, τᶜ, government::Government, firm::DynamicFirm)
-    return w(t, zero(τᶜ), aᶜ(t, τᶜ, firm), government, firm)
+function rightcost(t, τᶜ, climate::Climate, government::Government, firm::DynamicFirm)
+    τ = zero(τᶜ)
+    a = aᶜ(t, τᶜ, firm)
+    m = e(a, firm) / climate.δₘ
+
+    return w(t, m, τ, a, climate, government, firm)
 end
 
 "Finite difference stencil"
@@ -77,13 +85,13 @@ function gridderivatives(u, ℓgrid, i)
     return uₗ, uₗₗ
 end
 
-function dynamicfoc(t, φ, η, uₗ, uₗₗ, τᶜ, signal::Signal, government::Government, firm::DynamicFirm)
+function dynamicfoc(t, φ, η, uₗ, uₗₗ, τᶜ, signal::Signal, climate::Climate, government::Government, firm::DynamicFirm)
     νₜ = ν(t, firm)
     taxshare = φ + (1 - φ) * η
 
     abatementeffect = (1 - φ) / νₜ * (
-        -government.y₀ * government.ξ * firm.e₀
-        + (1 + government.y₀ * government.ξ / νₜ) * τᶜ * taxshare
+        -government.y₀ * climate.ξ * firm.e₀
+        + (1 + government.y₀ * climate.ξ / νₜ) * τᶜ * taxshare
     )
 
     asseteffect = government.δ * firm.e₀ * τᶜ * η / government.y₀ * (
@@ -95,15 +103,16 @@ function dynamicfoc(t, φ, η, uₗ, uₗₗ, τᶜ, signal::Signal, government:
     return abatementeffect + asseteffect + reputationeffect
 end
 
-function dynamichamiltonian(t, φ, η, uₗ, uₗₗ, τᶜ, signal::Signal, government::Government, firm::DynamicFirm)
+function dynamichamiltonian(t, φ, η, uₗ, uₗₗ, τᶜ, signal::Signal, climate::Climate, government::Government, firm::DynamicFirm)
     τ = η * τᶜ
     a = aᵇ(t, τ, φ, τᶜ, firm)
+    m = e(a, firm) / climate.δₘ
     ξ = signal.ϵ * (τᶜ - τ) / signal.σ
 
-    return government.r * w(t, τ, a, government, firm) + ξ^2 * (uₗₗ - uₗ) / 2
+    return government.r * w(t, m, τ, a, climate, government, firm) + ξ^2 * (uₗₗ - uₗ) / 2
 end
 
-function ηᵈ(t, φ, uₗ::T, uₗₗ, τᶜ, signal::Signal, government::Government, firm::DynamicFirm) where T <: Real
+function ηᵈ(t, φ, uₗ::T, uₗₗ, τᶜ, signal::Signal, climate::Climate, government::Government, firm::DynamicFirm) where T <: Real
     ηlow = zero(T)
     ηhigh = one(T)
 
@@ -113,7 +122,7 @@ function ηᵈ(t, φ, uₗ::T, uₗₗ, τᶜ, signal::Signal, government::Gover
 
     if τᶜ ≥ ν(t, firm) * firm.e₀
         result = Optim.optimize(
-            η -> dynamichamiltonian(t, φ, η, uₗ, uₗₗ, τᶜ, signal, government, firm),
+            η -> dynamichamiltonian(t, φ, η, uₗ, uₗₗ, τᶜ, signal, climate, government, firm),
             ηlow,
             ηhigh,
         )
@@ -121,7 +130,7 @@ function ηᵈ(t, φ, uₗ::T, uₗₗ, τᶜ, signal::Signal, government::Gover
         return Optim.minimizer(result)
     end
 
-    foc = @closure η -> dynamicfoc(t, φ, η, uₗ, uₗₗ, τᶜ, signal, government, firm)
+    foc = @closure η -> dynamicfoc(t, φ, η, uₗ, uₗₗ, τᶜ, signal, climate, government, firm)
 
     if foc(ηlow) ≥ 0
         return ηlow
@@ -133,12 +142,12 @@ function ηᵈ(t, φ, uₗ::T, uₗₗ, τᶜ, signal::Signal, government::Gover
 end
 
 function dynamicHJB!(du, u, parameters, t)
-    ℓgrid, tgrid, τᶜgrid, signal, government, firm = parameters
+    ℓgrid, tgrid, τᶜgrid, signal, climate, government, firm = parameters
 
     τᶜ = FastInterpolations.linear_interp(tgrid, τᶜgrid, t)
 
-    du[1] = government.r * (u[1] - leftcost(t, τᶜ, government, firm))
-    du[end] = government.r * (u[end] - rightcost(t, τᶜ, government, firm))
+    du[1] = government.r * (u[1] - leftcost(t, τᶜ, climate, government, firm))
+    du[end] = government.r * (u[end] - rightcost(t, τᶜ, climate, government, firm))
 
     n = length(ℓgrid)
 
@@ -146,11 +155,12 @@ function dynamicHJB!(du, u, parameters, t)
         φ = belief(ℓgrid[i])
         uₗ, uₗₗ = gridderivatives(u, ℓgrid, i)
 
-        τ = ηᵈ(t, φ, uₗ, uₗₗ, τᶜ, signal, government, firm) * τᶜ
+        τ = ηᵈ(t, φ, uₗ, uₗₗ, τᶜ, signal, climate, government, firm) * τᶜ
         a = aᵇ(t, τ, φ, τᶜ, firm)
+        m = e(a, firm) / climate.δₘ
         ξ = signal.ϵ * (τᶜ - τ) / signal.σ
 
-        du[i] = government.r * u[i] - government.r * w(t, τ, a, government, firm) - ξ^2 * (uₗₗ - uₗ) / 2
+        du[i] = government.r * u[i] - government.r * w(t, m, τ, a, climate, government, firm) - ξ^2 * (uₗₗ - uₗ) / 2
     end
 
     return du
