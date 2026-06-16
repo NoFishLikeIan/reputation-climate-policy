@@ -1,42 +1,42 @@
 ## Setup
-using Revise
-using UnPack
-using Optim
+using Revise, BenchmarkTools
 using Printf
-using JLD2
-using LinearAlgebra
+
+using LaTeXStrings, Plots
+
+import FastClosures: @closure
+import UnPack: @unpack
+
+import JLD2
+import LinearAlgebra as LA
+import SparseArrays as SA
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 includet("../src/agents/firm.jl")
 includet("../src/primitives/climate.jl")
 includet("../src/agents/government.jl")
+includet("../src/utils/saving.jl")
 
 includet("../src/solve/equilibrium.jl")
-includet("../src/solve/concentrationboundary.jl")
+includet("../src/solve/committedvalue.jl")
+includet("../src/solve/boundaries.jl")
+
+const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
-firm = StaticFirm()
+firm = Firm()
 government = Government()
 signal = Signal()
 climate = Climate()
 
-τᶜ = computeτᶜ(climate, government, firm)
+solutionlabel = comittedsolutionlabel(firm, government, climate, mgrid)
+solutionpath = joinpath(SIMPATH, "$solutionlabel.jld2")
 
-mgrid = range(0, 2.5, 101)
+JLD2.jldopen(solutionpath) do file
+    @unpack uᶜ, committedpolicy, mgrid = committedfile
+end 
 
-## Solve boundary problems
-rightsolution = rightboundary(mgrid, τᶜ, climate, government, firm)
-leftsolution = solveleftboundary(mgrid, τᶜ, climate, government, firm; verbose = true)
+## Lower boundary
 
-@printf "Committed tax τᶜ = %.4e\n" τᶜ
-@printf "Removal rate δₘ = %.4e\n" climate.δₘ
-@printf "Right boundary residual = %.4e\n" rightsolution.residual
-@printf "Left boundary residual = %.4e\n" leftsolution.residual
-@printf "Left boundary converged = %s in %d iterations\n" string(leftsolution.converged) leftsolution.iterations
-
-## Save
-mkpath(joinpath("data", "solutions"))
-solutionpath = joinpath("data", "solutions", "concentrationboundary.jld2")
-
-JLD2.@save solutionpath leftsolution rightsolution mgrid τᶜ climate signal government firm
+## Upper boundary
