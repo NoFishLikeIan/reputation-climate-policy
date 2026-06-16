@@ -35,7 +35,7 @@ government = Government()
 signal = Signal()
 climate = Climate()
 
-filename = solutionlabel(climate, government, firm)
+filename = solutionlabel(climate, government, firm, signal)
 solutionpath = joinpath(SIMPATH, "$filename.jld2")
 
 solutionfile = JLD2.jldopen(solutionpath)

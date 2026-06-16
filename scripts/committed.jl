@@ -39,7 +39,7 @@ uᶜ = copy(uᶜ₀)
 _, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-9, reltol = 1e-6, Δt⁻¹ = 100.)
 
 committedpolicy = computeglobalpolicy(uᶜ, mgrid, government, firm)
-filename = solutionlabel(climate, government, firm)
+filename = solutionlabel(climate, government, firm, signal)
 solutionpath = joinpath(SIMPATH, "$filename.jld2")
 
 JLD2.jldopen(solutionpath, "a+") do file

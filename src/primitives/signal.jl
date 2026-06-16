@@ -1,5 +1,5 @@
 Base.@kwdef struct Signal{T <: Real}
-    ϵ::T = 0.1
+    ϵ::T = 1.
     σ::T = 0.20666
 end
 
