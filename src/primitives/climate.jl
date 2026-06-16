@@ -14,3 +14,7 @@ end
 function d(m, climate::Climate)
     1 - exp(-(climate.γ / 2) * temperature(m, climate)^2)
 end
+
+function d′(m, climate::Climate)
+    climate.γ * climate.ζ^2 * m * (1 - d(m, climate))
+end

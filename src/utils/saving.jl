@@ -9,9 +9,8 @@ function dynamicsolutionlabel(firm)
     return "omega$(parameterstring(firm.ω))_nu$(parameterstring(firm.ν))"
 end
 
-function comittedsolutionlabel(firm, government, climate)
+function solutionlabel(climate, government, firm)
     return join((
-        "comitted",
         "e0$(parameterstring(firm.e₀))",
         "nu$(parameterstring(firm.ν))",
         "y0$(parameterstring(government.y₀))",
