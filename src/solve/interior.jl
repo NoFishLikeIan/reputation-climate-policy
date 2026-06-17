@@ -6,13 +6,12 @@ function ξ(τ, τᶜ, signal::Signal)
     signal.ϵ * (τᶜ - τ) / signal.σ
 end
 
-function interiorhamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    aᵢ = aᵇ(τ, φ, τᶜ, firm)
+function hamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal, climate::Climate, government::Government, firm::Firm)
     beliefterm = -φ * ∂ᵩu + φ * (1 - φ) * ∂ᵩ²u / 2
 
     return (
-        government.r * w(m, τ, aᵢ, climate, government, firm)
-        + e(aᵢ, firm) * ∂ₘu
+        government.r * w(m, τ, aᵇ(τ, φ, τᶜ, firm), climate, government, firm)
+        + e(aᵇ(τ, φ, τᶜ, firm), firm) * ∂ₘu
         + φ * (1 - φ) * ξ(τ, τᶜ, signal)^2 * beliefterm
     )
 end
@@ -28,15 +27,17 @@ function interiorderivatives(u, φgrid, mgrid, i, j)
     return ∂ₘu, ∂ᵩu, ∂ᵩ²u
 end
 
-function optimalinteriortax(φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    upperτ = clamp(τᶜ, zero(τᶜ), firm.ν * firm.e₀)
-
-    if upperτ ≤ 0
-        return zero(upperτ)
+function optimalinteriortax(φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal{T}, climate::Climate{T}, government::Government{T}, firm::Firm{T}) where T
+    
+    maxτ = clamp(τᶜ, zero(T), firm.ν * firm.e₀)
+ 
+    if maxτ ≤ 0
+        return zero(T)
     end
+    
 
-    obj = τ -> interiorhamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal, climate, government, firm)
-    result = Optim.optimize(obj, zero(upperτ), upperτ, Optim.Brent())
+    obj = @closure τ -> hamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal, climate, government, firm)
+    result = Optim.optimize(obj, zero(T), maxτ, Optim.Brent())
 
     return Optim.minimizer(result)
 end
@@ -64,17 +65,17 @@ function updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal::Signal, 
     return policy
 end
 
-function interiorfarvalue(φgrid, u̲, ū)
-    [(1 - φ) * u̲[end] + φ * ū[end] for φ in φgrid]
+function interiorfarvalue(φgrid, u̲grid, ūgrid)
+    [(1 - φ) * u̲grid[end] + φ * ūgrid[end] for φ in φgrid]
 end
 
-function initialinteriorvalue(φgrid, mgrid, u̲, ū)
-    u = Matrix{eltype(u̲)}(undef, length(φgrid), length(mgrid))
+function initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
+    u = Matrix{eltype(u̲grid)}(undef, length(φgrid), length(mgrid))
 
     @inbounds for j in eachindex(mgrid)
         for i in eachindex(φgrid)
             φ = φgrid[i]
-            u[i, j] = (1 - φ) * u̲[j] + φ * ū[j]
+            u[i, j] = (1 - φ) * u̲grid[j] + φ * ūgrid[j]
         end
     end
 
@@ -93,7 +94,7 @@ function pushinteriormatrix!((I, J, V), i, j, v)
     push!(V, v)
 end
 
-function buildinteriorsystem(policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
+function buildinteriorsystem(policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
     nφ, nm = size(u)
     n = nφ * nm
     I = Int[]
@@ -102,7 +103,7 @@ function buildinteriorsystem(policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹
     rhs = similar(vec(u))
     Δφ = step(φgrid)
     Δm = step(mgrid)
-    ufar = interiorfarvalue(φgrid, u̲, ū)
+    ufar = interiorfarvalue(φgrid, u̲grid, ūgrid)
 
     @inbounds for j in 1:nm
         for i in 1:nφ
@@ -110,11 +111,11 @@ function buildinteriorsystem(policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹
 
             if i == 1
                 pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
-                rhs[row] = u̲[j]
+                rhs[row] = u̲grid[j]
                 continue
             elseif i == nφ
                 pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
-                rhs[row] = ū[j]
+                rhs[row] = ūgrid[j]
                 continue
             elseif j == nm
                 pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
@@ -172,14 +173,14 @@ function buildinteriorsystem(policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹
     return SA.sparse(I, J, V, n, n), rhs
 end
 
-function interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    A, rhs = buildinteriorsystem(policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹, signal, climate, government, firm)
+function interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
+    A, rhs = buildinteriorsystem(policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
     nextu .= reshape(A \ rhs, size(u))
 
     return nextu
 end
 
-function solveinteriorhjb!(u::TU, φgrid, mgrid, u̲, ū, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; maxiters = 1000, abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹ = 100.) where {T, TU <: AbstractMatrix{T}}
+function solveinteriorhjb!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; maxiters = 1000, abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹ = 100.) where {T, TU <: AbstractMatrix{T}}
     policy = similar(u)
     nextu = copy(u)
     errors = similar(u)
@@ -188,7 +189,7 @@ function solveinteriorhjb!(u::TU, φgrid, mgrid, u̲, ū, τᶜ, signal::Signal
 
     for iter in 1:maxiters
         updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
-        interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲, ū, τᶜ, Δt⁻¹, signal, climate, government, firm)
+        interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
 
         errors .= nextu .- u
         abserror = maximum(abs, errors)

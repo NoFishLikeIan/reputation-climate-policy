@@ -13,12 +13,13 @@ function solutionlabel(climate, government, firm, signal)
     return join((
         "e0$(parameterstring(firm.e₀))",
         "nu$(parameterstring(firm.ν))",
+        "omega$(parameterstring(firm.ω))",
         "y0$(parameterstring(government.y₀))",
-        "delta$(parameterstring(government.δ))",
+        "lambda$(parameterstring(λ(government, firm)))",
         "r$(parameterstring(government.r))",
         "gamma$(parameterstring(climate.γ))",
         "zeta$(parameterstring(climate.ζ))",
-        "epsilon$(parameterstring(signal.σ))",
-        "sigma$(parameterstring(signal.ϵ))",
+        "epsilon$(parameterstring(signal.ϵ))",
+        "sigma$(parameterstring(signal.σ))",
     ), "_")
 end

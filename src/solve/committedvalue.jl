@@ -28,11 +28,12 @@ function initscheme(u::TU, mgrid::MG, climate::Climate, government::Government, 
     return scheme, welfarecosts
 end
 
-function updatescheme!(scheme, welfarecosts::AbstractVector, u::AbstractVector, mgrid::MG, climate::Climate, government::Government, firm::Firm) where {T <: Real, MG <: AbstractRange{T}}
+function updatescheme!(scheme, welfarecosts::AbstractVector, u::AbstractVector, mgrid, climate::Climate, government::Government, firm::Firm)
     V = scheme[3]
     Δm = step(mgrid)
     n = length(mgrid)
     
+    # TODO: Use paralell optimisation via `BatchSolve.jl`
     @inbounds for (i, m) in enumerate(mgrid)
         j = ifelse(i < n, i + 1, i - 1)
 

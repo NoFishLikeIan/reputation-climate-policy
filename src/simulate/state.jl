@@ -10,7 +10,7 @@ function F!(dx, x, parameters, _)
     τᶜₜ = τᶜ(m)
     τₜ = τ(φ, m)
     
-    dx[1] = χ(τₜ, τᶜₜ, signal)^2 * φ^2 * (1 - φ)
+    dx[1] = -χ(τₜ, τᶜₜ, signal)^2 * φ^2 * (1 - φ)
     dx[2] = firm.e₀ - a(φ * τᶜₜ + (1 - φ) * τₜ, firm)
 
     return dx
@@ -26,6 +26,7 @@ function G!(Σ, x, parameters, _)
     τₜ = τ(φ, m)
 
     Σ[1, 1] = χ(τₜ, τᶜₜ, signal) * φ * (1 - φ)
+    Σ[2, 1] = zero(m)
 
     return Σ
 end

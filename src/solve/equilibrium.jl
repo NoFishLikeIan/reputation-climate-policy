@@ -2,30 +2,28 @@ function wᶜ(m, τᶜ, climate::Climate, government::Government, firm::Firm)
     w(m, τᶜ, a(τᶜ, firm), climate, government, firm)
 end
 
-function optimalcommittedtax(∂ₘu, government::Government, firm::Firm)
-    @unpack δ, y₀, r = government
-    @unpack e₀, ν = firm
+const brent = Optim.Brent()
 
-    upperτ = firm.e₀ * firm.ν
+function optimalcommittedtax(∂ₘu, government::Government{T}, firm::Firm{T}) where T
 
     if ∂ₘu ≤ 0
-        return zero(upperτ)
+        return zero(T)
+    end
+    
+    τmax = firm.e₀ * firm.ν
+
+    obj = @closure τ -> begin
+        aᶜ = a(τ, firm)
+        government.r * (government.y₀ * c(aᶜ, firm) + l(aᶜ, τ, government, firm)) - aᶜ * ∂ₘu
     end
 
-    if δ ≤ 0
-        return clamp(∂ₘu / (r * y₀), zero(upperτ), upperτ)
+    result = Optim.optimize(obj, zero(T), τmax, brent)
+    
+    if !Optim.converged(result)
+        return T(NaN)
+    else
+        return Optim.minimizer(result)
     end
-
-    linear = y₀ + δ * e₀^2 * ν / y₀
-    discriminant = linear^2 - 6δ * e₀ * ∂ₘu / (r * y₀)
-
-    if discriminant < 0
-        return upperτ
-    end
-
-    τ = y₀ * (linear - √discriminant) / (3δ * e₀)
-
-    return clamp(τ, zero(upperτ), upperτ)
 end
 
 function L(m, τ, a, z, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm)
@@ -34,33 +32,26 @@ function L(m, τ, a, z, τᶜ, signal::Signal, climate::Climate, government::Gov
     return w(m, τ, a, climate, government, firm) - reputationvalue
 end
 
-function b(z, signal::Signal, government::Government, firm::Firm)
-	@unpack ϵ, σ = signal
-	@unpack δ, y₀ = government
-	@unpack e₀ = firm
+function τᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
+    τmax = clamp(τᶜ, zero(τᶜ), firm.ν * firm.e₀)
 
-	return (δ * e₀ / y₀) / (z * (ϵ / σ)^2)
+    if z ≤ 0 || τmax ≤ 0
+        return zero(τmax)
+    end
+
+    obj = τ -> begin
+        aᵢ = aᵇ(τ, φ, τᶜ, firm)
+        reputationvalue = z * μ(τ, signal) * (μ(τᶜ, signal) - μ(τ, signal)) / signal.σ^2
+        government.y₀ * c(aᵢ, firm) + l(aᵢ, τ, government, firm) - reputationvalue
+    end
+
+    result = Optim.optimize(obj, zero(τmax), τmax, Optim.Brent())
+    return Optim.minimizer(result)
 end
-
-function η(a, z, signal::Signal, government::Government, firm::Firm)	
-    inv(2 + b(z, signal, government, firm) * e(a, firm))
-end;
 
 function ηᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
-    if z ≤ 0
-		return zero(z)
-	end
-	
-	ā = (firm.e₀ - φ * τᶜ / firm.ν)
-	bᶻ = b(z, signal, government, firm)
-	x = ā * bᶻ
-	d = (2 + x)^2 - 4bᶻ * (1 - φ) * τᶜ / firm.ν
-	
-	return 1 / (1 + (x + √d) / 2)
-end
-
-function τᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
-    ηᵉ(φ, z, τᶜ, signal, government, firm) * τᶜ
+    τᶜ ≤ 0 && return zero(τᶜ)
+    τᵉ(φ, z, τᶜ, signal, government, firm) / τᶜ
 end
 
 function aᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::Firm)
