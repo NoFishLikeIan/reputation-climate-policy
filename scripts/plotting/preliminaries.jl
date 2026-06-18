@@ -52,7 +52,7 @@ end
 τgrid = range(0, 10τ₀, 501)
 
 begin
-    lfig = Plots.plot(xlabel = L"Carbon tax $\tau$ [trUSD / GtCO2e]", xlims = extrema(τgrid), ylabel = L"Standed assets loss $l(a, \tau) / y_0$ [% GDP / year]", legend_title = L"Abatement $a$ [GtCO2e / year]", yaxis = (formatter = percentageformatter))
+    lfig = Plots.plot(xlabel = L"Carbon tax $\tau$ [trUSD / GtCO2e]", xlims = extrema(τgrid), ylabel = L"Standed assets loss $l(a, \tau) / y_0$ [% GDP / year]", legend_title = L"Abatement $a$ [GtCO2e / year]", yaxis = (formatter = percentageformatter), margins = 10Plots.mm)
 
     for a in [a₀, 0.5e₀, 0.8e₀, e₀]
         Plots.plot!(τgrid, τ -> l(a, τ, government, firm) / government.y₀; label = a)

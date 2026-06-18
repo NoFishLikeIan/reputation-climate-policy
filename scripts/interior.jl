@@ -7,6 +7,7 @@ import FastClosures: @closure
 import UnPack: @unpack, @pack!
 
 import FastInterpolations as Itp
+import BatchSolve
 import JLD2
 import SpecialFunctions as SF
 import LinearAlgebra as LA
@@ -47,13 +48,13 @@ committedmgrid = mgrid
 ūitp = Itp.linear_interp(committedmgrid, ū; extrap = Itp.ClampExtrap())
 
 ## Interior
-mgrid = range(first(committedmgrid), last(committedmgrid), 201)
+mgrid = range(first(committedmgrid), last(committedmgrid), 51)
 φgrid = range(0., 1., 51)
 u̲grid = [u̲(m, climate, government, firm) for m in mgrid]
 ūgrid = [ūitp(m) for m in mgrid]
 u = initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
 
-_, interiorpolicy, (i, abserror, relerror) = solveinteriorhjb!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; maxiters = 10_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 20.)
+_, interiorpolicy, (i, abserror, relerror) = solveinteriorhjb!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; maxiters = 10_000, verbose = 1, abstol = 1e-6, reltol = 1e-4, Δt⁻¹ = 10.)
 
 JLD2.jldopen(solutionpath, "a+") do file
     solution = JLD2.Group(file, "interior")
@@ -65,7 +66,7 @@ end
 ## Plot interior
 if isinteractive()
     using LaTeXStrings, Plots
-    
+
     Plots.default(linewidth = 2.5, dpi = 250, label = false, background_color = "#FAFAFA", size = 400 .* (√2, 1))
 
     valuefig = heatmap(mgrid, φgrid, u; xlabel = L"m", ylabel = L"\phi", title = L"u(\phi,m)")
@@ -75,5 +76,6 @@ if isinteractive()
 
     savefig(valuefig, joinpath(figurepath, "interior-value.png"))
     savefig(policyfig, joinpath(figurepath, "interior-policy.png"))
-    savefig(interiorfig, joinpath(figurepath, "interior.png"))
+
+    interiorfig
 end

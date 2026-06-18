@@ -35,7 +35,7 @@ mgrid = range(m₀, m₀ + Δm, 1001);
 uᶜ₀ = [w(m, 0.01, a(0.01, firm), climate, government, firm) for m in mgrid]
 uᶜ = copy(uᶜ₀)
 
-_, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 100.)
+_, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 10.)
 
 committedpolicy = computeglobalpolicy(uᶜ, mgrid, government, firm)
 filename = solutionlabel(climate, government, firm, signal)

@@ -15,6 +15,7 @@ import FastInterpolations as Itp
 import Roots
 import DifferentialEquations as DE
 import SpecialFunctions as SF
+import Optim
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
