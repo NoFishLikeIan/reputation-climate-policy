@@ -26,7 +26,7 @@ includet("../../src/solve/valuefunction.jl")
 
 includet("colors.jl")
 
-JLD2.@load "data/solutions/continuous-time.jld2" solutions τᶜ signal government firm
+JLD2.@load "data/solutions/static.jld2" solutions τᶜ signal government firm
 solutionsequence = sort(solutions; by = first, rev = true)
 
 function interpolatesolution(φ, solution, τᶜ, government, firm; tol = 1e-6)
@@ -36,8 +36,8 @@ function interpolatesolution(φ, solution, τᶜ, government, firm; tol = 1e-6)
         return w(0., aᶜ(τᶜ, firm), government, firm), 0.
     end
 
-    ℓspace, traj = solution
-    u, z = linear_interp(ℓspace, traj, logit(φ); extrap = ClampExtrap())
+    φspace, traj = solution
+    u, z = linear_interp(φspace, traj, φ; extrap = ClampExtrap())
 
     return u, z
 end
@@ -48,12 +48,11 @@ solutioncolors = palette(:viridis, length(solutionsequence))
 zfig = plot(xlabel = L"Belief $\phi$", xlims = (0.0, 1.0), ylabel = L"z(\phi)")
 ufig = plot(xlabel = L"Belief $\phi$", xlims = (0.0, 1.0), ylabel = L"u(\phi)")
 
-for (i, (φstep, ℓspace, trajectory)) in enumerate(solutionsequence)
+for (i, (φstep, φspace, trajectory)) in enumerate(solutionsequence)
     label = latexstring("\\varepsilon = ", @sprintf("%.0e", φstep))
-    
-    φᵢspace = belief.(ℓspace)
-    plot!(zfig, φᵢspace, last.(trajectory); color = solutioncolors[i], label)
-    plot!(ufig, φᵢspace, first.(trajectory); color = solutioncolors[i], label)
+
+    plot!(zfig, φspace, last.(trajectory); color = solutioncolors[i], label)
+    plot!(ufig, φspace, first.(trajectory); color = solutioncolors[i], label)
 end
 
 solsequencefig = plot(zfig, ufig, size = 400 .* (2√2, 1), margins = 7.5Plots.mm)

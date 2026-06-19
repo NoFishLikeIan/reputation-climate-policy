@@ -1,4 +1,4 @@
-function staticinitialguess(parameters, ℓ)
+function staticinitialguess(parameters, φ)
     τᶜ, _, government, firm = parameters
 
     u₀ = w(0., 0., government, firm)
@@ -6,7 +6,6 @@ function staticinitialguess(parameters, ℓ)
 
     ∂u = u₁ - u₀
     α = leftboundaryexponent(parameters)
-    φ = belief(ℓ)
 
     û = u₀ + ∂u * φ^α
     ẑ = -α * ∂u * φ^α * (1 - φ) / government.r
@@ -14,170 +13,144 @@ function staticinitialguess(parameters, ℓ)
     return [û, ẑ]
 end
 
-function staticcontinuationguess(previoussol, previousstep, parameters)
+function fillstaticguess!(guessarray, i, φ, u, z, parameters)
+    guessarray[i, 1] = u
+    guessarray[i, 2] = z
+
+    if size(guessarray, 2) == 4
+        s, rhsu, rhsz = staticrightside(parameters, φ, u, z)
+        guessarray[i, 3] = rhsu / s
+        guessarray[i, 4] = rhsz / s
+    end
+end
+
+function initialiseguess(parameters, ε::T, guessnodes, statevariables) where T
+
+    φnodes = range(ε, 1 - ε, guessnodes)
+
+    guessarray = Matrix{T}(undef, guessnodes, statevariables)
+    @inbounds for i in eachindex(φnodes)
+        u, z = staticinitialguess(parameters, φnodes[i])
+        fillstaticguess!(guessarray, i, φnodes[i], u, z, parameters)
+    end
+
+    return φnodes, guessarray
+end
+
+function updateguess!(guessarray, φnodes, solution, ε, ε′, parameters)
+    n = length(φnodes)
     τᶜ, _, government, firm = parameters
     u₀ = w(0., 0., government, firm)
     u₁ = w(0., aᶜ(τᶜ, firm), government, firm)
     α = leftboundaryexponent(parameters)
 
-    leftx = previoussol(logit(previousstep))
-    rightx = previoussol(logit(1 - previousstep))
-    leftz = leftx[2]
-    rightz = rightx[2]
+    leftz = solution(ε)[2]
+    rightz = solution(1 - ε)[2]
 
-    return (_, ℓ) -> begin
-        φ = belief(ℓ)
+    nextφnodes  = range(ε′, 1 - ε′, n)
 
-        if φ < previousstep
-            ẑ = leftz * (φ / previousstep)^α
-            û = u₀ - government.r * ẑ / α
-            return [û, ẑ]
-        elseif φ > 1 - previousstep
-            ẑ = rightz * (1 - φ) / previousstep
-            û = u₁ + government.r * ẑ
-            return [û, ẑ]
+    for (i, φ) in enumerate(nextφnodes)
+        if φ < ε
+            z = leftz * (φ / ε)^α
+            u = u₀ - government.r * z / α
+        elseif φ > 1 - ε
+            z = rightz * (1 - φ) / ε
+            u = u₁ + government.r * z
         else
-            return previoussol(ℓ)
+            u, z = solution(φ)[1:2]
         end
+
+        fillstaticguess!(guessarray, i, φ, u, z, parameters)
     end
+
+    return nextφnodes, guessarray
 end
 
-function staticνcontinuationguess(previoussol, previousparameters, parameters)
-    previousτᶜ, _, previousgovernment, previousfirm = previousparameters
-    τᶜ, _, government, firm = parameters
-
-    previousu₀ = w(0., 0., previousgovernment, previousfirm)
-    previousu₁ = w(0., aᶜ(previousτᶜ, previousfirm), previousgovernment, previousfirm)
-    u₀ = w(0., 0., government, firm)
-    u₁ = w(0., aᶜ(τᶜ, firm), government, firm)
-
-    previousrange = previousu₁ - previousu₀
-    valuerange = u₁ - u₀
-    valuescale = iszero(previousrange) ? one(valuerange) : valuerange / previousrange
-
-    return (_, ℓ) -> begin
-        previousu, previousz = previoussol(ℓ)
-
-        û = u₀ + valuescale * (previousu - previousu₀)
-        ẑ = valuescale * previousz
-
-        return [û, ẑ]
-    end
-end
-
-const defaultφsteps = [1e-2, 1e-3, 1e-4];
-
-function defaultνsteps(firm::StaticFirm; νstart = ν₀, νnodes = 10)
-    νtarget = firm.ν
-
-    if νtarget <= 0 || νstart <= 0
-        error("ν continuation requires positive ν values.")
-    end
-
-    if νnodes <= 1 || νstart ≈ νtarget
-        return [νtarget]
-    end
-
-    return collect(exp.(range(log(νstart), log(νtarget), length = νnodes)))
-end
-
-function νcontinuationpath(νsteps, firm::StaticFirm)
-    νpath = collect(νsteps)
-
-    if isempty(νpath)
-        push!(νpath, firm.ν)
-    elseif !(last(νpath) ≈ firm.ν)
-        push!(νpath, firm.ν)
-    end
-
-    if any(ν -> ν <= 0, νpath)
-        error("ν continuation requires positive ν values.")
-    end
-
-    return νpath
-end
-
-function solvestaticproblemdata(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
+const defaultεs = [1e-2];
+function solvestatic(τᶜ, signal::Signal, government::Government, firm::StaticFirm; εs = defaultεs, verbose = false, guessnodes = 100, φstepfactor = 1e-3, endpointstepfactor = 0.2, algorithm = nothing, solvekwargs...)
     parameters = (τᶜ, signal, government, firm)
     bcresiduals = (zeros(1), zeros(1))
     solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
+    εpath = sort(collect(εs); rev = true)
+    n = length(εpath)
 
-    guess = initialguess
-    n = length(φsteps)
-    sol = nothing
+    φnodes, guessarray = initialiseguess(parameters, εpath[1], guessnodes, 2)
 
-    for (i, φstep) in enumerate(φsteps)
+    for (i, ε) in enumerate(εpath)
+
         if verbose
-            @printf "Solving problem %d/%d with φ = %.2e\n" i n φstep
+            @printf "Solving ε continuation %d/%d with ε = %.2e\n" i n ε
         end
 
-        ℓspan = logit.((φstep, 1 - φstep))
-        ℓstep = 2ℓspan[end] * ℓstepfactor
+        dφ = min((1 - 2ε) * φstepfactor, endpointstepfactor * ε)
 
-        prob = BVP.TwoPointBVProblem(Flogit!, (leftboundary!, rightboundary!), guess, ℓspan, parameters; bcresid_prototype = bcresiduals)
+        guess = @closure (_, φ) -> FastInterpolations.linear_interp(φnodes, FastInterpolations.Series(guessarray), φ; extrap = FastInterpolations.ClampExtrap())
 
-        sol = BVP.solve(prob, BVP.MIRK6(); dt = ℓstep, progress = verbose, solvekwargs...)
+        prob = BVP.TwoPointBVProblem(F!, (leftboundary!, rightboundary!), guess, (ε, 1 - ε), parameters; bcresid_prototype = bcresiduals)
 
-        if verbose && !SciMLBase.successful_retcode(sol)
-            @warn @sprintf "BVP with φ = %.2e failed with error: %s" φstep sol.retcode
+        solvealgorithm = isnothing(algorithm) ? BVP.MIRK6() : algorithm
+        solution = BVP.solve(prob, solvealgorithm; dt = dφ, progress = verbose, solvekwargs...)
+
+        if !SciMLBase.successful_retcode(solution)
+            if verbose
+                @error @sprintf "BVP with φ = %.2e failed with error: %s" ε solution.retcode
+            end
+            break
         end
 
-        push!(solutions, (φstep, sol.t, sol.u))
-        guess = staticcontinuationguess(sol, φstep, parameters)
+        push!(solutions, (ε, solution.t, [x[1:2] for x in solution.u]))
+
+        if i < n
+            φnodes, guessarray = updateguess!(guessarray, φnodes, solution, ε, εpath[i + 1], parameters)
+        end
     end
-
-    return solutions, sol
-end
-
-function solvestaticproblem(τᶜ, signal::Signal, government::Government, firm::StaticFirm; φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, initialguess = staticinitialguess, solvekwargs...)
-    solutions, _ = solvestaticproblemdata(
-        τᶜ,
-        signal,
-        government,
-        firm;
-        φsteps,
-        verbose,
-        ℓstepfactor,
-        initialguess,
-        solvekwargs...
-    )
 
     return solutions
 end
 
-function solvestaticνcontinuation(τᶜ, signal::Signal, government::Government, firm::StaticFirm; νsteps = defaultνsteps(firm), φsteps = defaultφsteps, verbose = false, ℓstepfactor = 5e-3, solvekwargs...)
-    νpath = νcontinuationpath(νsteps, firm)
-    νsolutions = NamedTuple[]
-    previoussol = nothing
-    previousparameters = nothing
-    n = length(νpath)
+function solvestaticmassmatrix(τᶜ, signal::Signal, government::Government, firm::StaticFirm; εs = defaultεs, verbose = false, guessnodes = 100, φstepfactor = 1e-3, endpointstepfactor = 0.2, algorithm = nothing, solvekwargs...)
+    parameters = (τᶜ, signal, government, firm)
+    bcresiduals = (zeros(1), zeros(1))
+    solutions = Tuple{Float64, Vector{Float64}, Vector{Vector{Float64}}}[]
+    εpath = sort(collect(εs); rev = true)
+    n = length(εpath)
+    M = [
+        1. 0. 0. 0.
+        0. 1. 0. 0.
+        0. 0. 0. 0.
+        0. 0. 0. 0.
+    ]
 
-    for (i, νstep) in enumerate(νpath)
-        stepfirm = StaticFirm(e₀ = firm.e₀, ν = νstep)
-        stepτᶜ = i == n ? τᶜ : computeτᶜ(government, stepfirm)
-        parameters = (stepτᶜ, signal, government, stepfirm)
-        initialguess = previoussol === nothing ? staticinitialguess : staticνcontinuationguess(previoussol, previousparameters, parameters)
+    φnodes, guessarray = initialiseguess(parameters, εpath[1], guessnodes, 4)
+
+    for (i, ε) in enumerate(εpath)
 
         if verbose
-            @printf "Solving ν continuation %d/%d with ν = %.3e\n" i n νstep
+            @printf "Solving mass-matrix ε continuation %d/%d with ε = %.2e\n" i n ε
         end
 
-        solutions, sol = solvestaticproblemdata(
-            stepτᶜ,
-            signal,
-            government,
-            stepfirm;
-            φsteps,
-            verbose,
-            ℓstepfactor,
-            initialguess,
-            solvekwargs...
-        )
+        dφ = min((1 - 2ε) * φstepfactor, endpointstepfactor * ε)
+        guess = @closure (_, φ) -> FastInterpolations.linear_interp(φnodes, FastInterpolations.Series(guessarray), φ; extrap = FastInterpolations.ClampExtrap())
 
-        push!(νsolutions, (ν = νstep, τᶜ = stepτᶜ, solutions = solutions))
-        previoussol = sol
-        previousparameters = parameters
+        bvpfunction = BVP.BVPFunction(Fmass!, (leftboundary!, rightboundary!); mass_matrix = M, twopoint = Val(true), bcresid_prototype = bcresiduals)
+        prob = BVP.TwoPointBVProblem(bvpfunction, guess, (ε, 1 - ε), parameters)
+
+        solvealgorithm = isnothing(algorithm) ? BVP.Ascher4() : algorithm
+        solution = BVP.solve(prob, solvealgorithm; dt = dφ, progress = verbose, solvekwargs...)
+
+        if !SciMLBase.successful_retcode(solution)
+            if verbose
+                @error @sprintf "Mass-matrix BVP with φ = %.2e failed with error: %s" ε solution.retcode
+            end
+            break
+        end
+
+        push!(solutions, (ε, solution.t, [x[1:2] for x in solution.u]))
+
+        if i < n
+            φnodes, guessarray = updateguess!(guessarray, φnodes, solution, ε, εpath[i + 1], parameters)
+        end
     end
 
-    return νsolutions
+    return solutions
 end

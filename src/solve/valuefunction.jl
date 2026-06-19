@@ -1,22 +1,29 @@
-function F!(dx, x, parameters, φ)
+function staticrightside(parameters, φ, u, z)
     τᶜ, signal, government, firm = parameters
+
+    @unpack σ, ϵ = signal
+    @unpack r = government
+
+    ηratio = ηᵉ(φ, z, τᶜ, signal, government, firm)
+    τ = ηratio * τᶜ
+    a = aᵇ(τ, φ, τᶜ, firm)
+
+    s = φ * (1 - φ)
+    inverseprecision = σ / (ϵ * τᶜ * (1 - ηratio))
+
+    rhsu = -r * z
+    rhsz = z + 2 * inverseprecision^2 * (w(τ, a, government, firm) - u)
+
+    return s, rhsu, rhsz
+end
+
+function F!(dx, x, parameters, φ)
 	u, z = x
 
-	@unpack σ, ϵ = signal
-	@unpack r = government
+	s, rhsu, rhsz = staticrightside(parameters, φ, u, z)
 
-	ηᵩ = ηᵉ(φ, z, τᶜ, signal, government, firm)
-	τ = ηᵩ * τᶜ
-	a = aᵇ(τ, φ, τᶜ, firm)
-
-	s = φ * (1 - φ)
-	ε = σ / (ϵ * (τᶜ - τ))
-	
-	du = -r * z
-	dz = z + 2 * ε^2 * (w(τ, a, government, firm) - u)
-
-	dx[1] = du / s
-	dx[2] = dz / s
+	dx[1] = rhsu / s
+	dx[2] = rhsz / s
 end
 
 function belief(ℓ)
@@ -28,20 +35,24 @@ function logit(φ)
 end
 
 function Flogit!(dx, x, parameters, ℓ)
-    τᶜ, signal, government, firm = parameters
 	u, z = x
 
-	@unpack σ, ϵ = signal
-	@unpack r = government
-
     φ = belief(ℓ)
-	τ = ηᵉ(φ, z, τᶜ, signal, government, firm) * τᶜ
-	a = aᵇ(τ, φ, τᶜ, firm)
+	_, rhsu, rhsz = staticrightside(parameters, φ, u, z)
 
-	ε = σ / (ϵ * (τᶜ - τ))
+	dx[1] = rhsu
+	dx[2] = rhsz
+end
 
-	dx[1] = -r * z
-	dx[2] = z + 2 * ε^2 * (w(τ, a, government, firm) - u)
+function Fmass!(dx, x, parameters, φ)
+    u, z, uφ, zφ = x
+
+    s, rhsu, rhsz = staticrightside(parameters, φ, u, z)
+
+    dx[1] = uφ
+    dx[2] = zφ
+    dx[3] = s * uφ - rhsu
+    dx[4] = s * zφ - rhsz
 end
 
 function positivequadraticroot(b, c)

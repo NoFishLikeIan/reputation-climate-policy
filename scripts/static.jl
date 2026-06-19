@@ -6,8 +6,11 @@ using FastClosures
 using BenchmarkTools
 using Printf
 using JLD2
+import FastInterpolations
 
 using DifferentialEquations, BoundaryValueDiffEq
+import BoundaryValueDiffEq as BVP
+import SciMLBase
 using SciMLBase: successful_retcode
 
 includet("../src/primitives/constants.jl")
@@ -32,8 +35,7 @@ parameters = (τᶜ, signal, government, firm)
 @printf "Left boundary exponent α = %.4e\n" α
 
 ## Solve value function
-νsteps = defaultνsteps(firm)
-νcontinuation = solvestaticνcontinuation(τᶜ, signal, government, firm; νsteps, verbose = true)
-solutions = νcontinuation[end].solutions
+εs = [1e-2, 1e-3, 1e-4]
+solutions = solvestaticmassmatrix(τᶜ, signal, government, firm; εs, verbose = true)
 
-JLD2.@save "data/solutions/static.jld2" solutions νcontinuation τᶜ signal government firm
+JLD2.@save "data/solutions/static.jld2" solutions εs τᶜ signal government firm

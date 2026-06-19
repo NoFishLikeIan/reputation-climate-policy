@@ -32,21 +32,30 @@ function b(z, signal::Signal, government::Government, firm::StaticFirm)
 	return (δ * e₀ / y₀) / (z * (ϵ / σ)^2)
 end
 
-function η(a, z, signal::Signal, government::Government, firm::StaticFirm)	
+function η(a, z, signal::Signal, government::Government, firm::StaticFirm)
+    if z ≤ 0
+        return zero(z)
+    end
+
     inv(2 + b(z, signal, government, firm) * e(a, firm))
 end;
 
 function ηᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::StaticFirm)
-    if z <= 0
-		return zero(z)
-	end
-	
-	ā = (firm.e₀ - φ * τᶜ / firm.ν)
-	bᶻ = b(z, signal, government, firm)
-	x = ā * bᶻ
-	d = (2 + x)^2 - 4bᶻ * (1 - φ) * τᶜ / firm.ν
-	
-	return 1 / (1 + (x + √d) / 2)
+    if z ≤ 0
+        return zero(z)
+    end
+
+    if τᶜ * (φ + (1 - φ) / 2) ≥ firm.ν * firm.e₀
+        return one(z) / 2
+    end
+
+    ā = (firm.e₀ - φ * τᶜ / firm.ν)
+    bᶻ = b(z, signal, government, firm)
+    x = ā * bᶻ
+    d = (2 + x)^2 - 4bᶻ * (1 - φ) * τᶜ / firm.ν
+    d = max(d, zero(d))
+
+    return 1 / (1 + (x + √d) / 2)
 end
 
 function τᵉ(φ, z, τᶜ, signal::Signal, government::Government, firm::StaticFirm)

@@ -40,73 +40,105 @@ includet("../../src/solve/valuefunction.jl")
 includet("../../src/solve/staticproblem.jl")
 includet("../../src/solve/dynamicvaluefunction.jl")
 
-firm = DynamicFirm(ω = 5e-2, ν = 4e-2)
+firm = DynamicFirm(ν = ν₀ * 0.3)
 solutionpath = joinpath("data", "solutions", dynamicsolutionlabel(firm))
 
 if !isfile(solutionpath)
     error("No dynamic solution found at $(solutionpath). Run scripts/dynamic.jl with the same firm parameters first.")
 end
 
-JLD2.@load solutionpath solution ℓgrid tgrid τᶜtraj signal government firm
+solutiondata = JLD2.load(solutionpath)
+solutiongrid = solutiondata["solutiongrid"]
+sgrid = solutiondata["sgrid"]
+φgrid = solutiondata["φgrid"]
+tgrid = solutiondata["tgrid"]
+τᶜtraj = solutiondata["τᶜtraj"]
+signal = solutiondata["signal"]
+government = solutiondata["government"]
+firm = solutiondata["firm"]
+terminaltime = last(sgrid)
 
 plotpath = joinpath("figures", "dynamic", dynamicsolutionlabel(firm))
 if !ispath(plotpath) mkpath(plotpath) end
 
 ## Solution GIF
-φgrid = belief.(ℓgrid)
+ufig = Plots.plot(xlabel = L"\varphi", xlims = (0, 1), ylabel = L"Value $u_t$", legendtitle = L"t")
+for t in (0., 50., 100.)
+    s = terminaltime - t
+    rightindex = searchsortedfirst(sgrid, s)
+    if rightindex <= firstindex(sgrid)
+        uᵢ = solutiongrid[firstindex(sgrid), :]
+    elseif rightindex > lastindex(sgrid)
+        uᵢ = solutiongrid[lastindex(sgrid), :]
+    else
+        leftindex = rightindex - 1
+        weight = (s - sgrid[leftindex]) / (sgrid[rightindex] - sgrid[leftindex])
+        uᵢ = (1 - weight) * solutiongrid[leftindex, :] + weight * solutiongrid[rightindex, :]
+    end
 
-anim = Plots.@animate for (i, t) in enumerate(tgrid)
-    print("Plotting $(round(t, digits = 0)) / $(tgrid[end])\r")
-    τᶜᵢ = τᶜtraj[i]
-    uᵢ = solution(t)
-
-    Plots.Plots.plot(φgrid, uᵢ; ylims = (0., 8.), c = :black, xlabel = L"\varphi", xlims = (0, 1), ylabel = L"Value $u_t$", label = false, title = "Value at time t = $(round(t; digits = 2))")
+    Plots.plot!(ufig, φgrid, uᵢ; label = round(t; digits = 2))
 end
 
-Plots.gif(anim, joinpath(plotpath, "solution.gif"), fps = 30)
+ufig
 
 ## Define dynamic policies
 const clampextrap = FastInterpolations.ClampExtrap()
-dynamicparameters = (solution, ℓgrid, tgrid, τᶜtraj, signal, government, firm);
+dynamicparameters = (solutiongrid, sgrid, φgrid, tgrid, τᶜtraj, signal, government, firm);
 
-"Computes the linear interpolation of the finite difference first and second derivative of `u` at time `t` and belief `φ`."
-function valuedifferential(t, φ, dynamicparameters)
-    solution, ℓgrid = dynamicparameters[1:2]
-    ℓ = logit(φ)
-    uₜ = solution(t)
-    n = length(ℓgrid)
+function dynamicvalue(t, dynamicparameters)
+    solutiongrid, sgrid = dynamicparameters[1:2]
+    s = last(sgrid) - t
+    rightindex = searchsortedfirst(sgrid, s)
 
-    if ℓ ≤ ℓgrid[2]
-        return gridderivatives(uₜ, ℓgrid, 2)
-    elseif ℓ ≥ ℓgrid[end - 1]
-        return gridderivatives(uₜ, ℓgrid, n - 1)
+    if rightindex <= firstindex(sgrid)
+        return solutiongrid[firstindex(sgrid), :]
+    elseif rightindex > lastindex(sgrid)
+        return solutiongrid[lastindex(sgrid), :]
     end
 
-    rightindex = searchsortedfirst(ℓgrid, ℓ)
+    leftindex = rightindex - 1
+    weight = (s - sgrid[leftindex]) / (sgrid[rightindex] - sgrid[leftindex])
+
+    return (1 - weight) * solutiongrid[leftindex, :] + weight * solutiongrid[rightindex, :]
+end
+
+"Computes the linear interpolation of the generator curvature term at time `t` and belief `φ`."
+function valuedifferential(t, φ, dynamicparameters)
+    _, _, φgrid = dynamicparameters[1:3]
+    n = length(φgrid)
+    uₜ = dynamicvalue(t, dynamicparameters)
+    uφgrid = [derivative(uₜ, φgrid, i) for i in eachindex(φgrid)]
+    uφφgrid = [derivative(uφgrid, φgrid, i) for i in eachindex(φgrid)]
+    Dgrid = [
+        2 * φgrid[i] * (1 - φgrid[i]) * (-φgrid[i] * uφgrid[i] + φgrid[i] * (1 - φgrid[i]) * uφφgrid[i] / 2)
+        for i in eachindex(φgrid)
+    ]
+
+    if φ ≤ φgrid[2]
+        return Dgrid[2]
+    elseif φ ≥ φgrid[end - 1]
+        return Dgrid[n - 1]
+    end
+
+    rightindex = searchsortedfirst(φgrid, φ)
     leftindex = rightindex - 1
 
-    uₗleft, uₗₗleft = gridderivatives(uₜ, ℓgrid, leftindex)
-    uₗright, uₗₗright = gridderivatives(uₜ, ℓgrid, rightindex)
-    
-    weight = (ℓ - ℓgrid[leftindex]) / (ℓgrid[rightindex] - ℓgrid[leftindex])
-    uₗ = (1 - weight) * uₗleft + weight * uₗright
-    uₗₗ = (1 - weight) * uₗₗleft + weight * uₗₗright
-
-    return uₗ, uₗₗ
+    weight = (φ - φgrid[leftindex]) / (φgrid[rightindex] - φgrid[leftindex])
+    return (1 - weight) * Dgrid[leftindex] + weight * Dgrid[rightindex]
 end
 
 "Computes the optimal tax `τ` t time `t` and belief `φ`."
 function dynamictax(t, φ, dynamicparameters)
-    _, _, tgrid, τᶜtraj, signal, government, firm = dynamicparameters
+    _, _, _, tgrid, τᶜtraj, signal, government, firm = dynamicparameters
     τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
-    uₗ, uₗₗ = valuedifferential(t, φ, dynamicparameters)
+    D = valuedifferential(t, φ, dynamicparameters)
 
-    return ηᵈ(t, φ, uₗ, uₗₗ, τᶜ, signal, government, firm) * τᶜ
+    return ηᵈ(t, φ, D, τᶜ, signal, government, firm) * τᶜ
 end
 
 "Computes the optimal abatement `a` at time `t` and belief `φ`."
 function dynamicabatement(t, φ, dynamicparameters)
-    _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
+    _, _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
     τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
     τ = dynamictax(t, φ, dynamicparameters)
 
@@ -129,7 +161,7 @@ begin # Plot optimal tax
 end
 
 begin # Plot optimal abatement
-    abatementfigure = Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"\tau", legendtitle = L"t")
+    abatementfigure = Plots.plot(xlims = (0, 1), xlabel = L"\phi", ylabel = L"a", legendtitle = L"t")
 
     for (i, t) in enumerate(tsamples)
         τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
@@ -144,7 +176,7 @@ end
 
 ## Define belief dynamics function
 function precision(t, φ, dynamicparameters)
-    _, _, tgrid, τᶜtraj, signal, _, _ = dynamicparameters
+    _, _, _, tgrid, τᶜtraj, signal, _, _ = dynamicparameters
     τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
     τ = dynamictax(t, φ, dynamicparameters)
 
@@ -194,7 +226,7 @@ SDE.solve(beliefproblem, SDE.SRIW2()) # Checks that the model runs
 beliefensembleproblem = SDE.EnsembleProblem(beliefproblem)
 
 function timepointtaxabatementquantiles(sim, quantilelevels, t, dynamicparameters)
-    _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
+    _, _, _, tgrid, τᶜtraj, _, _, firm = dynamicparameters
     τᶜ = FastInterpolations.linear_interp(tgrid, τᶜtraj, t; extrap = clampextrap)
 
     taxvalues = Float64[]
