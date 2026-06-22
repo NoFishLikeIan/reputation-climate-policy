@@ -9,6 +9,7 @@ import FastInterpolations as Itp
 import JLD2
 import Random
 import UnPack: @unpack, @pack!
+import FastClosures: @closure
 
 import StochasticDiffEq as SDE
 
@@ -21,7 +22,7 @@ includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 
 includet("../src/solve/equilibrium.jl")
-includet("../src/simulate/state.jl")
+includet("../src/dynamics/state.jl")
 
 const SIMPATH = joinpath("data", "solutions")
 
@@ -50,9 +51,11 @@ prob = SDE.SDEProblem(F!, G!, x₀, (0., horizon), parameters)
 
 begin
     simfig = Plots.plot()
-    for φ₀ in [0.01, 0.5, 0.99]
+    
+    for φ₀ in [0.01, 0.3, 0.5, 0.8, 0.99]
         sol = SDE.solve(prob; u0 = [φ₀, m₀])
         Plots.plot!(sol, idxs = 1, label = φ₀)
     end
+
     simfig
 end

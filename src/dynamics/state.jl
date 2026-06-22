@@ -16,10 +16,10 @@ function F!(dx, x, parameters, _)
     φ, m = x
 
     τᶜₜ = τᶜ(m)
-    τₜ = τ(φ, m)
+    τₜ = τ(x)
     
-    dx[1] = -χ(τₜ, τᶜₜ, signal)^2 * φ^2 * (1 - φ)
-    dx[2] = firm.e₀ - a(φ * τᶜₜ + (1 - φ) * τₜ, firm)
+    dx[1] = beliefdrift(χ(τₜ, τᶜₜ, signal), φ)
+    dx[2] = e(aᵇ(τₜ, φ, τᶜₜ, firm), firm)
 
     return dx
 end
@@ -30,11 +30,7 @@ function G!(Σ, x, parameters, _)
     
     φ, m = x
 
-    τᶜₜ = τᶜ(m)
-    τₜ = τ(φ, m)
 
-    Σ[1, 1] = χ(τₜ, τᶜₜ, signal) * φ * (1 - φ)
-    Σ[2, 1] = zero(m)
+    Σ[1, 1] = beliefdiffusion(χ(τ(x), τᶜ(m), signal), φ)
 
-    return Σ
 end
