@@ -157,14 +157,16 @@ function interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τ�
     return nextu
 end
 
-function solveinteriorhjb!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; maxiters = 1000, abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹ = 100.) where {T, TU <: AbstractMatrix{T}}
+function iterateinteriorhjb!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm, Δt⁻¹, iterations; verbose = 0) where {T, TU <: AbstractMatrix{T}}
+    maxiters > 0 || throw(ArgumentError("maxiters must be positive."))
+
     policy = similar(u)
     nextu = copy(u)
     errors = similar(u)
     abserror = T(Inf)
     relerror = T(Inf)
 
-    for iter in 1:maxiters
+    for iter in 1:iterations
         updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
         interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
 
@@ -174,21 +176,44 @@ function solveinteriorhjb!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal
 
         u .= nextu
 
-        if verbose > 0
-            @printf "Interior iteration %d, errors: abs = %.4e, rel = %.4e\r" iter abserror relerror
+        if verbose > 1
+            @printf "Interior iteration %d, Δt⁻¹ = %.4e, errors: abs = %.4e, rel = %.4e\r" iter Δt⁻¹ abserror relerror
         end
-
-        if abserror < abstol && relerror < reltol
-            updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
-            return u, policy, (iter, abserror, relerror)
-        end
-    end
-
-    if verbose > 0
-        @warn @sprintf "Interior convergence failed after %d iterations with errors: abs = %.4e (%.4e), rel = %.4e (%.4e)" maxiters abserror abstol relerror reltol
     end
 
     updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
-    
-    return u, policy, (maxiters, abserror, relerror)
+
+    return u, policy, (iterations, abserror, relerror)
+end
+
+function solveinteriorfixedpoint!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; inneriterations = 1_000, maxstages = 8, growthfactor = 2., abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹₀ = 100.) where {T, TU <: AbstractMatrix{T}}
+
+    policy = similar(u)
+    abserror = T(Inf)
+    relerror = T(Inf)
+    totaliterations = 0
+
+    Δt⁻¹ = Δt⁻¹₀
+
+    for stage in 1:maxstages
+        _, policy, (iterations, abserror, relerror) = iterateinteriorhjb!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm, Δt⁻¹, inneriterations;verbose)
+        
+        totaliterations += iterations
+
+        if verbose > 0
+            @printf "Interior stage %d, Δt⁻¹ = %.4e, errors: abs = %.4e, rel = %.4e\n" stage Δt⁻¹ abserror relerror
+        end
+
+        if abserror < abstol && relerror < reltol
+            return u, policy, (totaliterations, abserror, relerror)
+        end
+
+        Δt⁻¹ *= growthfactor
+    end
+
+    if verbose > 0
+        @warn @sprintf "Interior convergence failed after %d stages and %d iterations with errors: abs = %.4e (%.4e), rel = %.4e (%.4e)" maxstages totaliters abserror abstol relerror reltol
+    end
+
+    return u, policy, (totaliters, abserror, relerror)
 end
