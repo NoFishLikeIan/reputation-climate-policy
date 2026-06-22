@@ -1,20 +1,16 @@
-function ξ(τ, τᶜ, signal::Signal)
-    signal.ϵ * (τᶜ - τ) / signal.σ
-end
-
 function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    Δφgrid = step(φgrid)
+    Δφ = step(φgrid)
     Δm = step(mgrid)
 
     φ = φgrid[i]
     m = mgrid[j]
 
     aᵢ = aᵇ(τ, φ, τᶜ, firm)
-    ξᵢ = ξ(τ, τᶜ, signal)
+    χᵢ = χ(τ, τᶜ, signal)
 
     dm = e(aᵢ, firm)
-    dφ = -φ^2 * (1 - φ) * ξᵢ^2
-    d²φ = φ^2 * (1 - φ)^2 * ξᵢ^2 / 2
+    dφ = beliefdrift(χᵢ, φ)
+    d²φ = beliefdiffusion(χᵢ, φ)^2 / 2
 
     v = government.r * w(m, τ, aᵢ, climate, government, firm)
 
@@ -23,13 +19,13 @@ function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, 
     end
 
     if d²φ > 0
-        v += d²φ * (u[i - 1, j] - 2u[i, j] + u[i + 1, j]) / Δφgrid^2
+        v += d²φ * (u[i - 1, j] - 2u[i, j] + u[i + 1, j]) / Δφ^2
     end
 
     if dφ > 0
-        v += dφ * (u[i + 1, j] - u[i, j]) / Δφgrid
+        v += dφ * (u[i + 1, j] - u[i, j]) / Δφ
     elseif dφ < 0
-        v += dφ * (u[i, j] - u[i - 1, j]) / Δφgrid
+        v += dφ * (u[i, j] - u[i - 1, j]) / Δφ
     end
 
     return v
@@ -85,7 +81,7 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
     V = T[]; sizehint!(V, 5n)
 
     rhs = similar(vec(u))
-    Δφgrid = step(φgrid)
+    Δφ = step(φgrid)
     Δm = step(mgrid)
 
     @inbounds for j in 1:nm
@@ -103,19 +99,22 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
             elseif j == nm
                 pushatstencil!((I, J, V), (row, row), one(T))
                 φ = φgrid[i]
-                rhs[row] = (one(T) - φ) * u̲grid[end] + φ * ūgrid[end]
+                rhs[row] = (1 - φ) * u̲grid[end] + φ * ūgrid[end]
                 continue
             end
 
             φ = φgrid[i]
             m = mgrid[j]
             τ = policy[i, j]
+
             τᶜⱼ = τᶜ(m)
+
             aᵢ = aᵇ(τ, φ, τᶜⱼ, firm)
-            ξᵢ = ξ(τ, τᶜⱼ, signal)
+            χᵢ = χ(τ, τᶜⱼ, signal)
+            
             dm = e(aᵢ, firm)
-            dφ = -φ^2 * (1 - φ) * ξᵢ^2
-            d²φ = φ^2 * (1 - φ)^2 * ξᵢ^2 / 2
+            dφ = beliefdrift(χᵢ, φ)
+            d²φ = beliefdiffusion(χᵢ, φ)^2 / 2
 
             diagonal = government.r + Δt⁻¹
 
@@ -126,18 +125,18 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
             end
 
             if d²φ > 0
-                rate = d²φ / Δφgrid^2
+                rate = d²φ / Δφ^2
                 diagonal += 2rate
                 pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
                 pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
             end
 
             if dφ > 0
-                rate = dφ / Δφgrid
+                rate = dφ / Δφ
                 diagonal += rate
                 pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
             elseif dφ < 0
-                rate = -dφ / Δφgrid
+                rate = -dφ / Δφ
                 diagonal += rate
                 pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
             end

@@ -2,6 +2,14 @@ function χ(τ, τᶜ, signal)
     (signal.ϵ / signal.σ) * (τᶜ - τ) 
 end
 
+function beliefdrift(χ, φ)
+    -φ^2 * (1 - φ) * χ^2
+end
+
+function beliefdiffusion(χ, φ)
+    φ * (1 - φ) * χ
+end
+
 function F!(dx, x, parameters, _)
     τ, τᶜ, firm, signal = parameters
     

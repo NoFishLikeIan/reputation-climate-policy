@@ -30,6 +30,7 @@ includet("../src/solve/equilibrium.jl")
 includet("../src/solve/committedvalue.jl")
 includet("../src/solve/boundaries.jl")
 includet("../src/solve/interior.jl")
+includet("../src/dynamics/state.jl")
 
 const SIMPATH = joinpath("data", "solutions")
 
