@@ -4,79 +4,72 @@ function pushat!((I, J, V), v, (i, j))
     push!(V, v)
 end
 
-function initscheme(u::TU, mgrid::MG, climate::Climate, government::Government, firm::Firm) where {T <: Real, MG <: AbstractRange{T}, TU <: AbstractVector{T}}
+function committedmderivative(u::AbstractVector, mgrid, i)
+    Δm = step(mgrid)
+    n = length(mgrid)
 
-    welfarecosts = Vector{T}(undef, size(mgrid))
-    scheme = (Int[], Int[], T[])
+    if n == 1
+        return zero(eltype(u))
+    elseif i < n
+        return (u[i + 1] - u[i]) / Δm
+    else
+        return (u[i] - u[i - 1]) / Δm
+    end
+end
+
+function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Government, firm::Firm, Δt⁻¹) where {T <: Real, MG <: AbstractRange{T}, TU <: AbstractVector{T}}
+
+    I = Int[]
+    J = Int[]
+    V = T[]
+    rhs = similar(u)
     Δm = step(mgrid)
     n = length(mgrid)
     
     @inbounds for (i, m) in enumerate(mgrid)
-        j = ifelse(i < n, i + 1, i - 1)
-
-        ∂ₘu = abs(u[j] - u[i]) / Δm
-
+        ∂ₘu = committedmderivative(u, mgrid, i)
         τᶜ = optimalcommittedtax(∂ₘu, government, firm)
-        s = e(a(τᶜ, firm), firm) / Δm
+        aᶜ = a(τᶜ, firm)
+        driftm = e(aᶜ, firm)
+        welfarecost = w(m, τᶜ, aᶜ, climate, government, firm)
 
-        pushat!(scheme, -s, (i, i))
-        pushat!(scheme, s, (i, j))
-
-        welfarecosts[i] = w(m, τᶜ, a(τᶜ, firm), climate, government, firm)
+        if i < n && driftm > 0
+            rate = driftm / Δm
+            pushat!((I, J, V), government.r + Δt⁻¹ + rate, (i, i))
+            pushat!((I, J, V), -rate, (i, i + 1))
+            rhs[i] = government.r * welfarecost + Δt⁻¹ * u[i]
+        else
+            pushat!((I, J, V), government.r + Δt⁻¹, (i, i))
+            rhs[i] = government.r * welfarecost + driftm * ∂ₘu + Δt⁻¹ * u[i]
+        end
     end
 
-    return scheme, welfarecosts
+    return SA.sparse(I, J, V, n, n), rhs
 end
 
-function updatescheme!(scheme, welfarecosts::AbstractVector, u::AbstractVector, mgrid, climate::Climate, government::Government, firm::Firm)
-    V = scheme[3]
-    Δm = step(mgrid)
-    n = length(mgrid)
-    
-    # TODO: Use paralell optimisation via `BatchSolve.jl`
-    @inbounds for (i, m) in enumerate(mgrid)
-        j = ifelse(i < n, i + 1, i - 1)
+function comittedhjbstep!(nextuᶜ, uᶜ, Δt⁻¹, mgrid, climate::Climate, government::Government, firm::Firm)
+    A, rhs = buildcommittedsystem(uᶜ, mgrid, climate, government, firm, Δt⁻¹)
 
-        ∂ₘu = abs(u[j] - u[i]) / Δm
-
-        τᶜ = optimalcommittedtax(∂ₘu, government, firm)
-        s = e(a(τᶜ, firm), firm) / Δm
-
-        idx = (2i - 1, 2i)
-        V[idx[1]] = -s
-        V[idx[2]] = s
-        
-        welfarecosts[i] = w(m, τᶜ, a(τᶜ, firm), climate, government, firm)
-    end
-
-    return scheme, welfarecosts
-end
-
-function comittedhjbstep!(nextuᶜ, welfarecosts, scheme, uᶜ, Δt⁻¹, mgrid, climate::Climate, government::Government, firm::Firm)
-    updatescheme!(scheme, welfarecosts, uᶜ, mgrid, climate, government, firm)
-
-    n = length(mgrid)
-    A = SA.sparse(scheme[1], scheme[2], scheme[3], n, n)
-
-    nextuᶜ .= ((government.r + Δt⁻¹) * LA.I - A) \ (government.r * welfarecosts + Δt⁻¹ * uᶜ)
+    nextuᶜ .= A \ rhs
 
     return nextuᶜ
 end
 
 function solvehjb!(uᶜ::UT, mgrid, climate::Climate, government::Government, firm::Firm; maxiters = 1000, abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹ = 100.) where {T, UT <: AbstractVector{T}}
 
-    scheme, welfarecosts = initscheme(uᶜ, mgrid, climate, government, firm)
     errors = similar(uᶜ)
     nextuᶜ = copy(uᶜ)
     abserror = T(Inf)
     relerror = T(Inf)
 
     for i in 1:maxiters
-        comittedhjbstep!(nextuᶜ, welfarecosts, scheme, uᶜ, Δt⁻¹, mgrid, climate, government, firm)
+        comittedhjbstep!(nextuᶜ, uᶜ, Δt⁻¹, mgrid, climate, government, firm)
 
         errors = nextuᶜ .- uᶜ
         abserror = maximum(abs, errors)
-        relerror = maximum(abs, errors ./ uᶜ)
+        relerror = maximum(abs.(errors) ./ max.(abs.(uᶜ), eps(T)))
+
+        uᶜ .= nextuᶜ
 
         if abserror < abstol && relerror < reltol
             return uᶜ, (i, abserror, relerror)
@@ -86,7 +79,6 @@ function solvehjb!(uᶜ::UT, mgrid, climate::Climate, government::Government, fi
             @printf "Iteration %d, errors: abs = %.2e, rel = %.2e\r" i abserror relerror
         end
 
-        uᶜ .= nextuᶜ
     end
 
 
@@ -100,13 +92,9 @@ end
 function computeglobalpolicy(u::AbstractVector, mgrid, government::Government, firm::Firm)
 
     policy = similar(u)
-    Δm = step(mgrid)
-    n = length(mgrid)
 
     @inbounds for i in eachindex(mgrid)
-        j = ifelse(i < n, i + 1, i - 1)
-
-        ∂ₘu = abs(u[j] - u[i]) / Δm
+        ∂ₘu = committedmderivative(u, mgrid, i)
 
         policy[i] = optimalcommittedtax(∂ₘu, government, firm)
     end

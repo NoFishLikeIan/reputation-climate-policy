@@ -6,37 +6,44 @@ function ξ(τ, τᶜ, signal::Signal)
     signal.ϵ * (τᶜ - τ) / signal.σ
 end
 
-function hamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    beliefterm = -φ * ∂ᵩu + φ * (1 - φ) * ∂ᵩ²u / 2
-
-    return (
-        government.r * w(m, τ, aᵇ(τ, φ, τᶜ, firm), climate, government, firm)
-        + e(aᵇ(τ, φ, τᶜ, firm), firm) * ∂ₘu
-        + φ * (1 - φ) * ξ(τ, τᶜ, signal)^2 * beliefterm
-    )
-end
-
-function interiorderivatives(u, φgrid, mgrid, i, j)
-    Δφ = step(φgrid)
+function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm)
+    Δφgrid = step(φgrid)
     Δm = step(mgrid)
 
-    ∂ₘu = (u[i, j + 1] - u[i, j]) / Δm
-    ∂ᵩu = (u[i + 1, j] - u[i - 1, j]) / (2Δφ)
-    ∂ᵩ²u = (u[i + 1, j] - 2u[i, j] + u[i - 1, j]) / Δφ^2
+    φ = φgrid[i]
+    m = mgrid[j]
 
-    return ∂ₘu, ∂ᵩu, ∂ᵩ²u
+    aᵢ = aᵇ(τ, φ, τᶜ, firm)
+    ξᵢ = ξ(τ, τᶜ, signal)
+
+    dm = e(aᵢ, firm)
+    dφ = -φ^2 * (1 - φ) * ξᵢ^2
+    diffusionφ = φ^2 * (1 - φ)^2 * ξᵢ^2 / 2
+
+    v = government.r * w(m, τ, aᵢ, climate, government, firm)
+
+    if dm > 0
+        v += dm * (u[i, j + 1] - u[i, j]) / Δm
+    end
+
+    if diffusionφ > 0
+        v += diffusionφ * (u[i - 1, j] - 2u[i, j] + u[i + 1, j]) / Δφgrid^2
+    end
+
+    if dφ > 0
+        v += dφ * (u[i + 1, j] - u[i, j]) / Δφgrid
+    elseif dφ < 0
+        v += dφ * (u[i, j] - u[i - 1, j]) / Δφgrid
+    end
+
+    return v
 end
 
-function optimalinteriortax(φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal::Signal{T}, climate::Climate{T}, government::Government{T}, firm::Firm{T}) where T
+function optimalinteriortax(i, j, u, φgrid, mgrid, τᶜ, signal::Signal{T}, climate::Climate{T}, government::Government{T}, firm::Firm{T}) where T
     
-    maxτ = clamp(τᶜ, zero(T), firm.ν * firm.e₀)
- 
-    if maxτ ≤ 0
-        return zero(T)
-    end
-    
+    maxτ = firm.ν * firm.e₀
 
-    obj = @closure τ -> hamiltonian(τ, φ, m, τᶜ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal, climate, government, firm)
+    obj = @closure τ -> discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
     result = Optim.optimize(obj, zero(T), maxτ, Optim.Brent())
 
     return Optim.minimizer(result)
@@ -53,20 +60,13 @@ function updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal::Signal, 
         policy[nφ, j] = zero(τᶜⱼ)
 
         for i in 2:(nφ - 1)
-            φ = φgrid[i]
-            ∂ₘu, ∂ᵩu, ∂ᵩ²u = interiorderivatives(u, φgrid, mgrid, i, j)
-
-            policy[i, j] = optimalinteriortax(φ, m, τᶜⱼ, ∂ₘu, ∂ᵩu, ∂ᵩ²u, signal, climate, government, firm)
+            policy[i, j] = optimalinteriortax(i, j, u, φgrid, mgrid, τᶜⱼ, signal, climate, government, firm)
         end
     end
 
     policy[:, nm] .= policy[:, nm - 1]
 
     return policy
-end
-
-function interiorfarvalue(φgrid, u̲grid, ūgrid)
-    [(1 - φ) * u̲grid[end] + φ * ūgrid[end] for φ in φgrid]
 end
 
 function initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
@@ -82,44 +82,43 @@ function initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
     return u
 end
 
-function pushinteriorgenerator!((I, J, V), i, j, v)
-    push!(I, i)
-    push!(J, j)
-    push!(V, v)
-end
-
 function pushinteriormatrix!((I, J, V), i, j, v)
     push!(I, i)
     push!(J, j)
     push!(V, v)
 end
 
-function buildinteriorsystem(policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
+function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm) where {T, TU <: AbstractArray{T}}
     nφ, nm = size(u)
     n = nφ * nm
+
     I = Int[]
     J = Int[]
-    V = eltype(u)[]
+    V = T[]
+    sizehint!(I, 5n)
+    sizehint!(J, 5n)
+    sizehint!(V, 5n)
+
     rhs = similar(vec(u))
-    Δφ = step(φgrid)
+    Δφgrid = step(φgrid)
     Δm = step(mgrid)
-    ufar = interiorfarvalue(φgrid, u̲grid, ūgrid)
 
     @inbounds for j in 1:nm
         for i in 1:nφ
             row = interiorindex(i, j, nφ)
 
             if i == 1
-                pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
+                pushinteriormatrix!((I, J, V), row, row, one(T))
                 rhs[row] = u̲grid[j]
                 continue
             elseif i == nφ
-                pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
+                pushinteriormatrix!((I, J, V), row, row, one(T))
                 rhs[row] = ūgrid[j]
                 continue
             elseif j == nm
-                pushinteriormatrix!((I, J, V), row, row, one(eltype(u)))
-                rhs[row] = ufar[i]
+                pushinteriormatrix!((I, J, V), row, row, one(T))
+                φ = φgrid[i]
+                rhs[row] = (one(T) - φ) * u̲grid[end] + φ * ūgrid[end]
                 continue
             end
 
@@ -129,42 +128,36 @@ function buildinteriorsystem(policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, 
             τᶜⱼ = τᶜ(m)
             aᵢ = aᵇ(τ, φ, τᶜⱼ, firm)
             ξᵢ = ξ(τ, τᶜⱼ, signal)
-            driftm = e(aᵢ, firm)
-            driftφ = -φ^2 * (1 - φ) * ξᵢ^2
-            diffφ = φ^2 * (1 - φ)^2 * ξᵢ^2 / 2
+            dm = e(aᵢ, firm)
+            dφ = -φ^2 * (1 - φ) * ξᵢ^2
+            diffusionφ = φ^2 * (1 - φ)^2 * ξᵢ^2 / 2
 
-            generator = (Int[], Int[], eltype(u)[])
-            diagonal = zero(eltype(u))
+            diagonal = government.r + Δt⁻¹
 
-            if driftm > 0
-                rate = driftm / Δm
-                diagonal -= rate
-                pushinteriorgenerator!(generator, row, interiorindex(i, j + 1, nφ), rate)
+            if dm > 0
+                rate = dm / Δm
+                diagonal += rate
+                pushinteriormatrix!((I, J, V), row, interiorindex(i, j + 1, nφ), -rate)
             end
 
-            if diffφ > 0
-                rate = diffφ / Δφ^2
-                diagonal -= 2rate
-                pushinteriorgenerator!(generator, row, interiorindex(i - 1, j, nφ), rate)
-                pushinteriorgenerator!(generator, row, interiorindex(i + 1, j, nφ), rate)
+            if diffusionφ > 0
+                rate = diffusionφ / Δφgrid^2
+                diagonal += 2rate
+                pushinteriormatrix!((I, J, V), row, interiorindex(i - 1, j, nφ), -rate)
+                pushinteriormatrix!((I, J, V), row, interiorindex(i + 1, j, nφ), -rate)
             end
 
-            if driftφ > 0
-                rate = driftφ / Δφ
-                diagonal -= rate
-                pushinteriorgenerator!(generator, row, interiorindex(i + 1, j, nφ), rate)
-            elseif driftφ < 0
-                rate = -driftφ / Δφ
-                diagonal -= rate
-                pushinteriorgenerator!(generator, row, interiorindex(i - 1, j, nφ), rate)
+            if dφ > 0
+                rate = dφ / Δφgrid
+                diagonal += rate
+                pushinteriormatrix!((I, J, V), row, interiorindex(i + 1, j, nφ), -rate)
+            elseif dφ < 0
+                rate = -dφ / Δφgrid
+                diagonal += rate
+                pushinteriormatrix!((I, J, V), row, interiorindex(i - 1, j, nφ), -rate)
             end
 
-            pushinteriorgenerator!(generator, row, row, diagonal)
-
-            pushinteriormatrix!((I, J, V), row, row, government.r + Δt⁻¹)
-            for k in eachindex(generator[1])
-                pushinteriormatrix!((I, J, V), generator[1][k], generator[2][k], -generator[3][k])
-            end
+            pushinteriormatrix!((I, J, V), row, row, diagonal)
 
             rhs[row] = government.r * w(m, τ, aᵢ, climate, government, firm) + Δt⁻¹ * u[i, j]
         end
