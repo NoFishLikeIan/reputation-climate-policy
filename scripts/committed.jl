@@ -20,6 +20,7 @@ includet("../src/agents/government.jl")
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 
+includet("../src/solve/utils.jl")
 includet("../src/solve/equilibrium.jl")
 includet("../src/solve/committedvalue.jl")
 
@@ -28,14 +29,14 @@ const SIMPATH = joinpath("data", "solutions")
 ## Defaults
 firm, government, signal, climate = initmodels()
 
-Δm = 80firm.e₀ # 50 years without abatement
+Δm = 80firm.e₀ # 80 years without abatement
 mgrid = range(m₀, m₀ + Δm, 1001);
 
 ## Initialise value function problem
 uᶜ₀ = [w(m, 0.01, a(0.01, firm), climate, government, firm) for m in mgrid]
 uᶜ = copy(uᶜ₀)
 
-_, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 100.)
+_, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 10.)
 
 committedpolicy = computeglobalpolicy(uᶜ, mgrid, government, firm)
 filename = solutionlabel(climate, government, firm, signal)
@@ -44,6 +45,10 @@ figurepath = joinpath("figures", filename)
 mkpath(figurepath)
 
 JLD2.jldopen(solutionpath, "a+") do file
+    if haskey(file, "committed") 
+        delete!(file, "committed")
+    end
+
     solution = JLD2.Group(file, "committed")
     @pack! solution = mgrid, uᶜ, committedpolicy
 end

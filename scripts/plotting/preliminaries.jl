@@ -13,7 +13,7 @@ import SparseArrays as SA
 import Plots
 Plots.default(linewidth = 2.5, dpi = 250, label = false, size = 400 .* (√2, 1), background_color = "#FAFAFA")
 
-plotpath = "papers/figures/preliminaries"
+plotpath = "figures/preliminaries"
 if !isdir(plotpath) mkdir(plotpath) end
 
 includet("colors.jl")

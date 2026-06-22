@@ -8,4 +8,5 @@ const e₀ = 36 + a₀ # [GtCO2e / year] Acutal emissions in 2026 + estimated no
 const y₀ = 197.231 # [USD / year]
 const defaultscc = 66 * taxfactor # [tUSD / GtCO2e]
 const defaultdietzϕ = 3e-5
-const τ₀ = 3 * taxfactor
+const τ₀ = 50 * taxfactor
+const l₀ = 7.5e-4

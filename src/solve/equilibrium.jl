@@ -2,8 +2,6 @@ function wᶜ(m, τᶜ, climate::Climate, government::Government, firm::Firm)
     w(m, τᶜ, a(τᶜ, firm), climate, government, firm)
 end
 
-const brent = Optim.Brent()
-
 function optimalcommittedtax(∂ₘu, government::Government{T}, firm::Firm{T}) where T
 
     if ∂ₘu ≤ 0

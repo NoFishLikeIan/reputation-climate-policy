@@ -1,9 +1,3 @@
-function pushat!((I, J, V), v, (i, j))
-    push!(I, i)
-    push!(J, j)
-    push!(V, v)
-end
-
 function committedmderivative(u::AbstractVector, mgrid, i)
     Δm = step(mgrid)
     n = length(mgrid)
@@ -35,11 +29,11 @@ function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Go
 
         if i < n && driftm > 0
             rate = driftm / Δm
-            pushat!((I, J, V), government.r + Δt⁻¹ + rate, (i, i))
-            pushat!((I, J, V), -rate, (i, i + 1))
+            pushatstencil!((I, J, V), (i, i), government.r + Δt⁻¹ + rate)
+            pushatstencil!((I, J, V), (i, i + 1), -rate)
             rhs[i] = government.r * welfarecost + Δt⁻¹ * u[i]
         else
-            pushat!((I, J, V), government.r + Δt⁻¹, (i, i))
+            pushatstencil!((I, J, V), (i, i), government.r + Δt⁻¹)
             rhs[i] = government.r * welfarecost + driftm * ∂ₘu + Δt⁻¹ * u[i]
         end
     end

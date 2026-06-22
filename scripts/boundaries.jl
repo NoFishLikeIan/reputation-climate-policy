@@ -15,6 +15,7 @@ import FastInterpolations as Itp
 import Roots
 import DifferentialEquations as DE
 import SpecialFunctions as SF
+import Optim
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -24,6 +25,7 @@ includet("../src/agents/government.jl")
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 
+includet("../src/solve/utils.jl")
 includet("../src/solve/equilibrium.jl")
 includet("../src/solve/committedvalue.jl")
 includet("../src/solve/boundaries.jl")
@@ -50,14 +52,20 @@ parameters = τᶜ, m̄, climate, government, firm
 ∂ₘΔu₀ = -government.y₀ * d′(m̄, climate)
 Δu₀ = w(m̄, 0., firm.e₀, climate, government, firm)
 
-upperboundaryprob = DE.DAEProblem(boundaryupperreversedae, ∂ₘΔu₀, Δu₀, (0., m̄ .- mgrid[1]), parameters)
+upperboundaryprob = DE.DAEProblem(boundaryupperreversedae, ∂ₘΔu₀, Δu₀, (0., m̄ - mgrid[1]), parameters)
 
 upperboundarysol = DE.solve(upperboundaryprob)
-ū = [upperboundarysol(m̄ - m) for m in mgrid]
+
+mrestrictedgrid = range(mgrid[1], m̄, length(mgrid))
+ū = map(m -> upperboundarysol(m̄ - m), mrestrictedgrid)
 
 JLD2.jldopen(solutionpath, "a+") do file
+    if haskey(file, "upper")
+        delete!(file, "upper")
+    end
+
     solution = JLD2.Group(file, "upper")
-    @pack! solution = ū, mgrid
+    @pack! solution = ū, mrestrictedgrid
 end
 
 ## Plot boundaries

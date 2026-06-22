@@ -3,8 +3,8 @@ abstract type AbstractFirm{T <: Real} end
 Base.@kwdef struct Firm{T} <: AbstractFirm{T}
     e₀::T = e₀
     ν::T = defaultdietzϕ
-    ω::T = 3e-2 # Baseline free abatemnet
-    l₀::T = 2e-5 # Annualised stranded assets value
+    ω::T = 0.03 # Baseline free abatemnet
+    l₀::T = l₀ # Annualised stranded assets value
     a₀::T = a₀ # Initial abatement level
 end
 
