@@ -5,7 +5,7 @@ function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, 
     φ = φgrid[i]
     m = mgrid[j]
 
-    aᵢ = aᵇ(τ, φ, τᶜ, firm)
+    aᵢ = aᵇ(τ, φ, τᶜ, government, firm)
     χᵢ = χ(τ, τᶜ, signal)
 
     dm = e(aᵢ, firm)
@@ -33,7 +33,7 @@ end
 
 function optimalinteriortax(i, j, u, φgrid, mgrid, τᶜ, signal::Signal{T}, climate::Climate{T}, government::Government{T}, firm::Firm{T}) where T
     
-    maxτ = firm.ν * firm.e₀
+    maxτ = government.y₀ * firm.ν * firm.e₀
 
     obj = @closure τ -> discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
     result = Optim.optimize(obj, 0, maxτ, brent)
@@ -109,7 +109,7 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
 
             τᶜⱼ = τᶜ(m)
 
-            aᵢ = aᵇ(τ, φ, τᶜⱼ, firm)
+            aᵢ = aᵇ(τ, φ, τᶜⱼ, government, firm)
             χᵢ = χ(τ, τᶜⱼ, signal)
             
             dm = e(aᵢ, firm)

@@ -43,7 +43,7 @@ close(solutionfile)
 τ = Itp.linear_interp((φgrid, mgrid), interiorpolicy; extrap = Itp.ClampExtrap())
 
 ## Simulate
-parameters = τ, τᶜ, firm, signal
+parameters = τ, τᶜ, government, firm, signal
 x₀ = [0.01, m₀]
 horizon = 1000.
 

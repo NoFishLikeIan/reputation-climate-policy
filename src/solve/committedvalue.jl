@@ -23,7 +23,7 @@ function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Go
     @inbounds for (i, m) in enumerate(mgrid)
         ∂ₘu = committedmderivative(u, mgrid, i)
         τᶜ = optimalcommittedtax(∂ₘu, government, firm)
-        aᶜ = a(τᶜ, firm)
+        aᶜ = a(τᶜ, government, firm)
         driftm = e(aᶜ, firm)
         welfarecost = w(m, τᶜ, aᶜ, climate, government, firm)
 

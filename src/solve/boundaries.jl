@@ -4,7 +4,7 @@ function boundaryupperreversedae(∂ₘΔu₀, Δu, parameters, Δm)
 
     m = m̄ - Δm
     τ = τᶜ(m)
-    aᶜ = a(τ, firm)
+    aᶜ = a(τ, government, firm)
 
     wₘ = w(m, 0., aᶜ, climate, government, firm)
 

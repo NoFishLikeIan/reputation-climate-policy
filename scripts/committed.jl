@@ -33,7 +33,7 @@ firm, government, signal, climate = initmodels()
 mgrid = range(m₀, m₀ + Δm, 1001);
 
 ## Initialise value function problem
-uᶜ₀ = [w(m, 0.01, a(0.01, firm), climate, government, firm) for m in mgrid]
+uᶜ₀ = [w(m, 0.01, a(0.01, government, firm), climate, government, firm) for m in mgrid]
 uᶜ = copy(uᶜ₀)
 
 _, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-8, reltol = 1e-6, Δt⁻¹ = 10.)
@@ -59,7 +59,7 @@ end
 ## Plot committed policy
 begin
     polfig = plot(mgrid, committedpolicy; xlabel = L"m", ylabel = L"\tau^c", c = :darkred, yguidefontcolor = :darkred, xlims = extrema(mgrid), label = false)
-    plot!(twinx(polfig), mgrid, e.(a.(committedpolicy, Ref(firm)), Ref(firm)); ylabel = L"a^c", c = :darkblue, yguidefontcolor = :darkblue, xlims = extrema(mgrid), label = false)
+    plot!(twinx(polfig), mgrid, [e(a(τ, government, firm), firm) for τ in committedpolicy]; ylabel = L"a^c", c = :darkblue, yguidefontcolor = :darkblue, xlims = extrema(mgrid), label = false)
     savefig(polfig, joinpath(figurepath, "committed-policy.png"))
 
     polfig

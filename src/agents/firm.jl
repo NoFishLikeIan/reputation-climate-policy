@@ -16,15 +16,15 @@ function c(a, firm::Firm)
     firm.ν * a^2 / 2
 end
 
-function k(a, τ, firm::Firm)
-    e(a, firm) * τ + c(a, firm)
+function k(a, τ, government, firm::Firm)
+    e(a, firm) * τ + government.y₀ * c(a, firm)
 end
 
-function a(τ, firm::Firm)
-    min(τ / firm.ν, firm.e₀)
+function a(τ, government, firm::Firm)
+    min(τ / (government.y₀ * firm.ν), firm.e₀)
 end
 
 "Best response abatement to tax τ given belief φ."
-function aᵇ(τ, φ, τᶜ, firm::Firm)
-    a(φ * τᶜ + (1 - φ) * τ, firm)
+function aᵇ(τ, φ, τᶜ, government, firm::Firm)
+    a(φ * τᶜ + (1 - φ) * τ, government, firm)
 end
