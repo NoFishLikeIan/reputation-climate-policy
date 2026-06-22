@@ -46,7 +46,7 @@ close(solutionfile)
 
 ## Upper boundary
 τᶜ = Itp.linear_interp(mgrid, committedpolicy; extrap = Itp.ClampExtrap())
-m̄ = mgrid[findfirst(m -> e₀ - a(τᶜ(m), government, firm) < 1e-3, mgrid)]
+m̄ = mgrid[findfirst(m -> e(a(τᶜ(m), government, firm), firm) < 1e-3, mgrid)]
 
 parameters = τᶜ, m̄, climate, government, firm
 ∂ₘΔu₀ = -government.y₀ * d′(m̄, climate)

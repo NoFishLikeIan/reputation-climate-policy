@@ -9,4 +9,4 @@ const y₀ = 197.231 # [USD / year]
 const defaultscc = 66 * taxfactor # [tUSD / GtCO2e]
 const defaultdietzϕ = 3e-5
 const τ₀ = 50 * taxfactor
-const l₀ = 7.5e-4
+const l₀ = 7.5e-6

@@ -45,7 +45,7 @@ end
 agrid = range(0, e₀, 501)
 
 begin
-    mac = Plots.plot(agrid, a -> firm.ν * (firm.e₀ - a); xlabel = L"Emissions $e_t$", ylabel = "Output loss [% GDP / year]", c = :darkred, yaxis = (formatter = percentageformatter), ylims = (0, Inf))
+    macfig = Plots.plot(agrid, a -> firm.ν * (firm.e₀ - a); xlabel = L"Emissions $e_t$", ylabel = "Output loss [% GDP / year]", c = :darkred, yaxis = (formatter = percentageformatter), ylims = (0, Inf))
 end
 
 ## Stranded assets costs 
@@ -55,7 +55,7 @@ begin
     lfig = Plots.plot(xlabel = L"Carbon tax $\tau$ [trUSD / GtCO2e]", xlims = extrema(τgrid), ylabel = L"Standed assets loss $l(a, \tau) / y_0$ [% GDP / year]", legend_title = L"Abatement $a$ [GtCO2e / year]", yaxis = (formatter = percentageformatter))
 
     for a in [a₀, 0.5e₀, 0.8e₀, e₀]
-        Plots.plot!(τgrid, τ -> l(a, τ, government, firm) / government.y₀; label = a)
+        Plots.plot!(τgrid, τ -> l(a, τ, government, Firm(l₀ = 5e-6)) / government.y₀; label = a)
     end
 
     lfig

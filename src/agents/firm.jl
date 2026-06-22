@@ -3,7 +3,7 @@ abstract type AbstractFirm{T <: Real} end
 Base.@kwdef struct Firm{T} <: AbstractFirm{T}
     e₀::T = e₀
     ν::T = defaultdietzϕ
-    ω::T = 0.03 # Baseline free abatemnet
+    ω::T = 0. # Baseline free abatement
     l₀::T = l₀ # Annualised stranded assets value
     a₀::T = a₀ # Initial abatement level
 end
@@ -21,10 +21,14 @@ function k(a, τ, government, firm::Firm)
 end
 
 function a(τ, government, firm::Firm)
-    min(τ / (government.y₀ * firm.ν), firm.e₀)
+    τ / (government.y₀ * firm.ν)
 end
 
 "Best response abatement to tax τ given belief φ."
 function aᵇ(τ, φ, τᶜ, government, firm::Firm)
     a(φ * τᶜ + (1 - φ) * τ, government, firm)
+end
+
+function netzeroτ(government, firm::Firm)
+    government.y₀ * firm.ν * firm.e₀
 end
