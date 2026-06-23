@@ -19,16 +19,26 @@ function parameterargumentsettings()
             dest_name = "ω"
             default = nothing
             help = "Free abatement share."
-        "--l0", "--l₀"
+        "--lresidual0", "--lresidual₀"
             arg_type = Float64
-            dest_name = "l₀"
+            dest_name = "lresidual₀"
             default = nothing
-            help = "Benchmark annual stranded-assets loss share."
-        "--delta", "--δ"
+            help = "Benchmark annual residual-exposure stranded-assets loss share."
+        "--lretirement0", "--lretirement₀", "--l0", "--l₀"
             arg_type = Float64
-            dest_name = "δ"
+            dest_name = "lretirement₀"
             default = nothing
-            help = "Dimensionless stranded-assets exposure parameter."
+            help = "Net-zero annual accelerated-retirement stranded-assets loss share."
+        "--residualdelta", "--residualδ", "--delta", "--δ"
+            arg_type = Float64
+            dest_name = "δresidual"
+            default = nothing
+            help = "Dimensionless residual-exposure stranded-assets parameter."
+        "--retirementdelta", "--retirementδ"
+            arg_type = Float64
+            dest_name = "δretirement"
+            default = nothing
+            help = "Dimensionless accelerated-retirement stranded-assets parameter, calibrated at net zero."
         "--a0", "--a₀"
             arg_type = Float64
             dest_name = "a₀"
@@ -86,13 +96,19 @@ end
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
 
-    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :l₀, :a₀))
+    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :lresidual₀, :lretirement₀, :a₀))
     government = Government(; parameterkwargs(parsed, (:y₀, :r))...)
 
-    δvalue = get(parsed, :δ, nothing)
-    if δvalue !== nothing
+    δresidual = get(parsed, :δresidual, nothing)
+    if δresidual !== nothing
         benchmarkfirm = Firm(; firmkwargs...)
-        firmkwargs[:l₀] = strandedshare(δvalue, government, benchmarkfirm)
+        firmkwargs[:lresidual₀] = residualshare(δresidual, government, benchmarkfirm)
+    end
+
+    δretirement = get(parsed, :δretirement, nothing)
+    if δretirement !== nothing
+        benchmarkfirm = Firm(; firmkwargs...)
+        firmkwargs[:lretirement₀] = retirementshare(δretirement, government, benchmarkfirm)
     end
 
     firm = Firm(; firmkwargs...)

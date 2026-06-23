@@ -4,7 +4,8 @@ Base.@kwdef struct Firm{T} <: AbstractFirm{T}
     e₀::T = e₀
     ν::T = defaultdietzϕ
     ω::T = 0. # Baseline free abatement
-    l₀::T = l₀ # Benchmark annual stranded-assets loss share
+    lresidual₀::T = lresidual₀ # Benchmark residual-exposure loss share
+    lretirement₀::T = lretirement₀ # Benchmark accelerated-retirement loss share
     a₀::T = a₀ # Benchmark abatement level
 end
 
