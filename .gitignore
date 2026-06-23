@@ -360,3 +360,5 @@ figures
 data
 *.code-workspace
 .juliaup/juliaup/.juliaup-lock
+
+references

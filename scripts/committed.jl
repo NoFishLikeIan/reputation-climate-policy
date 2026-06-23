@@ -28,10 +28,8 @@ const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
 firm, government, signal, climate = initmodels()
-government = Government()
-firm = Firm()
 
-Δm = 500firm.e₀ # 80 years without abatement
+Δm = 500firm.e₀ # 500 years without abatement
 mgrid = range(m₀, m₀ + Δm, 1001);
 
 ## Initialise value function problem

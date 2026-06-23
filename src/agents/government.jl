@@ -3,18 +3,24 @@ Base.@kwdef struct Government{T <: Real}
     r::T = 1e-2
 end
 
-function λ(government::Government, firm::Firm)
-    2firm.l₀ / (τ₀ * (firm.a₀ - firm.ω * firm.e₀) / government.y₀)^2
+function R(a, τ, firm::Firm)
+    τ * √(firm.e₀ * e(a, firm))
+end
+
+function ρ(a, τ, government::Government, firm::Firm)
+    R(a, τ, firm) / government.y₀
+end
+
+function δ(government::Government, firm::Firm)
+    2firm.l₀ / ρ(firm.a₀, τ₀, government, firm)^2
+end
+
+function strandedshare(δ, government::Government, firm::Firm)
+    δ * ρ(firm.a₀, τ₀, government, firm)^2 / 2
 end
 
 function l(a, τ, government::Government, firm::Firm)
-    if a ≤ firm.ω * firm.e₀
-        return zero(a)
-    end
-
-    δ = λ(government, firm) / 2government.y₀
-
-    return δ * τ^2 * (a - firm.ω * firm.e₀)^2
+    δ(government, firm) * τ^2 * firm.e₀ * e(a, firm) / (2government.y₀)
 end
 
 function w(m, τ, a, climate::Climate, government::Government, firm::Firm)

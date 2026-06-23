@@ -15,7 +15,7 @@ function solutionlabel(climate, government, firm, signal)
         "nu$(parameterstring(firm.ν))",
         "omega$(parameterstring(firm.ω))",
         "y0$(parameterstring(government.y₀))",
-        "lambda$(parameterstring(λ(government, firm)))",
+        "delta$(parameterstring(δ(government, firm)))",
         "r$(parameterstring(government.r))",
         "gamma$(parameterstring(climate.γ))",
         "zeta$(parameterstring(climate.ζ))",

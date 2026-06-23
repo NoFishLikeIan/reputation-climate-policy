@@ -23,7 +23,12 @@ function parameterargumentsettings()
             arg_type = Float64
             dest_name = "l₀"
             default = nothing
-            help = "Benchmark transition loss."
+            help = "Benchmark annual stranded-assets loss share."
+        "--delta", "--δ"
+            arg_type = Float64
+            dest_name = "δ"
+            default = nothing
+            help = "Dimensionless stranded-assets exposure parameter."
         "--a0", "--a₀"
             arg_type = Float64
             dest_name = "a₀"
@@ -81,8 +86,16 @@ end
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
 
-    firm = Firm(; parameterkwargs(parsed, (:e₀, :ν, :ω, :l₀, :a₀))...)
+    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :l₀, :a₀))
     government = Government(; parameterkwargs(parsed, (:y₀, :r))...)
+
+    δvalue = get(parsed, :δ, nothing)
+    if δvalue !== nothing
+        benchmarkfirm = Firm(; firmkwargs...)
+        firmkwargs[:l₀] = strandedshare(δvalue, government, benchmarkfirm)
+    end
+
+    firm = Firm(; firmkwargs...)
     signal = Signal(; parameterkwargs(parsed, (:ϵ, :σ))...)
     climate = Climate(; parameterkwargs(parsed, (:γ, :ζ))...)
 
