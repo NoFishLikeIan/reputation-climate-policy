@@ -12,7 +12,7 @@ function optimalcommittedtax(∂ₘu, government::Government{T}, firm::Firm{T}) 
 
     obj = @closure τ -> begin
         aᶜ = a(τ, government, firm)
-        government.r * (government.y₀ * c(aᶜ, firm) + l(aᶜ, τ, government, firm)) - aᶜ * ∂ₘu
+        government.r * (government.y₀ * c(aᶜ, firm) + l(τ, aᶜ, government, firm)) - aᶜ * ∂ₘu
     end
 
     result = Optim.optimize(obj, 0, τmax, brent)
