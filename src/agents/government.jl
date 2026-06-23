@@ -44,11 +44,11 @@ function retirementshare(δ, government::Government, firm::Firm)
 end
 
 function δᵣ(government::Government, firm::Firm)
-   residualδ(government, firm) / 2government.y₀ 
+   residualδ(government, firm) / government.y₀ 
 end
 
 function δₐ(government::Government, firm::Firm)
-    retirementδ(government, firm) / 2government.y₀
+    retirementδ(government, firm) / government.y₀
 end
 
 function R(a, government::Government, firm::Firm)
