@@ -62,7 +62,7 @@ u̲grid = map(m -> u̲(m, climate, government, firm), mgrid)
 ūgrid = map(ūitp, mgrid)
 u = initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
 
-_, interiorpolicy, (i, abserror, relerror) = solveinteriorfixedpoint!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; inneriterations = 1_000, maxstages = 8, growthfactor = 1.25, verbose = 2, abstol = 1e-8, reltol = 1e-6, Δt⁻¹₀ = 5.)
+_, interiorpolicy, (i, abserror, relerror) = solveinteriorfixedpoint!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; inneriterations = 5_000, maxstages = 8, growthfactor = 1.25, verbose = 2, abstol = 1e-8, reltol = 1e-6, Δt⁻¹₀ = 5.)
 
 JLD2.jldopen(solutionpath, "a+") do file
     if haskey(file, "interior")
@@ -82,9 +82,9 @@ if isinteractive()
 
     interiorfig = plot(valuefig, policyfig; size = 600 .* (2√2, 1))
 
-    savefig(valuefig, joinpath(figurepath, "interior-value.png"))
-    savefig(policyfig, joinpath(figurepath, "interior-policy.png"))
-    savefig(interiorfig, joinpath(figurepath, "interior.png"))
+    # savefig(valuefig, joinpath(figurepath, "interior-value.png"))
+    # savefig(policyfig, joinpath(figurepath, "interior-policy.png"))
+    # savefig(interiorfig, joinpath(figurepath, "interior.png"))
 
     interiorfig
 end

@@ -29,7 +29,7 @@ const SIMPATH = joinpath("data", "solutions")
 ## Defaults
 firm, government, signal, climate = initmodels()
 
-Δm = 500firm.e₀ # 500 years without abatement
+Δm = 80firm.e₀ # 80 years without abatement
 mgrid = range(m₀, m₀ + Δm, 1001);
 
 ## Initialise value function problem
@@ -59,7 +59,8 @@ end
 begin
     polfig = plot(mgrid, committedpolicy ./ taxfactor; xlabel = L"m", ylabel = L"Carbon tax USD per $\mathrm{CO}_2 \mathrm{e}$", c = :darkred, yguidefontcolor = :darkred, xlims = extrema(mgrid), label = false)
     plot!(twinx(polfig), mgrid, [e(a(τ, government, firm), firm) for τ in committedpolicy]; ylabel = L"e^c", c = :darkblue, yguidefontcolor = :darkblue, xlims = extrema(mgrid), label = false)
-    savefig(polfig, joinpath(figurepath, "committed-policy.png"))
+    
+    #savefig(polfig, joinpath(figurepath, "committed-policy.png"))
 
     polfig
 end

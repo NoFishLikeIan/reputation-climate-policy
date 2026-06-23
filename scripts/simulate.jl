@@ -50,11 +50,11 @@ close(solutionfile)
 τ = Itp.linear_interp((φgrid, mgrid), interiorpolicy; extrap = Itp.ClampExtrap())
 
 ## Simulate
-parameters = (τ, τᶜ, firm, signal)
-φ₀grid = [0.1, 0.5, 0.9]
+parameters = (τ, τᶜ, government, firm, signal)
+φ₀grid = [0.1, 0.4, 0.5, 0.6, 0.9]
 horizon = 100.
 timegrid = 0:horizon
-trajectories = 10_000
+trajectories = 1_000
 
 Random.seed!(11148705)
 
@@ -65,12 +65,12 @@ solutions = map(φ₀grid) do φ₀
 end;
 
 function computepolicies(x, p, t)
-    τ, τᶜ, firm, _ = p
+    τ, τᶜ, government, firm, _ = p
     φ, m = x
 
     τᶜₜ = τᶜ(m)
     τₜ = τ(x)
-    eₜ = e(aᵇ(τₜ, φ, τᶜₜ, firm), firm)
+    eₜ = e(aᵇ(τₜ, φ, τᶜₜ, government, firm), firm)
 
     return (τ = τₜ, τᶜ = τᶜₜ, e = eₜ)
 end
@@ -86,14 +86,12 @@ percentageformatter = @closure x -> @sprintf "%.0f%%" 100x
 begin
     τfig = Plots.plot(xlabel = "Year", ylabel = "Carbon tax t\$ per GtCO2e")
     
-    for (i, φ₀) in enumerate(φ₀grid[[1]])
+    for (i, φ₀) in enumerate(φ₀grid)
 
         policies = simulatedpolicies[i]
         τmedian = vec(Statistics.median(getindex.(policies, :τ), dims = 1)) ./ taxfactor
-        τᶜmedian = vec(Statistics.median(getindex.(policies, :τᶜ), dims = 1)) ./ taxfactor
 
         Plots.plot!(timesteps, τmedian; label = φ₀, c = φ₀palette[i])
-        Plots.plot!(timesteps, τᶜmedian; label = φ₀, c = φ₀palette[i], linestyle = :dot)
     end
 
     τfig

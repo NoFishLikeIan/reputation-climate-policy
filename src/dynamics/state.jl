@@ -30,7 +30,6 @@ function G!(Σ, x, parameters, _)
     
     φ, m = x
 
-
     Σ[1, 1] = beliefdiffusion(χ(τ(x), τᶜ(m), signal), φ)
 
 end
