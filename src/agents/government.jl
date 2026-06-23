@@ -4,18 +4,19 @@ Base.@kwdef struct Government{T <: Real}
 end
 
 function calibratedδ(loss, exposure)
-    exposure ≤ 0 && return zero(exposure)
+    if exposure ≤ 0
+        return zero(exposure)
+    end
+    
     return 2loss / exposure^2
 end
 
 function residualexposure(a, τ, firm::Firm)
-    residualemissions = max(e(a, firm), zero(a))
-    return τ * √(firm.e₀ * residualemissions)
+    τ * √(firm.e₀ * e(a, firm))
 end
 
 function retirementexposure(a, τ, firm::Firm)
-    excessabatement = max(a - firm.ω * firm.e₀, zero(a))
-    return τ * excessabatement
+    τ * (a - firm.ω * firm.e₀)
 end
 
 function residualρ(a, τ, government::Government, firm::Firm)
@@ -42,20 +43,26 @@ function retirementshare(δ, government::Government, firm::Firm)
     δ * retirementρ(firm.e₀, netzeroτ(government, firm), government, firm)^2 / 2
 end
 
-function residualloss(a, τ, government::Government, firm::Firm)
-    residualemissions = max(e(a, firm), zero(a))
-    return residualδ(government, firm) * τ^2 * firm.e₀ * residualemissions / (2government.y₀)
+function δᵣ(government::Government, firm::Firm)
+   residualδ(government, firm) / 2government.y₀ 
 end
 
-function retirementloss(a, τ, government::Government, firm::Firm)
-    excessabatement = max(a - firm.ω * firm.e₀, zero(a))
-    return retirementδ(government, firm) * τ^2 * excessabatement^2 / (2government.y₀)
+function δₐ(government::Government, firm::Firm)
+    retirementδ(government, firm) / 2government.y₀
 end
 
-function l(a, τ, government::Government, firm::Firm)
-    residualloss(a, τ, government, firm) + retirementloss(a, τ, government, firm)
+function R(a, government::Government, firm::Firm)
+    δᵣ(government, firm) * firm.e₀ * e(a, firm)
+end
+
+function A(a, government::Government, firm::Firm)
+    δₐ(government, firm) * max(a - firm.ω * firm.e₀, 0)^2
+end
+
+function l(τ, a, government::Government, firm::Firm)
+    τ^2 * (R(a, government, firm) + A(a, government, firm)) / 2
 end
 
 function w(m, τ, a, climate::Climate, government::Government, firm::Firm)
-    government.y₀ * ( d(m, climate) + c(a, firm) ) + l(a, τ, government, firm)
+    government.y₀ * ( d(m, climate) + c(a, firm) ) + l(τ, a, government, firm)
 end
