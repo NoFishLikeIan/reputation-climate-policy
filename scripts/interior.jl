@@ -52,7 +52,7 @@ close(solutionfile)
 ūitp = Itp.linear_interp(mrestrictedgrid, ū; extrap = Itp.ClampExtrap())
 
 ## Interior
-nm = 201
+nm = 101
 nφ = 101
 
 mgrid = range(extrema(mgrid)..., nm)
@@ -62,7 +62,7 @@ u̲grid = map(m -> u̲(m, climate, government, firm), mgrid)
 ūgrid = map(ūitp, mgrid)
 u = initialinteriorvalue(φgrid, mgrid, u̲grid, ūgrid)
 
-_, interiorpolicy, (i, abserror, relerror) = solveinteriorfixedpoint!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; inneriterations = 5_000, maxstages = 8, growthfactor = 1.25, verbose = 2, abstol = 1e-8, reltol = 1e-6, Δt⁻¹₀ = 5.)
+_, interiorpolicy, (i, abserror, relerror) = solveinteriorfixedpoint!(u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm; inneriterations = 1_000, maxstages = 15, growthfactor = 1.05, verbose = 2, abstol = 1e-8, reltol = 1e-6, Δt⁻¹₀ = 5.)
 
 JLD2.jldopen(solutionpath, "a+") do file
     if haskey(file, "interior")

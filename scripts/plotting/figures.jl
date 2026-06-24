@@ -63,7 +63,7 @@ begin
         ylabel = L"Reputation $\phi$",
         cbar_title = L"Tax [USD / tCO2e]",
         title = "Optimal carbon tax",
-        c = :viridis, linewidth = 1
+        c = :viridis, linewidth = 0.
     )
 
     safesavefigure(policyfig, joinpath(figurepath, "interior-policy.png"))
@@ -93,9 +93,7 @@ begin
     taxslicefig = plot(
         xlabel = L"Cumulative emissions $m$ [GtCO2e]",
         ylabel = "Carbon tax [USD / tCO2e]",
-        xlims = extrema(mplotgrid),
-        legend = :topright,
-        title = "Policy after a reputation loss",
+        xlims = extrema(mplotgrid)
     )
 
     for (i, φ) in enumerate(φslices)
@@ -276,6 +274,5 @@ plot!(emissionspathfig, simulation.timesteps, committedpath.e; c = :black, lines
 plot!(cumulativepathfig, simulation.timesteps, committedpath.m; c = :black, linestyle = :dash, label = "Committed")
 
 simulationfig = plot(beliefpathfig, taxpathfig, emissionspathfig, cumulativepathfig; layout = (2, 2), size = 800 .* (√2, 1))
-savepaperfigure(simulationfig, figurepath, "simulated-reputation-loss")
 
 @printf "\nSaved figures to %s\n" figurepath

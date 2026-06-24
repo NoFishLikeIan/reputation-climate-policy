@@ -1,6 +1,7 @@
 function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm)
     Δφ = step(φgrid)
     Δm = step(mgrid)
+    nφ, _ = size(u)
 
     φ = φgrid[i]
     m = mgrid[j]
@@ -18,13 +19,13 @@ function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜ, signal::Signal, 
         v += dm * (u[i, j + 1] - u[i, j]) / Δm
     end
 
-    if d²φ > 0
+    if d²φ > 0 && 1 < i < nφ
         v += d²φ * (u[i - 1, j] - 2u[i, j] + u[i + 1, j]) / Δφ^2
     end
 
-    if dφ > 0
+    if dφ > 0 && i < nφ
         v += dφ * (u[i + 1, j] - u[i, j]) / Δφ
-    elseif dφ < 0
+    elseif dφ < 0 && i > 1
         v += dφ * (u[i, j] - u[i - 1, j]) / Δφ
     end
 
@@ -48,10 +49,7 @@ function updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal::Signal, 
         m = mgrid[j]
         τᶜⱼ = τᶜ(m)
 
-        policy[1, j] = zero(τᶜⱼ)
-        policy[nφ, j] = zero(τᶜⱼ)
-
-        for i in 2:(nφ - 1)
+        for i in 1:nφ
             policy[i, j] = optimalinteriortax(i, j, u, φgrid, mgrid, τᶜⱼ, signal, climate, government, firm)
         end
     end
@@ -88,15 +86,7 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
         for i in 1:nφ
             row = interiorindex(i, j, nφ)
 
-            if i == 1
-                pushatstencil!((I, J, V), (row, row), one(T))
-                rhs[row] = u̲grid[j]
-                continue
-            elseif i == nφ
-                pushatstencil!((I, J, V), (row, row), one(T))
-                rhs[row] = ūgrid[j]
-                continue
-            elseif j == nm
+            if j == nm
                 pushatstencil!((I, J, V), (row, row), one(T))
                 φ = φgrid[i]
                 rhs[row] = (1 - φ) * u̲grid[end] + φ * ūgrid[end]
@@ -124,18 +114,18 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
                 pushatstencil!((I, J, V), (row, interiorindex(i, j + 1, nφ)), -rate)
             end
 
-            if d²φ > 0
+            if d²φ > 0 && 1 < i < nφ
                 rate = d²φ / Δφ^2
                 diagonal += 2rate
                 pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
                 pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
             end
 
-            if dφ > 0
+            if dφ > 0 && i < nφ
                 rate = dφ / Δφ
                 diagonal += rate
                 pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
-            elseif dφ < 0
+            elseif dφ < 0 && i > 1
                 rate = -dφ / Δφ
                 diagonal += rate
                 pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
@@ -175,7 +165,7 @@ function iterateinteriorhjb!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, sign
         u .= nextu
 
         if verbose > 1
-            @printf "Interior iteration %d, Δt⁻¹ = %.4e, errors: abs = %.4e, rel = %.4e\r" iter Δt⁻¹ abserror relerror
+            @printf "Interior iteration %d, Δt⁻¹ = %.2f, errors: abs = %.4e, rel = %.4e\r" iter Δt⁻¹ abserror relerror
         end
     end
 
@@ -199,7 +189,7 @@ function solveinteriorfixedpoint!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ,
         totaliterations += iterations
 
         if verbose > 0
-            @printf "Exterior stage %d, Δt⁻¹ = %.4e, errors: abs = %.4e, rel = %.4e\n" stage Δt⁻¹ abserror relerror
+            @printf "Exterior stage %d, Δt⁻¹ = %.2f, errors: abs = %.4e, rel = %.4e\n" stage Δt⁻¹ abserror relerror
         end
 
         if abserror < abstol && relerror < reltol
