@@ -17,17 +17,17 @@ import StochasticDiffEq as SDE
 
 import Base.Threads
 
-includet("../src/primitives/constants.jl")
-includet("../src/primitives/signal.jl")
-includet("../src/agents/firm.jl")
-includet("../src/primitives/climate.jl")
-includet("../src/agents/government.jl")
-includet("../src/utils/arguments.jl")
-includet("../src/utils/saving.jl")
+includet("../../src/primitives/constants.jl")
+includet("../../src/primitives/signal.jl")
+includet("../../src/agents/firm.jl")
+includet("../../src/primitives/climate.jl")
+includet("../../src/agents/government.jl")
+includet("../../src/utils/arguments.jl")
+includet("../../src/utils/saving.jl")
 
-includet("../src/solve/equilibrium.jl")
-includet("../src/dynamics/state.jl")
-includet("../src/utils/analysis.jl")
+includet("../../src/solve/equilibrium.jl")
+includet("../../src/dynamics/state.jl")
+includet("../../src/utils/analysis.jl")
 
 const SIMPATH = joinpath("data", "solutions")
 
