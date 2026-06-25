@@ -19,35 +19,17 @@ function discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜⱼ, signal::Signa
         v += dm * (u[i, j + 1] - u[i, j]) / Δm
     end
 
-    if d²φ > 0 && 1 < i < nφ
+    if 1 < i < nφ
         v += d²φ * (u[i - 1, j] - 2u[i, j] + u[i + 1, j]) / Δφ^2
     end
 
-    if dφ > 0 && i < nφ
-        v += dφ * (u[i + 1, j] - u[i, j]) / Δφ
-    elseif dφ < 0 && i > 1
+    if dφ < 0 && i > 1
         v += dφ * (u[i, j] - u[i - 1, j]) / Δφ
+    elseif i == 1
+        v += dφ * (u[i + 1, j] - u[i, j]) / Δφ
     end
 
     return v
-end
-
-function gridminimiser(obj, lower, upper; gridsize = 101)
-    candidates = range(lower, upper, gridsize)
-
-    τopt = upper
-    uopt = obj(upper)
-
-    for τ in candidates
-        v = obj(τ)
-
-        if v < uopt
-            τopt = τ
-            uopt = v
-        end
-    end
-    
-    return τopt
 end
 
 function updateinteriorpolicy!(policy::TU, u, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm) where {T, TU <: AbstractArray{T}}
@@ -61,8 +43,9 @@ function updateinteriorpolicy!(policy::TU, u, φgrid, mgrid, τᶜ, signal::Sign
         for i in 1:nφ
             
             obj = @closure τ -> discretehamiltonian(τ, i, j, u, φgrid, mgrid, τᶜⱼ, signal, climate, government, firm)
+            result = Optim.optimize(obj, zero(T), maxτ, brent)
 
-            policy[i, j] = gridminimiser(obj, zero(T), maxτ)
+            policy[i, j] = Optim.minimizer(result)
         end
     end
 
@@ -82,7 +65,7 @@ function initialinteriorvalue(φgrid, mgrid, u̲grid::TU, ūgrid::TU) where {T,
     return u
 end
 
-function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm) where {T, TU <: AbstractArray{T}}
+function buildinteriorsystem(policy, u::TU, φgrid, mgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm; ratetol = 1e-6) where {T, TU <: AbstractArray{T}}
     nφ, nm = size(u)
     n = nφ * nm
 
@@ -94,83 +77,72 @@ function buildinteriorsystem(policy, u::TU, φgrid, mgrid, u̲grid, ūgrid, τ�
     Δφ = step(φgrid)
     Δm = step(mgrid)
 
-    @inbounds for j in 1:nm
-        for i in 1:nφ
-            row = interiorindex(i, j, nφ)
+    @inbounds for j in 1:nm, i in 1:nφ
+        row = interiorindex(i, j, nφ)
 
-            if j == nm
-                pushatstencil!((I, J, V), (row, row), one(T))
-                φ = φgrid[i]
-                rhs[row] = (1 - φ) * u̲grid[end] + φ * ūgrid[end]
-                continue
-            end
+        φ = φgrid[i]
+        m = mgrid[j]
+        τ = policy[i, j]
 
-            φ = φgrid[i]
-            m = mgrid[j]
-            τ = policy[i, j]
+        τᶜⱼ = τᶜ(m)
 
-            τᶜⱼ = τᶜ(m)
+        aᵢ = aᵇ(τ, φ, τᶜⱼ, government, firm)
+        χᵢ = χ(τ, τᶜⱼ, signal)
+        
+        dm = e(aᵢ, firm)
+        dφ = beliefdrift(χᵢ, φ)
+        d²φ = beliefdiffusion(χᵢ, φ)^2 / 2
 
-            aᵢ = aᵇ(τ, φ, τᶜⱼ, government, firm)
-            χᵢ = χ(τ, τᶜⱼ, signal)
-            
-            dm = e(aᵢ, firm)
-            dφ = beliefdrift(χᵢ, φ)
-            d²φ = beliefdiffusion(χᵢ, φ)^2 / 2
+        diagonal = government.r + Δt⁻¹
 
-            diagonal = government.r + Δt⁻¹
-
-            if dm > 0
-                rate = dm / Δm
-                diagonal += rate
-                pushatstencil!((I, J, V), (row, interiorindex(i, j + 1, nφ)), -rate)
-            end
-
-            if d²φ > 0 && 1 < i < nφ
-                rate = d²φ / Δφ^2
-                diagonal += 2rate
-                pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
-                pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
-            end
-
-            if dφ > 0 && i < nφ
-                rate = dφ / Δφ
-                diagonal += rate
-                pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -rate)
-            elseif dφ < 0 && i > 1
-                rate = -dφ / Δφ
-                diagonal += rate
-                pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -rate)
-            end
-
-            pushatstencil!((I, J, V), (row, row), diagonal)
-
-            rhs[row] = government.r * w(m, τ, aᵢ, climate, government, firm) + Δt⁻¹ * u[i, j]
+        driftm = dm / Δm
+        if driftm > ratetol
+            diagonal += driftm
+            jdx = j < nm ? interiorindex(i, j + 1, nφ) : interiorindex(i, j - 1, nφ)
+            pushatstencil!((I, J, V), (row, jdx), -driftm)            
         end
+
+        if 1 < i < nφ # At the boundaries there is no dispersion
+            dispersionφ = d²φ / Δφ^2
+            diagonal += 2dispersionφ
+            pushatstencil!((I, J, V), (row, interiorindex(i - 1, j, nφ)), -dispersionφ)
+            pushatstencil!((I, J, V), (row, interiorindex(i + 1, j, nφ)), -dispersionφ)
+        end
+
+        dirftφ = dφ / Δφ
+        if dirftφ < -ratetol
+            diagonal += -dirftφ
+            jdx = i > 1 ? interiorindex(i - 1, j, nφ) : interiorindex(i + 1, j, nφ)
+            pushatstencil!((I, J, V), (row, jdx), dirftφ)
+        end
+
+        pushatstencil!((I, J, V), (row, row), diagonal)
+
+        rhs[row] = government.r * w(m, τ, aᵢ, climate, government, firm) + Δt⁻¹ * u[i, j]
     end
 
     return SA.sparse(I, J, V, n, n), rhs
 end
 
-function interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
-    A, rhs = buildinteriorsystem(policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
+function interiorhjbstep!(nextu, policy, u, φgrid, mgrid, τᶜ, Δt⁻¹, signal::Signal, climate::Climate, government::Government, firm::Firm)
+    A, rhs = buildinteriorsystem(policy, u, φgrid, mgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
     nextu .= reshape(A \ rhs, size(u))
 
     return nextu
 end
 
-function iterateinteriorhjb!(nextu::TU, u::TU, policy::TU, errors::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm, Δt⁻¹, iterations; verbose = 0, allowerrorincreases = false) where {T, TU <: AbstractMatrix{T}}
+function iterateinteriorhjb!(nextu::TU, u::TU, policy::TU, errors::TU, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm, Δt⁻¹, iterations; verbose = 0, allowerrorincreases = false) where {T, TU <: AbstractMatrix{T}}
     abserror = T(Inf)
     relerror = T(Inf)
 
     for iter in 1:iterations
         updateinteriorpolicy!(policy, u, φgrid, mgrid, τᶜ, signal, climate, government, firm)
-        interiorhjbstep!(nextu, policy, u, φgrid, mgrid, u̲grid, ūgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
+        interiorhjbstep!(nextu, policy, u, φgrid, mgrid, τᶜ, Δt⁻¹, signal, climate, government, firm)
 
         errors .= nextu .- u
         nextabserror = maximum(abs, errors)
 
-        if allowerrorincreases && (nextabserror > abserror)
+        if !allowerrorincreases && (nextabserror > abserror)
             @warn "Halting on error increase!"
             break
         end
@@ -190,7 +162,7 @@ function iterateinteriorhjb!(nextu::TU, u::TU, policy::TU, errors::TU, φgrid, m
     return u, policy, (iterations, abserror, relerror)
 end
 
-function solveinteriorfixedpoint!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; inneriterations = 1_000, maxstages = 8, growthfactor = 2., abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹₀ = 100.) where {T, TU <: AbstractMatrix{T}}
+function solveinteriorfixedpoint!(u::TU, φgrid, mgrid, τᶜ, signal::Signal, climate::Climate, government::Government, firm::Firm; inneriterations = 1_000, maxstages = 8, growthfactor = 2., abstol = 1e-2, reltol = 1e-2, verbose = 0, Δt⁻¹₀ = 100.) where {T, TU <: AbstractMatrix{T}}
     policy = similar(u)
     nextu = copy(u)
     errors = similar(u)
@@ -202,7 +174,7 @@ function solveinteriorfixedpoint!(u::TU, φgrid, mgrid, u̲grid, ūgrid, τᶜ,
     Δt⁻¹ = Δt⁻¹₀
 
     for stage in 1:maxstages
-        _, _, (iterations, abserror, relerror) = iterateinteriorhjb!(nextu, u, policy, errors, φgrid, mgrid, u̲grid, ūgrid, τᶜ, signal, climate, government, firm, Δt⁻¹, inneriterations; verbose)
+        _, _, (iterations, abserror, relerror) = iterateinteriorhjb!(nextu, u, policy, errors, φgrid, mgrid, τᶜ, signal, climate, government, firm, Δt⁻¹, inneriterations; verbose)
         
         totaliterations += iterations
 

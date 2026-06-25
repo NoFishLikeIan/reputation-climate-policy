@@ -3,7 +3,6 @@ using Revise, BenchmarkTools
 using Printf
 
 using LaTeXStrings, Plots
-Plots.default(linewidth = 2.5, dpi = 250, label = false, background_color = "#FAFAFA", size = 400 .* (√2, 1))
 
 import FastInterpolations as Itp
 import JLD2
@@ -31,6 +30,8 @@ includet("../../src/utils/analysis.jl")
 includet("utils.jl")
 includet("colors.jl")
 
+publicationdefaults!()
+
 const SIMPATH = joinpath("data", "solutions")
 
 ## Load baseline solution
@@ -38,7 +39,7 @@ firm, government, signal, climate = initmodels()
 
 label = solutionlabel(climate, government, firm, signal)
 baselinepath = joinpath(SIMPATH, "$label.jld2")
-figurepath = joinpath("figures", label)
+figurepath = joinpath("figures")
 mkpath(figurepath)
 
 solution = loadsolution(baselinepath);
@@ -52,6 +53,7 @@ mplotgrid = range(solution.mgrid[1], mplotmax, 251)
 φslices = [0.25, 0.50, 0.75, 0.90]
 φpalette = Plots.palette(:viridis, length(φslices));
 percentageformatter = @closure x -> @sprintf "%.0f%%" 100x
+φlabel(φ) = latexstring("\\phi = " * @sprintf("%.2f", φ))
 
 ## Interior objects
 begin
@@ -63,7 +65,11 @@ begin
         ylabel = L"Reputation $\phi$",
         cbar_title = L"Tax [USD / tCO2e]",
         title = "Optimal carbon tax",
-        c = :viridis, linewidth = 0.
+        c = :viridis,
+        levels = 20,
+        linewidth = 0.,
+        size = (720, 500),
+        right_margin = 8Plots.mm,
     )
 
     safesavefigure(policyfig, joinpath(figurepath, "interior-policy.png"))
@@ -78,9 +84,12 @@ begin
         solution.u;
         xlabel = L"Cumulative emissions $m$ [GtCO2e]",
         ylabel = L"Reputation $\phi$",
-        cbar_title = L"Welfare Costs [tUSD]",
-        title = "Government Welfare Costs",
-        c = :viridis, linewidth = 1
+        cbar_title = L"Welfare Costs $u$ [tUSD]",
+        c = :viridis,
+        levels = 20,
+        linewidth = 0.,
+        size = (720, 500),
+        right_margin = 8Plots.mm,
     )
 
     safesavefigure(valuefig, joinpath(figurepath, "interior-costs.png"))
@@ -97,7 +106,7 @@ begin
     )
 
     for (i, φ) in enumerate(φslices)
-        plot!(taxslicefig, mplotgrid, m -> itps.τ((φ, m)) / taxfactor; c = φpalette[i], label = φ)
+        plot!(taxslicefig, mplotgrid, m -> itps.τ((φ, m)) / taxfactor; c = φpalette[i], label = φlabel(φ))
     end
 
     plot!(taxslicefig, mplotgrid, m -> itps.τᶜ(m) / taxfactor; c = :black, linestyle = :dash, label = L"Committed $\tau^c$")
@@ -114,12 +123,11 @@ begin
         xlims = extrema(mplotgrid),
         ylims = (0, Inf),
         legend = :bottomleft,
-        title = "Emissions after a reputation loss",
     )
 
     for (i, φ) in enumerate(φslices)
         egrid = [e(aᵇ(itps.τ((φ, m)), φ, itps.τᶜ(m), government, firm), firm) for m in mplotgrid]
-        plot!(emissionsslicefig, mplotgrid, egrid; c = φpalette[i], label = φ)
+        plot!(emissionsslicefig, mplotgrid, egrid; c = φpalette[i], label = φlabel(φ))
     end
 
     plot!(emissionsslicefig, mplotgrid, m -> committedemissions(itps.τᶜ, m, government, firm); c = :black, linestyle = :dash, label = L"Committed $e^c$")
@@ -128,6 +136,9 @@ begin
 
     emissionsslicefig
 end
+
+reputationslicesfig = plot(taxslicefig, emissionsslicefig; size = (1120, 430), margins = 8Plots.mm)
+safesavefigure(reputationslicesfig, joinpath(figurepath, "reputation-loss-slices.png"))
 
 begin
     currentφgrid = range(0.05, 0.95, 301)
@@ -168,19 +179,22 @@ begin
     currentemissionsfig
 end
 
+currentpolicyfig = plot(currenttaxfig, currentemissionsfig; size = (1120, 430), margins = 8Plots.mm)
+safesavefigure(currentpolicyfig, joinpath(figurepath, "reputation-loss-current-policy.png"))
+
 ## Noise comparison
 lownoise = Signal()
 highnoise = Signal(σ = 2lownoise.σ)
 
 begin
     
-    σspecs = (lownoise, highnoise)
+    σspecs = ((lownoise, L"Baseline $\sigma$"), (highnoise, L"$2 \times$ baseline $\sigma$"))
 
-    σsolutions = map(σspecs) do (σsignal)
-        σlabel = solutionlabel(climate, government, firm, σsignal)
-        σpath = joinpath(SIMPATH, "$σlabel.jld2")
+    σsolutions = map(σspecs) do (σsignal, σlegend)
+        σfilelabel = solutionlabel(climate, government, firm, σsignal)
+        σpath = joinpath(SIMPATH, "$σfilelabel.jld2")
         σsolution = loadsolution(σpath)
-        (; σ = σsignal.σ, solution = σsolution, itps = policyinterpolants(σsolution))
+        (; label = σfilelabel, plotlabel = σlegend, σ = σsignal.σ, solution = σsolution, itps = policyinterpolants(σsolution))
     end
 
     noisefig = plot(
@@ -192,7 +206,7 @@ begin
     )
 
     for (i, spec) in enumerate(σsolutions)
-        plot!(noisefig, currentφgrid, φ -> spec.itps.τ((φ, m₀)) / taxfactor; label = spec.σ, c = Plots.palette(:Dark2_5)[i])
+        plot!(noisefig, currentφgrid, φ -> spec.itps.τ((φ, m₀)) / taxfactor; label = spec.plotlabel, c = Plots.palette(:Dark2_5)[i])
     end
 
     hline!(noisefig, [τᶜ₀ / taxfactor]; c = :black, linestyle = :dash, label = L"Committed $\tau^c$")
@@ -211,68 +225,84 @@ begin
 
     for (i, φ) in enumerate(φslices)
         Δτ = [high.itps.τ((φ, m)) / taxfactor - low.itps.τ((φ, m)) / taxfactor for m in mplotgrid]
-        plot!(noisedifffig, mplotgrid, Δτ; c = φpalette[i], label = "φ = $φ")
+        plot!(noisedifffig, mplotgrid, Δτ; c = φpalette[i], label = φlabel(φ))
     end
 
-    hline!(noisedifffig, [0.]; c = :black, linestyle = :dash, label = "Committed")
+    hline!(noisedifffig, [0.]; c = :black, linestyle = :dash, label = "No difference")
     safesavefigure(noisedifffig, joinpath(figurepath, "noise-tax-difference.png"))
 
-    plot(noisefig, noisedifffig; size = 600 .* (2√2, 1), margins = 10Plots.mm)
+    noisecombinedfig = plot(noisefig, noisedifffig; size = (1120, 430), margins = 8Plots.mm)
+    safesavefigure(noisecombinedfig, joinpath(figurepath, "noise-comparison.png"))
+
+    noisecombinedfig
 end
 
 ## Simulated paths
 Random.seed!(11148705)
-φ₀grid = [0.3, 0.6, 0.9]
-simulation = simulatepolicies(solution, government, firm, signal; φ₀grid, horizon = 80., trajectories = 500)
+φ₀grid = [0.01, 0.50, 0.99]
+simulation = simulatepolicies(solution, government, firm, signal; φ₀grid, horizon = 80., trajectories = 10_000)
 
+## Plot simulated paths
 pathpalette = Plots.palette(:viridis, length(φ₀grid))
 
 beliefpathfig = plot(
     xlabel = "Year",
     ylabel = L"Reputation $\phi_t$",
     ylims = (0, 1),
-    legend = :bottomleft,
-    title = "Reputation dynamics",
+    legend_title = L"\phi"
 )
 
 taxpathfig = plot(
     xlabel = "Year",
     ylabel = "Carbon tax [USD / tCO2e]",
-    ylims = (0, Inf),
-    legend = :topright,
-    title = "Carbon tax dynamics",
+    legend_title = L"\phi"
 )
 
 emissionspathfig = plot(
     xlabel = "Year",
     ylabel = L"Emissions $e_t$ [GtCO2e / year]",
-    ylims = (0, Inf),
-    legend = :topright,
-    title = "Emissions dynamics",
+    legend_title = L"\phi"
 )
 
 cumulativepathfig = plot(
     xlabel = "Year",
     ylabel = L"Cumulative emissions $m_t$ [GtCO2e]",
-    legend = :topleft,
-    title = "Cumulative emissions",
+    legend_title = L"\phi"
 )
 
-for (i, φ₀) in enumerate(φ₀grid)
-    policies = simulation.policies[i]
-    label = "φ₀ = $φ₀"
-
-    plotmedian!(beliefpathfig, simulation.timesteps, policies, :φ; c = pathpalette[i], label)
-    plotmedian!(taxpathfig, simulation.timesteps, policies, :τ; scale = x -> x / taxfactor, c = pathpalette[i], label)
-    plotmedian!(emissionspathfig, simulation.timesteps, policies, :e; c = pathpalette[i], label)
-    plotmedian!(cumulativepathfig, simulation.timesteps, policies, :m; c = pathpalette[i], label)
-end
+perceivedtaxfig = plot(
+    xlabel = "Year",
+    ylabel = L"Perceived carbon tax $\tau_t^e$ [USD / tCO2e]",
+    legend_title = L"\phi"
+)
 
 committedpath = committedtrajectory(itps.τᶜ, simulation.timesteps, government, firm)
 plot!(taxpathfig, simulation.timesteps, committedpath.τ ./ taxfactor; c = :black, linestyle = :dash, label = "Committed")
 plot!(emissionspathfig, simulation.timesteps, committedpath.e; c = :black, linestyle = :dash, label = "Committed")
 plot!(cumulativepathfig, simulation.timesteps, committedpath.m; c = :black, linestyle = :dash, label = "Committed")
 
-simulationfig = plot(beliefpathfig, taxpathfig, emissionspathfig, cumulativepathfig; layout = (2, 2), size = 800 .* (√2, 1))
+fillalpha = .25
+for (i, φ₀) in enumerate(φ₀grid)
+    policies = simulation.policies[i]
+    label = φlabel(φ₀)
+
+    plotmedian!(beliefpathfig, simulation.timesteps, policies, :φ; c = pathpalette[i], label, fillalpha)
+    plotmedian!(taxpathfig, simulation.timesteps, policies, :τ; scale = x -> x / taxfactor, c = pathpalette[i], label, fillalpha)
+    plotmedian!(emissionspathfig, simulation.timesteps, policies, :e; c = pathpalette[i], label, fillalpha)
+    plotmedian!(cumulativepathfig, simulation.timesteps, policies, :m; c = pathpalette[i], label, fillalpha)
+    plotmedian!(perceivedtaxfig, simulation.timesteps, policies, :τᵉ; scale = x -> x / taxfactor, c = pathpalette[i], label, fillalpha)
+
+end
+
+simulationfig = plot(beliefpathfig, taxpathfig, emissionspathfig, cumulativepathfig; layout = (2, 2), size = (1120, 760), margins = 6Plots.mm)
+
+safesavefigure(beliefpathfig, joinpath(figurepath, "simulation-belief.png"))
+safesavefigure(taxpathfig, joinpath(figurepath, "simulation-tax.png"))
+safesavefigure(emissionspathfig, joinpath(figurepath, "simulation-emissions.png"))
+safesavefigure(cumulativepathfig, joinpath(figurepath, "simulation-cumulative-emissions.png"))
+safesavefigure(perceivedtaxfig, joinpath(figurepath, "simulation-perceived-tax.png"))
+safesavefigure(simulationfig, joinpath(figurepath, "simulation-paths.png"))
 
 @printf "\nSaved figures to %s\n" figurepath
+
+simulationfig

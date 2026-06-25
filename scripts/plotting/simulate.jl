@@ -3,7 +3,6 @@ using Revise, BenchmarkTools
 using Printf
 
 using LaTeXStrings, Plots
-Plots.default(linewidth = 2.5, dpi = 250, label = false, background_color = "#FAFAFA", size = 400 .* (√2, 1))
 
 import FastInterpolations as Itp
 import JLD2
@@ -28,6 +27,9 @@ includet("../../src/utils/saving.jl")
 includet("../../src/solve/equilibrium.jl")
 includet("../../src/dynamics/state.jl")
 includet("../../src/utils/analysis.jl")
+
+includet("utils.jl")
+publicationdefaults!()
 
 const SIMPATH = joinpath("data", "solutions")
 
@@ -81,18 +83,26 @@ simulatedpolicies = map(solution -> computeoverensemble(solution, computepolicie
 ## Figures
 φ₀palette = Plots.palette(:viridis, length(φ₀grid));
 percentageformatter = @closure x -> @sprintf "%.0f%%" 100x
+φlabel(φ) = latexstring("\\phi_0 = " * @sprintf("%.2f", φ))
 
 ## Tax policy
 begin
-    τfig = Plots.plot(xlabel = "Year", ylabel = "Carbon tax t\$ per GtCO2e")
+    τfig = Plots.plot(
+        xlabel = "Year",
+        ylabel = "Carbon tax [USD / tCO2e]",
+        legend_title = L"\phi_0",
+        xlims = extrema(timesteps),
+    )
     
     for (i, φ₀) in enumerate(φ₀grid)
 
         policies = simulatedpolicies[i]
         τmedian = vec(Statistics.median(getindex.(policies, :τ), dims = 1)) ./ taxfactor
 
-        Plots.plot!(timesteps, τmedian; label = φ₀, c = φ₀palette[i])
+        Plots.plot!(timesteps, τmedian; label = φlabel(φ₀), c = φ₀palette[i])
     end
+
+    safesavefigure(τfig, joinpath(figurepath, "simulation-tax-median.png"))
 
     τfig
 end

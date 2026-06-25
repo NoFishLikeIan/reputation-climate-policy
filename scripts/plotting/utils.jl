@@ -1,6 +1,14 @@
 function safesavefigure(figure, figurepath)
+    paths = publicationfigurepaths(figurepath)
+
+    for path in paths
+        safesaveonefigure(figure, path)
+    end
+end
+
+function safesaveonefigure(figure, figurepath)
     try
-        savefig(figure, figurepath)
+        Plots.savefig(figure, figurepath)
     catch e
         if isa(e, SystemError)
             @warn e
@@ -8,6 +16,44 @@ function safesavefigure(figure, figurepath)
             throw(e)
         end
     end
+end
+
+function publicationfigurepaths(figurepath)
+    root, ext = splitext(figurepath)
+
+    if isempty(ext)
+        return ["$figurepath.png", "$figurepath.pdf"]
+    end
+
+    pngpath = lowercase(ext) == ".png" ? figurepath : "$root.png"
+    pdfpath = "$root.pdf"
+
+    return pngpath == pdfpath ? [pngpath] : [pngpath, pdfpath]
+end
+
+function publicationdefaults!()
+    Plots.default(
+        fontfamily = "Computer Modern",
+        linewidth = 2.25,
+        dpi = 450,
+        label = false,
+        background_color = :white,
+        background_color_legend = :white,
+        foreground_color = :black,
+        grid = true,
+        gridalpha = 0.18,
+        minorgrid = true,
+        minorgridalpha = 0.08,
+        framestyle = :box,
+        tickfontsize = 9,
+        guidefontsize = 11,
+        titlefontsize = 12,
+        legendfontsize = 9,
+        colorbar_tickfontsize = 9,
+        colorbar_titlefontsize = 11,
+        margin = 5Plots.mm,
+        size = (640, 440),
+    )
 end
 
 function loadsolution(path)
@@ -79,8 +125,9 @@ function computepolicies(x, p, _)
     τᶜₜ = τᶜ(m)
     τₜ = τ(x)
     aₜ = aᵇ(τₜ, φ, τᶜₜ, government, firm)
+    τᵉ = τᶜₜ * φ + τₜ * (1 - φ)
 
-    return (φ = φ, m = m, τ = τₜ, τᶜ = τᶜₜ, a = aₜ, e = e(aₜ, firm))
+    return (φ = φ, m = m, τ = τₜ, τᶜ = τᶜₜ, a = aₜ, e = e(aₜ, firm), τᵉ = τᵉ)
 end
 
 function simulatepolicies(solution, government, firm, signal; φ₀grid = [0.3, 0.6, 0.9], horizon = 80., trajectories = 500)
