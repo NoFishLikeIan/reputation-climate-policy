@@ -7,15 +7,15 @@ function optimalcommittedtax(∂ₘu, government::Government{T}, firm::Firm{T}) 
     if ∂ₘu ≤ 0
         return zero(T)
     end
-    
-    τmax = netzeroτ(government, firm)
 
+    maxτ = netzeroτ(government, firm)
+    
     obj = @closure τ -> begin
         aᶜ = a(τ, government, firm)
-        government.r * (government.y₀ * c(aᶜ, firm) + l(τ, aᶜ, government, firm)) - aᶜ * ∂ₘu
+        return government.r * (government.y₀ * c(aᶜ, firm) + l(τ, aᶜ, government, firm)) - aᶜ * ∂ₘu
     end
 
-    result = Optim.optimize(obj, 0, τmax, brent)
+    result = Optim.optimize(obj, 0., maxτ, brent)
     
     if !Optim.converged(result)
         return T(NaN)

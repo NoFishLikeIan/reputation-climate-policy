@@ -1,14 +1,8 @@
-function committedmderivative(u::AbstractVector, mgrid, i)
+function committedmderivative(u::TU, mgrid, i) where {T, TU <: AbstractVector{T}}
     Δm = step(mgrid)
     n = length(mgrid)
-
-    if n == 1
-        return zero(eltype(u))
-    elseif i < n
-        return (u[i + 1] - u[i]) / Δm
-    else
-        return (u[i] - u[i - 1]) / Δm
-    end
+    
+    return (i < n ? u[i + 1] - u[i] : u[i] - u[i - 1]) / Δm
 end
 
 function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Government, firm::Firm, Δt⁻¹) where {T <: Real, MG <: AbstractRange{T}, TU <: AbstractVector{T}}
@@ -16,6 +10,7 @@ function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Go
     I = Int[]
     J = Int[]
     V = T[]
+
     rhs = similar(u)
     Δm = step(mgrid)
     n = length(mgrid)
@@ -24,17 +19,16 @@ function buildcommittedsystem(u::TU, mgrid::MG, climate::Climate, government::Go
         ∂ₘu = committedmderivative(u, mgrid, i)
         τᶜ = optimalcommittedtax(∂ₘu, government, firm)
         aᶜ = a(τᶜ, government, firm)
-        driftm = e(aᶜ, firm)
+        dm = e(aᶜ, firm)
         welfarecost = w(m, τᶜ, aᶜ, climate, government, firm)
 
-        if i < n && driftm > 0
-            rate = driftm / Δm
-            pushatstencil!((I, J, V), (i, i), government.r + Δt⁻¹ + rate)
-            pushatstencil!((I, J, V), (i, i + 1), -rate)
+        if i < n && dm > 0
+            pushatstencil!((I, J, V), (i, i), government.r + Δt⁻¹ + dm / Δm)
+            pushatstencil!((I, J, V), (i, i + 1), -dm / Δm)
             rhs[i] = government.r * welfarecost + Δt⁻¹ * u[i]
         else
             pushatstencil!((I, J, V), (i, i), government.r + Δt⁻¹)
-            rhs[i] = government.r * welfarecost + driftm * ∂ₘu + Δt⁻¹ * u[i]
+            rhs[i] = government.r * welfarecost + dm * ∂ₘu + Δt⁻¹ * u[i]
         end
     end
 
