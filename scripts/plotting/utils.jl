@@ -34,13 +34,14 @@ end
 function publicationdefaults!()
     Plots.default(
         fontfamily = "Computer Modern",
-        linewidth = 2.25,
+        linewidth = 3,
         dpi = 450,
         label = false,
         background_color = :white,
         background_color_legend = :white,
-        foreground_color = :black,
+        foreground_color = "#252525",
         grid = true,
+        gridcolor = "#7A827C",
         gridalpha = 0.18,
         minorgrid = true,
         minorgridalpha = 0.08,

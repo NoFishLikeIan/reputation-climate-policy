@@ -51,7 +51,7 @@ mplotmax = m₀ + 70firm.e₀
 mplotgrid = range(solution.mgrid[1], mplotmax, 251)
 φplotgrid = range(0.05, 0.95, 181)
 φslices = [0.25, 0.50, 0.75, 0.90]
-φpalette = Plots.palette(:viridis, length(φslices));
+φpalette = beliefspalette(length(φslices));
 percentageformatter = @closure x -> @sprintf "%.0f%%" 100x
 φlabel(φ) = latexstring("\\phi = " * @sprintf("%.2f", φ))
 
@@ -65,7 +65,7 @@ begin
         ylabel = L"Reputation $\phi$",
         cbar_title = L"Tax [USD / tCO2e]",
         title = "Optimal carbon tax",
-        c = :viridis,
+        c = beliefsgradient,
         levels = 20,
         linewidth = 0.,
         size = (720, 500),
@@ -85,7 +85,7 @@ begin
         xlabel = L"Cumulative emissions $m$ [GtCO2e]",
         ylabel = L"Reputation $\phi$",
         cbar_title = L"Welfare Costs $u$ [tUSD]",
-        c = :viridis,
+        c = beliefsgradient,
         levels = 20,
         linewidth = 0.,
         size = (720, 500),
@@ -109,7 +109,7 @@ begin
         plot!(taxslicefig, mplotgrid, m -> itps.τ((φ, m)) / taxfactor; c = φpalette[i], label = φlabel(φ))
     end
 
-    plot!(taxslicefig, mplotgrid, m -> itps.τᶜ(m) / taxfactor; c = :black, linestyle = :dash, label = L"Committed $\tau^c$")
+    plot!(taxslicefig, mplotgrid, m -> itps.τᶜ(m) / taxfactor; c = beliefscolors[:text], linestyle = :dash, label = L"Committed $\tau^c$")
 
     safesavefigure(taxslicefig, joinpath(figurepath, "reputation-loss-tax.png"))
 
@@ -130,7 +130,7 @@ begin
         plot!(emissionsslicefig, mplotgrid, egrid; c = φpalette[i], label = φlabel(φ))
     end
 
-    plot!(emissionsslicefig, mplotgrid, m -> committedemissions(itps.τᶜ, m, government, firm); c = :black, linestyle = :dash, label = L"Committed $e^c$")
+    plot!(emissionsslicefig, mplotgrid, m -> committedemissions(itps.τᶜ, m, government, firm); c = beliefscolors[:text], linestyle = :dash, label = L"Committed $e^c$")
 
     safesavefigure(emissionsslicefig, joinpath(figurepath, "reputation-loss-emissions.png"))
 
@@ -150,11 +150,11 @@ begin
         currenttax;
         xlabel = L"Reputation $\phi$",
         ylabel = "Carbon tax [USD / tCO2e]",
-        c = :darkred,
+        c = beliefscolors[:red],
         xlims = extrema(currentφgrid),
         title = L"Current-emissions policy, $m=m_0$",
     )
-    hline!(currenttaxfig, [τᶜ₀ / taxfactor]; c = :black, linestyle = :dash, label = L"Committed $\tau^c$")
+    hline!(currenttaxfig, [τᶜ₀ / taxfactor]; c = beliefscolors[:text], linestyle = :dash, label = L"Committed $\tau^c$")
     
     safesavefigure(currenttaxfig, joinpath(figurepath, "reputation-loss-current-tax.png"))
 
@@ -167,12 +167,12 @@ begin
         currentemissions;
         xlabel = L"Reputation $\phi$",
         ylabel = L"Emissions $e_t$ [GtCO2e / year]",
-        c = :darkblue,
+        c = beliefscolors[:green],
         xlims = extrema(currentφgrid),
         ylims = (0, Inf),
         title = L"Current-emissions outcome, $m=m_0$",
     )
-    hline!(currentemissionsfig, [eᶜ₀]; c = :black, linestyle = :dash, label = L"Committed $e^c$")
+    hline!(currentemissionsfig, [eᶜ₀]; c = beliefscolors[:text], linestyle = :dash, label = L"Committed $e^c$")
 
     safesavefigure(currentemissionsfig, joinpath(figurepath, "reputation-loss-current-emissions.png"))
 
@@ -205,11 +205,12 @@ begin
         title = L"Noise effect at $m=m_0$",
     )
 
+    σpalette = beliefspalette(length(σsolutions))
     for (i, spec) in enumerate(σsolutions)
-        plot!(noisefig, currentφgrid, φ -> spec.itps.τ((φ, m₀)) / taxfactor; label = spec.plotlabel, c = Plots.palette(:Dark2_5)[i])
+        plot!(noisefig, currentφgrid, φ -> spec.itps.τ((φ, m₀)) / taxfactor; label = spec.plotlabel, c = σpalette[i])
     end
 
-    hline!(noisefig, [τᶜ₀ / taxfactor]; c = :black, linestyle = :dash, label = L"Committed $\tau^c$")
+    hline!(noisefig, [τᶜ₀ / taxfactor]; c = beliefscolors[:text], linestyle = :dash, label = L"Committed $\tau^c$")
 
     safesavefigure(noisefig, joinpath(figurepath, "noise-current-tax.png"))
 
@@ -228,7 +229,7 @@ begin
         plot!(noisedifffig, mplotgrid, Δτ; c = φpalette[i], label = φlabel(φ))
     end
 
-    hline!(noisedifffig, [0.]; c = :black, linestyle = :dash, label = "No difference")
+    hline!(noisedifffig, [0.]; c = beliefscolors[:text], linestyle = :dash, label = "No difference")
     safesavefigure(noisedifffig, joinpath(figurepath, "noise-tax-difference.png"))
 
     noisecombinedfig = plot(noisefig, noisedifffig; size = (1120, 430), margins = 8Plots.mm)
@@ -243,7 +244,7 @@ Random.seed!(11148705)
 simulation = simulatepolicies(solution, government, firm, signal; φ₀grid, horizon = 80., trajectories = 10_000)
 
 ## Plot simulated paths
-pathpalette = Plots.palette(:viridis, length(φ₀grid))
+pathpalette = beliefspalette(length(φ₀grid))
 
 beliefpathfig = plot(
     xlabel = "Year",
@@ -277,9 +278,9 @@ perceivedtaxfig = plot(
 )
 
 committedpath = committedtrajectory(itps.τᶜ, simulation.timesteps, government, firm)
-plot!(taxpathfig, simulation.timesteps, committedpath.τ ./ taxfactor; c = :black, linestyle = :dash, label = "Committed")
-plot!(emissionspathfig, simulation.timesteps, committedpath.e; c = :black, linestyle = :dash, label = "Committed")
-plot!(cumulativepathfig, simulation.timesteps, committedpath.m; c = :black, linestyle = :dash, label = "Committed")
+plot!(taxpathfig, simulation.timesteps, committedpath.τ ./ taxfactor; c = beliefscolors[:text], linestyle = :dash, label = "Committed")
+plot!(emissionspathfig, simulation.timesteps, committedpath.e; c = beliefscolors[:text], linestyle = :dash, label = "Committed")
+plot!(cumulativepathfig, simulation.timesteps, committedpath.m; c = beliefscolors[:text], linestyle = :dash, label = "Committed")
 
 fillalpha = .25
 for (i, φ₀) in enumerate(φ₀grid)

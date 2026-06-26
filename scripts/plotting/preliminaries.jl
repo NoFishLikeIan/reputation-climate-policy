@@ -34,31 +34,34 @@ mgrid = range(0., m₀ + Δm, 501);
 percentageformatter = @closure x -> @sprintf "%.2f%%" 100x
 preliminarycolors = (
     primary = beliefscolors[:green],
-    secondary = beliefscolors[:teal],
+    secondary = beliefscolors[:sage],
     reference = beliefscolors[:dark],
     guide = beliefscolors[:muted],
-    series = [beliefscolors[:green], beliefscolors[:teal], beliefscolors[:olive], beliefscolors[:brown]],
+    series = beliefspalette(4),
 )
 
 begin
+    damagecolor = beliefscolors[:red]
+
     damagefig = Plots.plot(
         mgrid,
         m -> d(m, climate);
         xlabel = L"Cumulative emissions $m_t$ [GtCO2e]",
         ylabel = "Output loss [% GDP / year]",
-        c = preliminarycolors.primary,
+        c = damagecolor,
         ylims = (0, Inf),
         xlims = extrema(mgrid),
         label = L"Damages $d(m)$",
-        legend = :topleft,
         yaxis = (formatter = percentageformatter),
     )
 
-    Plots.hline!(damagefig, [c(firm.e₀, firm)]; linestyle = :dash, c = preliminarycolors.reference, label = L"Net-zero abatement costs $c(e_0)$")
+    Plots.hline!(damagefig, [c(firm.e₀, firm)]; linestyle = :dashdot, c = preliminarycolors.reference, label = L"Net-zero abatement costs $c(e_0)$")
     Plots.plot!(damagefig, [m₀, m₀], [0., d(m₀, climate)]; c = preliminarycolors.guide, linestyle = :dot)
     Plots.plot!(damagefig, [0., m₀], [d(m₀, climate), d(m₀, climate)]; c = preliminarycolors.guide, linestyle = :dot)
-    Plots.scatter!(damagefig, [m₀], [d(m₀, climate)]; c = preliminarycolors.primary, markerstrokewidth = 0)
+    Plots.scatter!(damagefig, [m₀], [d(m₀, climate)]; c = damagecolor, markerstrokewidth = 0)
     safesavefigure(damagefig, joinpath(plotpath, "damages.png"))
+
+    damagefig
 end
 
 ## Mac curve
@@ -78,6 +81,7 @@ begin
         xlims = extrema(agrid),
     )
     safesavefigure(macfig, joinpath(plotpath, "marginal-abatement-costs.png"))
+    macfig
 end
 
 ## Stranded assets costs
@@ -86,7 +90,7 @@ end
 begin
     transitionfig = Plots.plot(
         xlabel = L"Abatement $a_t$ [GtCO2e / year]",
-        ylabel = L"Transition-loss loading",
+        ylabel = "Stranded assets costs [GtCO2 / trUSD year]",
         xlims = extrema(agrid),
         ylims = (0, Inf),
         legend = :topright,
@@ -96,30 +100,24 @@ begin
         transitionfig,
         agrid,
         a -> R(a, government, firm);
-        c = preliminarycolors.primary,
+        c = beliefscolors[:red],
+        linestyle = :dashdot,
         label = L"Residual exposure $R(a)$",
     )
     Plots.plot!(
         transitionfig,
         agrid,
         a -> A(a, government, firm);
-        c = preliminarycolors.secondary,
+        c = beliefscolors[:green],
+        linestyle = :dot,
         label = L"Accelerated retirement $A(a)$",
     )
     Plots.plot!(
         transitionfig,
         agrid,
         a -> R(a, government, firm) + A(a, government, firm);
-        c = preliminarycolors.reference,
-        linestyle = :dash,
+        c = beliefscolors[:text],
         label = L"$R(a)+A(a)$",
-    )
-    Plots.vline!(
-        transitionfig,
-        [firm.ω * firm.e₀];
-        c = preliminarycolors.guide,
-        linestyle = :dot,
-        label = L"Free abatement $\omega e_0$",
     )
 
     safesavefigure(transitionfig, joinpath(plotpath, "transition-loss-components.png"))
@@ -131,7 +129,7 @@ begin
     lfig = Plots.plot(
         xlabel = L"Carbon tax $\tau$ [trUSD / GtCO2e]",
         xlims = extrema(τgrid),
-        ylabel = L"Stranded assets loss $l(a, \tau) / y_0$ [% GDP / year]",
+        ylabel = L"Stranded assets loss $l(a, \tau) / y_0$ [% GDP]",
         legend_title = L"Abatement $a$ [GtCO2e / year]",
         legend = :topleft,
         yaxis = (formatter = percentageformatter),

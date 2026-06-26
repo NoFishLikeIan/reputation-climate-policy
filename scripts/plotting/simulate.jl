@@ -29,6 +29,7 @@ includet("../../src/dynamics/state.jl")
 includet("../../src/utils/analysis.jl")
 
 includet("utils.jl")
+includet("colors.jl")
 publicationdefaults!()
 
 const SIMPATH = joinpath("data", "solutions")
@@ -81,7 +82,7 @@ timesteps = range(0, horizon; step = 1 / 12)
 simulatedpolicies = map(solution -> computeoverensemble(solution, computepolicies, timesteps), solutions);
 
 ## Figures
-φ₀palette = Plots.palette(:viridis, length(φ₀grid));
+φ₀palette = beliefspalette(length(φ₀grid));
 percentageformatter = @closure x -> @sprintf "%.0f%%" 100x
 φlabel(φ) = latexstring("\\phi_0 = " * @sprintf("%.2f", φ))
 

@@ -1,10 +1,31 @@
+using Colors
+import Plots
+
 const beliefscolors = Dict{Symbol, RGB}(
-    :green => colorant"#00b56a",
-    :teal => colorant"#55c9b2",
-    :olive => colorant"#6e7d43",
-    :brown => colorant"#7a4e2a",
-    :dark => colorant"#1f5e4a",
-    :light => colorant"#f4f7f5",
-    :text => colorant"#1f1f1f",
-    :muted => colorant"#65706b"
+    :red => colorant"#9C3D3D",
+    :coral => colorant"#D08067",
+    :sand => colorant"#EEE3C5",
+    :sage => colorant"#9BBE84",
+    :green => colorant"#3C7D5E",
+    :teal => colorant"#4E9D8A",
+    :olive => colorant"#8F9F63",
+    :brown => colorant"#A45E48",
+    :dark => colorant"#2C3A33",
+    :light => colorant"#F8F7F2",
+    :text => colorant"#252525",
+    :muted => colorant"#7A827C"
 );
+
+const beliefsgradientcolors = [
+    beliefscolors[:red],
+    beliefscolors[:coral],
+    beliefscolors[:sand],
+    beliefscolors[:sage],
+    beliefscolors[:green],
+]
+
+const beliefsgradient = Plots.cgrad(beliefsgradientcolors)
+
+function beliefspalette(n)
+    return Plots.palette(beliefsgradient, n)
+end
