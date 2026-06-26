@@ -52,8 +52,8 @@ close(solutionfile)
 ūitp = Itp.linear_interp(mrestrictedgrid, ū; extrap = Itp.ClampExtrap())
 
 ## Interior
-nm = 50
-nφ = 51
+nm = 200
+nφ = 201
 
 mgrid = range(mgrid[1], 2mgrid[end], nm)
 φgrid = range(0., 1., nφ)

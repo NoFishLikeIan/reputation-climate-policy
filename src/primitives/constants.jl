@@ -14,4 +14,4 @@ const lresidual₀ = defaultresidualδ / 2 * (τ₀ * sqrt(e₀ * (e₀ - a₀))
 const lretirement₀ = 5e-4 # Annual accelerated-retirement loss share at net zero
 const l₀ = lretirement₀ # Backwards-compatible alias
 
-const σ̂  = 8.14e-4
+const σ̂  = 0.38

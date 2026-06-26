@@ -24,7 +24,14 @@ const beliefsgradientcolors = [
     beliefscolors[:green],
 ]
 
+const beliefsincreasingpalettecolors = [
+    beliefscolors[:sand],
+    beliefscolors[:sage],
+    beliefscolors[:green],
+]
+
 const beliefsgradient = Plots.cgrad(beliefsgradientcolors)
+const beliefsincreasingpalette = Plots.cgrad(beliefsincreasingpalettecolors)
 
 function beliefspalette(n)
     return Plots.palette(beliefsgradient, n)
