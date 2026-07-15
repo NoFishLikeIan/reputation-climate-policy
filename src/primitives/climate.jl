@@ -1,6 +1,7 @@
 Base.@kwdef struct Climate{T <: Real}
     γ::T = 1e-2 # Damage coefficient
-    ζ::T = 4.8e-4 # TCRE    
+    ζ::T = 4.8e-4 # TCRE
+    m₀::T = m₀
 end
 
 const badclimate = Climate(γ = 2e-2, ζ = 7.49e-4)

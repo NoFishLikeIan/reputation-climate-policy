@@ -3,64 +3,55 @@ using Revise, BenchmarkTools
 using Printf
 
 using LaTeXStrings, Plots
+import JLD2
 
+import Base.Threads
 import FastClosures: @closure
 import UnPack: @unpack, @pack!
 
-import JLD2
-import LinearAlgebra as LA
-import SparseArrays as SA
+import LinearAlgebra
+import SparseArrays
+import FastChebInterp
+
 import Optim
+import StaticArrays as SA
+import StaticArraysCore
+import LCPsolve
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
-includet("../src/agents/firm.jl")
 includet("../src/primitives/climate.jl")
+
+includet("../src/dynamics/state.jl")
+
+includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
+
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 
 includet("../src/solve/utils.jl")
-includet("../src/solve/equilibrium.jl")
-includet("../src/solve/committedvalue.jl")
+includet("../src/solve/firm/committed.jl")
 
 const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
 firm, government, signal, climate = initmodels()
 
+## Chebyshev collocation grid
+gridorder = (99, 100)
 Δm = 80firm.e₀ # 80 years without abatement
-mgrid = range(m₀, m₀ + Δm, 1001);
+lowerbound = SA.SVector(a₀, m₀)
+upperbound = SA.SVector(firm.e₀, m₀ + Δm)
+collocationpoints = FastChebInterp.chebpoints(gridorder, lowerbound, upperbound)
+
+
+## Approximate the committed tax
+τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
+τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(collocationpoints), lowerbound, upperbound)
 
 ## Initialise value function problem
-uᶜ₀ = [w(m, 0.01, a(0.01, government, firm), climate, government, firm) for m in mgrid]
-uᶜ = copy(uᶜ₀)
+q = Matrix{Float64}(undef, size(collocationpoints));
+I = Vector{Union{Nothing, Int}}(undef, gridorder[1] + 1);
 
-_, (i, abserror, relerror) = solvehjb!(uᶜ, mgrid, climate, government, firm; maxiters = 100_000, verbose = 1, abstol = 1e-10, reltol = 1e-8, Δt⁻¹ = 10.)
-
-committedpolicy = computeglobalpolicy(uᶜ, mgrid, government, firm)
-filename = solutionlabel(climate, government, firm, signal)
-solutionpath = joinpath(SIMPATH, "$filename.jld2")
-figurepath = joinpath("figures", filename)
-mkpath(figurepath)
-
-JLD2.jldopen(solutionpath, "a+") do file
-    if haskey(file, "committed") 
-        delete!(file, "committed")
-    end
-
-    solution = JLD2.Group(file, "committed")
-    @pack! solution = mgrid, uᶜ, committedpolicy
-end
-
-@printf "\nSaved committed policy to %s\n" solutionpath
-
-## Plot committed policy
-begin
-    polfig = plot(mgrid, committedpolicy ./ taxfactor; xlabel = L"m", ylabel = L"Carbon tax USD per $\mathrm{CO}_2 \mathrm{e}$", c = :darkred, yguidefontcolor = :darkred, xlims = extrema(mgrid), label = false)
-    plot!(twinx(polfig), mgrid, [e(a(τ, government, firm), firm) for τ in committedpolicy]; ylabel = L"e^c", c = :darkblue, yguidefontcolor = :darkblue, xlims = extrema(mgrid), label = false)
-    
-    # savefig(polfig, joinpath(figurepath, "committed-policy.png"))
-
-    polfig
-end
+solvefirmproblem!(q, I, τᶜ, collocationpoints, firm)

@@ -1,4 +1,26 @@
-function χ(τ, τᶜ, signal)
+abstract type AbstractState{N, T} <: StaticArraysCore.FieldVector{N, T} end
+
+struct CommittedState{T} <: AbstractState{2, T}
+    m::T
+    a::T
+end
+
+struct PublicState{T} <: AbstractState{3, T}
+    φ::T
+    m::T
+    a::T
+end
+
+struct FirmState{T} <: AbstractState{4, T}
+    φ::T
+    m::T
+    a::T
+    aᵢ::T
+end
+
+
+# Dynamics
+function χ(τ, τᶜ, signal::Signal)
     (signal.ϵ / signal.σ) * (τᶜ - τ) 
 end
 
@@ -8,28 +30,4 @@ end
 
 function beliefdiffusion(χ, φ)
     φ * (1 - φ) * χ
-end
-
-function F!(dx, x, parameters, _)
-    τ, τᶜ, government, firm, signal = parameters
-    
-    φ, m = x
-
-    τᶜₜ = τᶜ(m)
-    τₜ = τ(x)
-    
-    dx[1] = beliefdrift(χ(τₜ, τᶜₜ, signal), φ)
-    dx[2] = e(aᵇ(τₜ, φ, τᶜₜ, government, firm), firm)
-
-    return dx
-end
-
-function G!(Σ, x, parameters, _)
-
-    τ, τᶜ, _, _, signal = parameters
-    
-    φ, m = x
-
-    Σ[1, 1] = beliefdiffusion(χ(τ(x), τᶜ(m), signal), φ)
-
 end
