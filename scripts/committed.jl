@@ -47,7 +47,7 @@ const SIMPATH = joinpath("data", "solutions")
 firm, government, signal, climate = initmodels()
 
 ## Chebyshev collocation grid
-order = (1, 1)
+order = (6, 6)
 Δm = 150firm.e₀ # 150 years without abatement
 m̄ = climate.m₀ + Δm
 lowerbound = SA.SVector(firm.a₀, climate.m₀)
@@ -72,9 +72,18 @@ end
 optparameters = (firm, government, climate, lowerbound, upperbound)
 governmentobjective(η₀, optparameters)
 
-ηlower = fill(-1., size(η₀))
-ηupper = fill(1., size(η₀))
+ηlower = fill(-0.2, size(η₀))
+ηupper = fill(0.2, size(η₀))
 fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
 prob = SciMLBase.OptimizationProblem(fn, η₀, optparameters; lb = ηlower, ub = ηupper)
 
 sol = Optimization.solve(prob, OptimizationOptimJL.LBFGS())
+
+## Plot optimal policy
+import Plots
+
+τᶜopt = FastChebInterp.ChebPoly(taxscale .* sol.u , lowerbound, upperbound)
+agrid = range(firm.a₀, firm.e₀, 1001)
+mgrid = range(climate.m₀, m̄, 1001)
+
+Plots.contourf(agrid, mgrid, (a, m) -> τᶜopt(SA.SVector(a, m)))
