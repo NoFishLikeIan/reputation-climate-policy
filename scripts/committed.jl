@@ -55,24 +55,26 @@ upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
 grid = CommittedGrid(order, lowerbound, upperbound)
 
 ## Approximate the committed tax
+const taxscale = firm.r * c(firm.e₀, firm)
+
 τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
 τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(grid.points), lowerbound, upperbound; tol = 0)
 
-function governmentobjective(θ, optparameters)
+function governmentobjective(η, optparameters)
     firm, government, climate, lb, ub = optparameters
 
-    display(ForwardDiff.value.(θ)); print("\n")
-    τᶜ = FastChebInterp.ChebPoly(θ, lb, ub)
+    τᶜ = FastChebInterp.ChebPoly(taxscale .* η , lb, ub)
 
     return welfarecosts(τᶜ, firm, government, climate)
 end
 
-θ₀ = τᶜ.coefs
+η₀ = τᶜ.coefs ./ taxscale
 optparameters = (firm, government, climate, lowerbound, upperbound)
+governmentobjective(η₀, optparameters)
 
-governmentobjective(θ₀, optparameters)
-
+ηlower = fill(-1., size(η₀))
+ηupper = fill(1., size(η₀))
 fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
-prob = SciMLBase.OptimizationProblem(fn, θ₀, optparameters)
+prob = SciMLBase.OptimizationProblem(fn, η₀, optparameters; lb = ηlower, ub = ηupper)
 
 sol = Optimization.solve(prob, OptimizationOptimJL.LBFGS())
