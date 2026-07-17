@@ -47,27 +47,21 @@ const SIMPATH = joinpath("data", "solutions")
 firm, government, signal, climate = initmodels()
 
 ## Chebyshev collocation grid
-denseorder = (20, 30)
-sparseorder = (2, 3)
+order = (1, 1)
 Δm = 150firm.e₀ # 150 years without abatement
 m̄ = climate.m₀ + Δm
 lowerbound = SA.SVector(firm.a₀, climate.m₀)
 upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
-
-densegrid = CommittedGrid(denseorder, lowerbound, upperbound)
-sparsegrid = CommittedGrid(sparseorder, lowerbound, upperbound)
+grid = CommittedGrid(order, lowerbound, upperbound)
 
 ## Approximate the committed tax
-ātarget = (firm.a₀ + firm.e₀) / 2
-
 τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
-
-τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(sparsegrid.points), lowerbound, upperbound; tol = 0)
-
+τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(grid.points), lowerbound, upperbound; tol = 0)
 
 function governmentobjective(θ, optparameters)
     firm, government, climate, lb, ub = optparameters
 
+    display(ForwardDiff.value.(θ)); print("\n")
     τᶜ = FastChebInterp.ChebPoly(θ, lb, ub)
 
     return welfarecosts(τᶜ, firm, government, climate)
@@ -76,6 +70,9 @@ end
 θ₀ = τᶜ.coefs
 optparameters = (firm, government, climate, lowerbound, upperbound)
 
+governmentobjective(θ₀, optparameters)
+
 fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
 prob = SciMLBase.OptimizationProblem(fn, θ₀, optparameters)
-sol = solve(prob, BFGS())
+
+sol = Optimization.solve(prob, OptimizationOptimJL.LBFGS())
