@@ -9,14 +9,21 @@ import Base.Threads
 import FastClosures: @closure
 import UnPack: @unpack, @pack!
 
-import LinearAlgebra
+# Linear algebra
+import LinearAlgebra as LA
 import SparseArrays
-import FastChebInterp
-
-import Optim
 import StaticArrays as SA
 import StaticArraysCore
-import LCPsolve
+
+# Interpolation and integration
+import FastChebInterp
+import FastGaussQuadrature
+import OrdinaryDiffEq as ODE
+import SciMLBase, DiffEqBase
+
+# Optimization and root finding
+import Optimization, OptimizationOptimJL
+import ADTypes, ForwardDiff
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -28,6 +35,7 @@ includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
 includet("../src/utils/arguments.jl")
+includet("../src/utils/root.jl")
 includet("../src/utils/saving.jl")
 
 includet("../src/solve/utils.jl")
@@ -39,19 +47,35 @@ const SIMPATH = joinpath("data", "solutions")
 firm, government, signal, climate = initmodels()
 
 ## Chebyshev collocation grid
-gridorder = (99, 100)
-Δm = 80firm.e₀ # 80 years without abatement
-lowerbound = SA.SVector(a₀, m₀)
-upperbound = SA.SVector(firm.e₀, m₀ + Δm)
-collocationpoints = FastChebInterp.chebpoints(gridorder, lowerbound, upperbound)
+denseorder = (20, 30)
+sparseorder = (2, 3)
+Δm = 150firm.e₀ # 150 years without abatement
+m̄ = climate.m₀ + Δm
+lowerbound = SA.SVector(firm.a₀, climate.m₀)
+upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
 
+densegrid = CommittedGrid(denseorder, lowerbound, upperbound)
+sparsegrid = CommittedGrid(sparseorder, lowerbound, upperbound)
 
 ## Approximate the committed tax
+ātarget = (firm.a₀ + firm.e₀) / 2
+
 τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
-τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(collocationpoints), lowerbound, upperbound)
 
-## Initialise value function problem
-q = Matrix{Float64}(undef, size(collocationpoints));
-I = Vector{Union{Nothing, Int}}(undef, gridorder[1] + 1);
+τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(sparsegrid.points), lowerbound, upperbound; tol = 0)
 
-solvefirmproblem!(q, I, τᶜ, collocationpoints, firm)
+
+function governmentobjective(θ, optparameters)
+    firm, government, climate, lb, ub = optparameters
+
+    τᶜ = FastChebInterp.ChebPoly(θ, lb, ub)
+
+    return welfarecosts(τᶜ, firm, government, climate)
+end
+
+θ₀ = τᶜ.coefs
+optparameters = (firm, government, climate, lowerbound, upperbound)
+
+fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
+prob = SciMLBase.OptimizationProblem(fn, θ₀, optparameters)
+sol = solve(prob, BFGS())

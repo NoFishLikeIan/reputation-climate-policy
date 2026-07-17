@@ -1,22 +1,20 @@
-abstract type AbstractState{N, T} <: StaticArraysCore.FieldVector{N, T} end
+abstract type Grid{N, T} end
 
-struct CommittedState{T} <: AbstractState{2, T}
-    m::T
-    a::T
+struct CommittedGrid{T, TP <: AbstractMatrix, TG <: NTuple{2, <:AbstractVector{T}}} <: Grid{2, T}
+    points::TP
+    grids::TG
 end
 
-struct PublicState{T} <: AbstractState{3, T}
-    φ::T
-    m::T
-    a::T
+function CommittedGrid(order, lb, ub)
+    points = FastChebInterp.chebpoints(order, lb, ub)
+    agrid = getindex.(points[:, 1], 1)
+    mgrid = getindex.(points[1, :], 2)
+
+    return CommittedGrid(points, (agrid, mgrid))
 end
 
-struct FirmState{T} <: AbstractState{4, T}
-    φ::T
-    m::T
-    a::T
-    aᵢ::T
-end
+Base.size(grid::TG) where TG <: Grid = size(grid.points);
+Base.size(grid::TG, dim) where TG <: Grid = size(grid.points, dim)
 
 
 # Dynamics

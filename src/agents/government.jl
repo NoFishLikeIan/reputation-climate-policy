@@ -7,3 +7,7 @@ end
 function l(τ, government::Government)
     government.δ * τ^2 / 2
 end
+
+function w(m, τ, government::Government, climate::Climate)
+    government.y₀ * d(m, climate) + l(τ, government)
+end
