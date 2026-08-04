@@ -81,6 +81,10 @@ function welfaredrift(u, parameters, a)
     t, m, _ = u
     x = clamp.(SA.SVector(a, m), τᶜ.lb, τᶜ.ub)
 
+    if isnan(x[2])
+        println(τᶜ.coefs, "\n\n", ForwardDiff.value.(τᶜ.coefs), "\n\n", ForwardDiff.partials.(τᶜ.coefs), "\n\n", ForwardDiff.value(a), " ", ForwardDiff.value(m))
+    end
+
     τᶜₜ, ∇τᶜₜ = FastChebInterp.chebgradient(τᶜ, x)
     ∂ₐτᶜₜ, ∂ₘτᶜₜ = ∇τᶜₜ
 

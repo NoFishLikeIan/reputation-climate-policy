@@ -22,8 +22,9 @@ import OrdinaryDiffEq as ODE
 import SciMLBase, DiffEqBase
 
 # Optimization and root finding
-import Optimization, OptimizationOptimJL
-import ADTypes, ForwardDiff
+import Optimization
+import OptimizationOptimJL, OptimizationNLopt
+import ForwardDiff
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -47,42 +48,42 @@ const SIMPATH = joinpath("data", "solutions")
 firm, government, signal, climate = initmodels()
 
 ## Chebyshev collocation grid
-order = (6, 6)
+orders = [(n, n) for n in 1:6]
 Δm = 150firm.e₀ # 150 years without abatement
 m̄ = climate.m₀ + Δm
 lowerbound = SA.SVector(firm.a₀, climate.m₀)
 upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
-grid = CommittedGrid(order, lowerbound, upperbound)
 
 ## Approximate the committed tax
 const taxscale = firm.r * c(firm.e₀, firm)
 
 τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
-τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(grid.points), lowerbound, upperbound; tol = 0)
 
 function governmentobjective(η, optparameters)
     firm, government, climate, lb, ub = optparameters
-
-    τᶜ = FastChebInterp.ChebPoly(taxscale .* η , lb, ub)
+    n = isqrt(length(η))
+    coefficients = taxscale .* reshape(η, n, n)
+    τᶜ = FastChebInterp.ChebPoly(coefficients, lb, ub)
 
     return welfarecosts(τᶜ, firm, government, climate)
 end
 
-η₀ = τᶜ.coefs ./ taxscale
 optparameters = (firm, government, climate, lowerbound, upperbound)
-governmentobjective(η₀, optparameters)
+objectivefunction = SciMLBase.OptimizationFunction(governmentobjective)
 
-ηlower = fill(-0.2, size(η₀))
-ηupper = fill(0.2, size(η₀))
-fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
-prob = SciMLBase.OptimizationProblem(fn, η₀, optparameters; lb = ηlower, ub = ηupper)
+points = FastChebInterp.chebpoints(first(orders), lowerbound, upperbound)
+initialvalues = map(τᶜinitguess, points)
+initialpolicy = FastChebInterp.chebinterp(initialvalues, lowerbound, upperbound; tol = 0)
 
-sol = Optimization.solve(prob, OptimizationOptimJL.LBFGS())
+continuation = solvechebyshevcontinuation(objectivefunction, initialpolicy, orders, lowerbound, upperbound, optparameters; coefficientscale = taxscale, coefficientlower = -0.5, coefficientupper = 0.5)
+
+continuation.converged || @warn "Chebyshev continuation stopped before the final order"
+sol = continuation.solution
 
 ## Plot optimal policy
 import Plots
 
-τᶜopt = FastChebInterp.ChebPoly(taxscale .* sol.u , lowerbound, upperbound)
+τᶜopt = continuation.policy
 agrid = range(firm.a₀, firm.e₀, 1001)
 mgrid = range(climate.m₀, m̄, 1001)
 
