@@ -19,6 +19,5 @@ function c(a, firm::Firm)
     firm.κ * a
 end
 
-function c′(_, firm::Firm)
-    firm.κ
-end
+c′(firm::Firm) = firm.κ
+c′(_, firm::Firm) = c′(firm)

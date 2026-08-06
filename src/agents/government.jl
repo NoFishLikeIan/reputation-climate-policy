@@ -1,6 +1,6 @@
 Base.@kwdef struct Government{T <: Real}
     y₀::T = y₀
-    r::T = 1e-2
+    r::T = 0.02
     δ::T = 40.
 end
 

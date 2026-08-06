@@ -1,1 +1,0 @@
-Model = Tuple{Firm, Government, Signal}

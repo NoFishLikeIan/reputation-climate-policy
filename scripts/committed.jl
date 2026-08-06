@@ -2,7 +2,9 @@
 using Revise, BenchmarkTools
 using Printf
 
-using LaTeXStrings, Plots
+using LaTeXStrings
+using Plots
+
 import JLD2
 
 import Base.Threads
@@ -16,14 +18,17 @@ import StaticArrays as SA
 import StaticArraysCore
 
 # Interpolation and integration
-import FastChebInterp
-import FastGaussQuadrature
+import SciMLBase
+import SpecialFunctions
 import OrdinaryDiffEq as ODE
+import OrdinaryDiffEqRosenbrock as ODERosenbrock
 import SciMLBase, DiffEqBase
+import ForwardDiff, DiffResults
 
-# Optimization and root finding
-import Optimization, OptimizationOptimJL
-import ADTypes, ForwardDiff
+# Optimization
+import Optimization, OptimizationIpopt
+import ADTypes, DifferentiationInterface
+import Roots
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -35,55 +40,65 @@ includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
 includet("../src/utils/arguments.jl")
-includet("../src/utils/root.jl")
 includet("../src/utils/saving.jl")
 
-includet("../src/solve/utils.jl")
 includet("../src/solve/firm/committed.jl")
+includet("../src/solve/government/committed.jl")
+
+includet("plotting/utils.jl")
 
 const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
 firm, government, signal, climate = initmodels()
 
-## Chebyshev collocation grid
-order = (6, 6)
 Δm = 150firm.e₀ # 150 years without abatement
 m̄ = climate.m₀ + Δm
 lowerbound = SA.SVector(firm.a₀, climate.m₀)
 upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
-grid = CommittedGrid(order, lowerbound, upperbound)
 
-## Approximate the committed tax
-const taxscale = firm.r * c(firm.e₀, firm)
+## Illustrate optimization problem at ā
+agrid = range(firm.a₀, firm.e₀, 201)
+mgrid = climate.m₀ .+ range(0, Δm, 200)
 
-τᶜinitguess = @closure u -> (u[2] / upperbound[2]) * defaultscc
-τᶜ = FastChebInterp.chebinterp(τᶜinitguess.(grid.points), lowerbound, upperbound; tol = 0)
+contourf(agrid, mgrid, (a, m) -> begin
+        if singularity∂ₐM(a, m, firm, government, climate) ≤ 1e-6
+            return NaN
+        else
+            return J(m, a, firm.e₀, firm, government, climate)
+        end
+    end;
+    linewidth = 0.    
+)
 
-function governmentobjective(η, optparameters)
-    firm, government, climate, lb, ub = optparameters
 
-    τᶜ = FastChebInterp.ChebPoly(taxscale .* η , lb, ub)
+## Solve
+## Nonlinear constrained optimization problem setup
+function committedobjective(x, p)
+    firm, government, climate = p
+    mₛ, aₛ, ā = x
 
-    return welfarecosts(τᶜ, firm, government, climate)
+    return J(mₛ, aₛ, ā, firm, government, climate)
 end
 
-η₀ = τᶜ.coefs ./ taxscale
-optparameters = (firm, government, climate, lowerbound, upperbound)
-governmentobjective(η₀, optparameters)
+function constraints(res, x, p)
+    firm, government, climate = p
+    m, a = x[1:2]
 
-ηlower = fill(-0.2, size(η₀))
-ηupper = fill(0.2, size(η₀))
-fn = SciMLBase.OptimizationFunction(governmentobjective, ADTypes.AutoForwardDiff())
-prob = SciMLBase.OptimizationProblem(fn, η₀, optparameters; lb = ηlower, ub = ηupper)
+    res[1] = singularity∂ₐM(a, m, firm, government, climate)
+end
 
-sol = Optimization.solve(prob, OptimizationOptimJL.LBFGS())
+function computefeasiblepoint(m, firm, government, climate)
+    Roots.find_zero(a -> singularity∂ₐM(a, m, firm, government, climate) - 1e-8, (firm.a₀, firm.e₀))
+end
 
-## Plot optimal policy
-import Plots
+## Solve problem
+committedparameters = (firm, government, climate);
+x₀ = [climate.m₀, computefeasiblepoint(climate.m₀, firm, government, climate), firm.e₀]
+adtype = DifferentiationInterface.SecondOrder(ADTypes.AutoForwardDiff(), ADTypes.AutoForwardDiff())
 
-τᶜopt = FastChebInterp.ChebPoly(taxscale .* sol.u , lowerbound, upperbound)
-agrid = range(firm.a₀, firm.e₀, 1001)
-mgrid = range(climate.m₀, m̄, 1001)
+committedobjectivefunction = Optimization.OptimizationFunction(committedobjective, adtype; cons = constraints)
 
-Plots.contourf(agrid, mgrid, (a, m) -> τᶜopt(SA.SVector(a, m)))
+committedproblem = Optimization.OptimizationProblem(committedobjectivefunction, x₀, (firm, government, climate); lcons = [1e-8], ucons = [Inf])
+
+committedsolution = Optimization.solve(committedproblem, OptimizationIpopt.IpoptOptimizer())
