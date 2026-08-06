@@ -34,25 +34,31 @@ function singulararccomponents(a, m, firm::Firm, government::Government, climate
     curvature = ∂ₐₐω + r * c′(firm)
     den = r * (∂ₐω + r * c(a, firm)) - ∂ₘω - e(a, firm) * ∂ₐₘω
 
-    return curvature, den
+    return curvature, den, ∂ₘω
 end
 
 function ∂ₐM(a, m, firm::Firm, government::Government, climate::Climate)
-    curvature, den = singulararccomponents(a, m, firm, government, climate)
+    curvature, den, _ = singulararccomponents(a, m, firm, government, climate)
 
     return e(a, firm) * curvature / den
 end
 
 function investmentdrift(a, m, firm::Firm, government::Government, climate::Climate)
-    curvature, den = singulararccomponents(a, m, firm, government, climate)
+    curvature, den, _ = singulararccomponents(a, m, firm, government, climate)
 
     return den / curvature
 end
 
 function singularity∂ₐM(a, m, firm::Firm, government::Government, climate::Climate)
-    _, den = singulararccomponents(a, m, firm, government, climate)
+    _, den, _ = singulararccomponents(a, m, firm, government, climate)
 
     return den
+end
+
+function committedfeasibility(a, m, firm::Firm, government::Government, climate::Climate)
+    _, den, ∂ₘω = singulararccomponents(a, m, firm, government, climate)
+
+    return den / ∂ₘω
 end
 
 function gaussianintegral(m, α, β)
@@ -79,15 +85,9 @@ function J₁(aₛ, mₛ, firm::Firm, government::Government, climate::Climate)
     return damagecost + jumpcost
 end
 
-# Terminal payoff
-function J₃(ā, m̄, t̄, firm::Firm, government::Government, climate::Climate)
-    discount = exp(-government.r * t̄)
+# Terminal payoff under partial abatement
+function J₃partial(ā, m̄, t̄, firm::Firm, government::Government, climate::Climate)
     emissions = e(ā, firm)
-
-    if iszero(emissions)
-        return discount * government.y₀ * d(m̄, climate)
-    end
-
     α = government.r / emissions
     β = climate.γ * climate.ζ^2 / 2
     gaussianweight = α * √(π / β) / 2
@@ -95,7 +95,22 @@ function J₃(ā, m̄, t̄, firm::Firm, government::Government, climate::Climat
         1 - gaussianweight * gaussianintegral(m̄, α, β)
     )
 
-    return discount * damagecost
+    return exp(-government.r * t̄) * damagecost
+end
+
+# Terminal payoff at net zero
+function J₃netzero(m̄, t̄, government::Government, climate::Climate)
+    exp(-government.r * t̄) * government.y₀ * d(m̄, climate)
+end
+
+function J₃(ā, m̄, t̄, firm::Firm, government::Government, climate::Climate)
+    emissions = e(ā, firm)
+
+    if iszero(ForwardDiff.value(emissions))
+        return J₃netzero(m̄, t̄, government, climate)
+    end
+
+    return J₃partial(ā, m̄, t̄, firm, government, climate)
 end
 
 # Path payoff in calendar time
@@ -147,7 +162,7 @@ function J(mₛ::T, aₛ, ā, firm::Firm, government::Government, climate::Clim
     initialcost = J₁(aₛ, mₛ, firm, government, climate)
     tₛ = (mₛ - climate.m₀) / e(firm.a₀, firm)
 
-    if aₛ ≈ ā
+    if ForwardDiff.value(aₛ) ≈ ForwardDiff.value(ā)
         return initialcost + J₃(aₛ, mₛ, tₛ, firm, government, climate)
     end
 

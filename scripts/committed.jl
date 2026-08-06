@@ -27,7 +27,7 @@ import ForwardDiff, DiffResults
 
 # Optimization
 import Optimization, OptimizationIpopt
-import ADTypes, DifferentiationInterface
+import ADTypes
 import Roots
 
 includet("../src/primitives/constants.jl")
@@ -54,8 +54,8 @@ firm, government, signal, climate = initmodels()
 
 Δm = 150firm.e₀ # 150 years without abatement
 m̄ = climate.m₀ + Δm
-lowerbound = SA.SVector(firm.a₀, climate.m₀)
-upperbound = SA.SVector(firm.e₀, climate.m₀ + Δm)
+lowerbound = SA.SVector(climate.m₀, firm.a₀, firm.a₀)
+upperbound = SA.SVector(m̄, firm.e₀, firm.e₀)
 
 ## Illustrate optimization problem at ā
 agrid = range(firm.a₀, firm.e₀, 201)
@@ -83,22 +83,41 @@ end
 
 function constraints(res, x, p)
     firm, government, climate = p
-    m, a = x[1:2]
+    m, a, ā = x
 
-    res[1] = singularity∂ₐM(a, m, firm, government, climate)
+    res[1] = committedfeasibility(a, m, firm, government, climate)
+    res[2] = (ā - a) / (firm.e₀ - firm.a₀)
 end
 
-function computefeasiblepoint(m, firm, government, climate)
-    Roots.find_zero(a -> singularity∂ₐM(a, m, firm, government, climate) - 1e-8, (firm.a₀, firm.e₀))
+function computefeasiblepoint(m, margin, firm, government, climate)
+    Roots.find_zero(
+        a -> committedfeasibility(a, m, firm, government, climate) - margin,
+        (firm.a₀, firm.e₀)
+    )
 end
 
 ## Solve problem
 committedparameters = (firm, government, climate);
-x₀ = [climate.m₀, computefeasiblepoint(climate.m₀, firm, government, climate), firm.e₀]
-adtype = DifferentiationInterface.SecondOrder(ADTypes.AutoForwardDiff(), ADTypes.AutoForwardDiff())
+feasibilitymargin = 5e-2
+x₀ = [ climate.m₀, computefeasiblepoint(climate.m₀, feasibilitymargin, firm, government, climate), firm.e₀ ]
+adtype = ADTypes.AutoForwardDiff()
 
 committedobjectivefunction = Optimization.OptimizationFunction(committedobjective, adtype; cons = constraints)
 
-committedproblem = Optimization.OptimizationProblem(committedobjectivefunction, x₀, (firm, government, climate); lcons = [1e-8], ucons = [Inf])
+committedproblem = Optimization.OptimizationProblem(
+    committedobjectivefunction,
+    x₀,
+    committedparameters;
+    lb = lowerbound,
+    ub = upperbound,
+    lcons = [1e-4, 0.],
+    ucons = [Inf, Inf]
+)
 
-committedsolution = Optimization.solve(committedproblem, OptimizationIpopt.IpoptOptimizer())
+committedsolution = Optimization.solve(
+    committedproblem,
+    OptimizationIpopt.IpoptOptimizer();
+    hessian_approximation = "limited-memory",
+    check_derivatives_for_naninf = "yes",
+    bound_relax_factor = 0.
+)
