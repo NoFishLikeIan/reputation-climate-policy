@@ -137,15 +137,8 @@ function singularitycondition(x, _, integrator)
     return singularity∂ₐM(a, m, firm, government, climate)
 end
 
-function endpointcondition(x, _, integrator)
-    _, _, _, ā = integrator.p
-    a = x[1]
-
-    return ā - a
-end
-
 function netzerocondition(x, _, integrator)
-    firm, _, _, _ = integrator.p
+    firm = integrator.p[1]
     a = x[1]
 
     return e(a, firm)
@@ -153,26 +146,30 @@ end
 
 const rosenberck = ODERosenbrock.Rosenbrock23()
 const singularitycallback = SciMLBase.ContinuousCallback(singularitycondition, SciMLBase.terminate!)
-const endpointcallback = SciMLBase.ContinuousCallback(endpointcondition, SciMLBase.terminate!)
 const netzerocallback = SciMLBase.ContinuousCallback(netzerocondition, SciMLBase.terminate!)
-const pathcallback = SciMLBase.CallbackSet(singularitycallback, endpointcallback, netzerocallback)
+const pathcallback = SciMLBase.CallbackSet(singularitycallback, netzerocallback)
 
-function J(mₛ::T, aₛ, ā, firm::Firm, government::Government, climate::Climate) where T <: Real
+function J₂(mₛ::T, aₛ, tₛ, firm::Firm, government::Government, climate::Climate; ϵ = 1e-3) where T <: Real
+    if singularity∂ₐM(aₛ, mₛ, firm, government, climate) > ϵ
+        parameters = (firm, government, climate)
+        x₀ = SA.SVector(aₛ, mₛ, 0)
+        prob = SciMLBase.ODEProblem{false}(pathdrift, x₀, (tₛ, Inf), parameters)
+        solution = ODE.solve(prob, rosenberck; callback = pathcallback, save_everystep = false, save_start = false)
 
+        t̄ = last(solution.t)
+        ā, m̄, pathcost = last(solution.u)
+
+        return pathcost, (m̄, ā, t̄)
+    else
+        return zero(T), (mₛ, aₛ, tₛ)
+    end
+end
+
+function J(mₛ::T, aₛ, firm::Firm, government::Government, climate::Climate) where T <: Real
     initialcost = J₁(aₛ, mₛ, firm, government, climate)
     tₛ = (mₛ - climate.m₀) / e(firm.a₀, firm)
 
-    if ForwardDiff.value(aₛ) ≈ ForwardDiff.value(ā)
-        return initialcost + J₃(aₛ, mₛ, tₛ, firm, government, climate)
-    end
-
-    parameters = (firm, government, climate, ā)
-    x₀ = SA.SVector(aₛ, mₛ, 0)
-    prob = SciMLBase.ODEProblem{false}(pathdrift, x₀, (tₛ, Inf), parameters)
-    solution = ODE.solve( prob, rosenberck; callback = pathcallback, save_everystep = false, save_start = false)
-
-    t̄ = last(solution.t)
-    ā, m̄, pathcost = last(solution.u)
+    pathcost, (m̄, ā, t̄) = J₂(mₛ, aₛ, tₛ, firm, government, climate)
     terminalcost = J₃(ā, m̄, t̄, firm, government, climate)
 
     return initialcost + pathcost + terminalcost
