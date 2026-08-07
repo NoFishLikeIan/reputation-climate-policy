@@ -9,6 +9,11 @@ const realfirmdiscount = 0.07
 const y₀ = 197.231 # [trillion USD / year]
 const defaultscc = 66 * taxfactor # [tUSD / GtCO2e]
 const defaultdietzϕ = 3e-5 # Dietz-Venmans MAC slope ϕ
+const defaultadjustmenthorizon = 30. # [years]
+# [tUSD year³ / GtCO2e²]
+const defaultξ = defaultdietzϕ * y₀ * defaultadjustmenthorizon^2 / (
+    1 + realfirmdiscount * defaultadjustmenthorizon
+)
 const τ₀ = 50 * taxfactor
 
 const σ̂  = 0.38

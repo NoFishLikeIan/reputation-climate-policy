@@ -44,6 +44,11 @@ function parameterargumentsettings()
             dest_name = "a₀"
             default = nothing
             help = "Benchmark abatement."
+        "--xi", "--ξ"
+            arg_type = Float64
+            dest_name = "ξ"
+            default = nothing
+            help = "Investment-rate adjustment cost."
         "--y0", "--y₀"
             arg_type = Float64
             dest_name = "y₀"
@@ -96,7 +101,7 @@ end
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
 
-    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :lresidual₀, :lretirement₀, :a₀))
+    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :lresidual₀, :lretirement₀, :a₀, :ξ))
     government = Government(; parameterkwargs(parsed, (:y₀, :r))...)
 
     δresidual = get(parsed, :δresidual, nothing)

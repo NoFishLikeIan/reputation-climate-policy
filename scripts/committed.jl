@@ -22,13 +22,12 @@ import SciMLBase
 import SpecialFunctions
 import OrdinaryDiffEq as ODE
 import OrdinaryDiffEqRosenbrock as ODERosenbrock
-import SciMLBase, DiffEqBase
-import ForwardDiff, DiffResults
+import BoundaryValueDiffEq as BVP
 
 # Optimization
 import Optimization, OptimizationOptimJL
-import ADTypes, DifferentiationInterface
-import Roots
+import ADTypes
+import Optim, OptimizationNLopt
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -50,27 +49,22 @@ includet("plotting/utils.jl")
 const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
-firm, government, signal, climate = initmodels()
+firm = Firm()
+government = Government()
+climate = Climate()
 
-Δm = 150firm.e₀ # 150 years without abatement
-m̄ = climate.m₀ + Δm
-
-lb = [climate.m₀, firm.a₀]
-ub = [m̄, firm.e₀]
+parameters = CommittedParameters(firm, government, climate)
+scaling = ScalingParameters(parameters)
 
 ## Solve
-## Nonlinear constrained optimization problem setup
-function committedobjective(x, p)
-    firm, government, climate = p
-    mₛ, aₛ = x
+y0 = [1., 30., firm.e₀ * 0.9]
+lb = [0., 1., 0.]
+ub = [149., 150., firm.e₀]
 
-    return J(mₛ, aₛ, firm, government, climate)
-end
+optparameters = (parameters, scaling)
+committedobjective(y0, optparameters)
 
-committedparameters = (firm, government, climate);
-x₀ = @. (ub - lb) / 2
-committedobjectivefunction = Optimization.OptimizationFunction(committedobjective, ADTypes.AutoForwardDiff())
+committedobjectivefunction = Optimization.OptimizationFunction(committedobjective, ADTypes.AutoFiniteDiff())
+netzeroproblem = Optimization.OptimizationProblem(committedobjectivefunction, y0, optparameters; lb = lb, ub = ub)
 
-committedproblem = Optimization.OptimizationProblem(committedobjectivefunction, x₀, committedparameters; lb, ub)
-
-committedsolution = Optimization.solve(committedproblem, OptimizationOptimJL.BFGS())
+partialsolution = Optimization.solve(netzeroproblem, OptimizationNLopt.NLopt.LD_LBFGS(); maxiters = 100)
