@@ -25,9 +25,8 @@ import OrdinaryDiffEqRosenbrock as ODERosenbrock
 import BoundaryValueDiffEq as BVP
 
 # Optimization
-import Optimization, OptimizationOptimJL
-import ADTypes, DifferentiationInterface
-import Optim, OptimizationNLopt
+import NLopt
+import FiniteDiff
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -57,28 +56,65 @@ parameters = CommittedParameters(firm, government, climate)
 scaling = ScalingParameters(parameters)
 
 ## Solve
-y0 = [1., 100., 0.9 * firm.e₀]
-lb = [0., 0., 0.5 * firm.e₀]
+y0 = [10., 80., firm.e₀ * 0.9]
+lb = [0., 0., 0.]
 ub = [150., 150., firm.e₀]
 
 optparameters = (parameters, scaling)
 committedobjective(y0, optparameters)
-timingconstraints(y0, optparameters)
+FiniteDiff.finite_difference_gradient(y -> committedobjective(y, optparameters), y0)
 
 ## Solve
-adtype = DifferentiationInterface.SecondOrder(ADTypes.AutoFiniteDiff(), ADTypes.AutoFiniteDiff())
-committedobjectivefunction = Optimization.OptimizationFunction(committedobjective, adtype)
-netzeroproblem = Optimization.OptimizationProblem(committedobjectivefunction, y0, optparameters; lb = lb, ub = ub)
+objectivefunction = @closure (y, ∇) -> begin
+    if length(∇) > 0
+        FiniteDiff.finite_difference_gradient!(∇, y -> committedobjective(y, optparameters), y)
+    end
 
-partialsolution = Optimization.solve(netzeroproblem, OptimizationOptimJL.LBFGS(); maxiters = 10_000)
+    return committedobjective(y, optparameters)
+end
 
-## Plot net-zero solution
-starttimegrid = range(0., 50; step = 1)
-endtimegrid = range(30, 100; step = 1.)
+objectiveconstraints = @closure (y, ∇) -> begin
+    if length(∇) > 0
+        ∇[1] = 1.
+        ∇[2] = -1.
+    end
 
-yopt = partialsolution.u
+    return y[1] - y[2] # tₛ - t̄ ≤ 0 
+end
+
+begin # Define optimisation problem
+    opt = NLopt.Opt(:LN_COBYLA, 3)
+    NLopt.lower_bounds!(opt, lb)
+    NLopt.upper_bounds!(opt, ub)
+    NLopt.xtol_rel!(opt, 1e-8)
+    NLopt.min_objective!(opt, objectivefunction)
+    NLopt.inequality_constraint!(opt, objectiveconstraints)
+end
+
+objective, yopt, ret = NLopt.optimize(opt, y0);
+yopt = CommittedState(yopt...)
+
+## Plot optimisation problem
+starttimegrid = range(0., 50.; step = 0.5)
+endtimegrid = range(50., 100.; step = 0.5)
 
 let
     objfigure = contourf(starttimegrid, endtimegrid, (tₛ, t̄) -> committedobjective(CommittedState(tₛ, t̄, yopt[3]), optparameters); xlabel = L"t_s", ylabel = L"\bar{t}", linewidth = 0, c = :viridis)
     scatter!(objfigure, yopt[[1]], yopt[[2]]; c = :black, label = false)
 end
+
+## Plot solution path
+pathparameters = CommittedPathParameters(yopt, parameters, scaling)
+x0 = committedinitialguess(0., pathparameters)
+
+problem = BVP.TwoPointBVProblem{true}(
+    committednormaliseddrift!,
+    (initialcondition!, terminalcondition!),
+    x0,
+    (0., 1.),
+    pathparameters;
+    bcresid_prototype = (zeros(SA.MVector{3}), zeros(SA.MVector{4}))
+)
+
+solutionpath = BVP.solve(problem, BVP.MIRK4(); dt = 1e-2)
+trajectory = [physicalstate(u, scaling) for u in solutionpath.u]

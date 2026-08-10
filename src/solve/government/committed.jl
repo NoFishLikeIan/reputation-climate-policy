@@ -263,15 +263,6 @@ function committedobjective(y::CommittedState, (parameters, scaling))
 
     return committedvalue(solution, pathparameters)
 end
-committedobjective!(dy, y, objparameters) = (dy[1] = committedobjective(y, objparameters))
-
-function timingconstraints(y, objparameters)
-    timingconstraints(CommittedState(y[1], y[2], y[3]), objparameters)
-end
-function timingconstraints(y::CommittedState, (parameters, scaling))
-    y.t̄ - y.tₛ
-end
-timingconstraints!(res, y, objparameters) = (res[1] = timingconstraints(y, objparameters))
 
 function committedpath(solution)
     parameters = solution.prob.p
