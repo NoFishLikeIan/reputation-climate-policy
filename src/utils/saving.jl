@@ -1,25 +1,27 @@
-import JLD2
-import Printf
-
 function parameterstring(x)
-    return replace(Printf.@sprintf("%.3e", x), "+" => "")
+    replace(Printf.@sprintf("%.3e", x), "+" => "")
 end
 
 function dynamicsolutionlabel(firm)
-    return "omega$(parameterstring(firm.ω))_nu$(parameterstring(firm.ν))"
+    "omega$(parameterstring(firm.ω))_nu$(parameterstring(firm.ν))"
 end
 
-function solutionlabel(climate, government, firm, signal)
-    return join((
+function solutionlabel(climate::Climate, government::Government, firm::Firm)
+    join((
         "e0$(parameterstring(firm.e₀))",
-        "nu$(parameterstring(firm.ν))",
-        "omega$(parameterstring(firm.ω))",
+        "kappa$(parameterstring(firm.κ))",
+        "xi$(parameterstring(firm.ξ))",
+        "firmdiscount$(parameterstring(firm.r))",
         "y0$(parameterstring(government.y₀))",
-        "residualdelta$(parameterstring(residualδ(government, firm)))",
-        "retirementdelta$(parameterstring(retirementδ(government, firm)))",
         "r$(parameterstring(government.r))",
         "gamma$(parameterstring(climate.γ))",
-        "zeta$(parameterstring(climate.ζ))",
+        "zeta$(parameterstring(climate.ζ))"
+    ), "_")
+end
+
+function solutionlabel(climate::Climate, government::Government, firm::Firm, signal::Signal)
+    join((
+        solutionlabel(climate, government, firm),
         "epsilon$(parameterstring(signal.ϵ))",
         "sigma$(parameterstring(signal.σ))",
     ), "_")

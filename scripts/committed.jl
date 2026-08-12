@@ -55,66 +55,64 @@ climate = Climate()
 parameters = CommittedParameters(firm, government, climate)
 scaling = ScalingParameters(parameters)
 
-## Solve
-y0 = [10., 80., firm.e₀ * 0.9]
-lb = [0., 0., 0.]
-ub = [150., 150., firm.e₀]
-
 optparameters = (parameters, scaling)
-committedobjective(y0, optparameters)
-FiniteDiff.finite_difference_gradient(y -> committedobjective(y, optparameters), y0)
 
 ## Solve
+y0 = [80., firm.e₀ * 0.9]
+lb = [10., firm.a₀]
+ub = [100., firm.e₀]
+
 objectivefunction = @closure (y, ∇) -> begin
     if length(∇) > 0
-        FiniteDiff.finite_difference_gradient!(∇, y -> committedobjective(y, optparameters), y)
+        FiniteDiff.finite_difference_gradient!(
+            ∇, y -> committedobjective(y, optparameters), y
+        )
     end
 
     return committedobjective(y, optparameters)
 end
 
-objectiveconstraints = @closure (y, ∇) -> begin
-    if length(∇) > 0
-        ∇[1] = 1.
-        ∇[2] = -1.
-    end
+opt = NLopt.Opt(:LN_COBYLA, length(y0))
+NLopt.lower_bounds!(opt, lb)
+NLopt.upper_bounds!(opt, ub)
+NLopt.xtol_rel!(opt, 1e-8)
+NLopt.min_objective!(opt, objectivefunction)
 
-    return y[1] - y[2] # tₛ - t̄ ≤ 0 
-end
-
-begin # Define optimisation problem
-    opt = NLopt.Opt(:LN_COBYLA, 3)
-    NLopt.lower_bounds!(opt, lb)
-    NLopt.upper_bounds!(opt, ub)
-    NLopt.xtol_rel!(opt, 1e-8)
-    NLopt.min_objective!(opt, objectivefunction)
-    NLopt.inequality_constraint!(opt, objectiveconstraints)
-end
-
-objective, yopt, ret = NLopt.optimize(opt, y0);
+objective, yopt, ret = NLopt.optimize(opt, y0)
 yopt = CommittedState(yopt...)
 
 ## Plot optimisation problem
-starttimegrid = range(0., 50.; step = 0.5)
-endtimegrid = range(50., 100.; step = 0.5)
+durationgrid = range(50., 100.; step = 0.5)
+abatementgrid = range(firm.a₀, firm.e₀; step = 0.5)
 
-let
-    objfigure = contourf(starttimegrid, endtimegrid, (tₛ, t̄) -> committedobjective(CommittedState(tₛ, t̄, yopt[3]), optparameters); xlabel = L"t_s", ylabel = L"\bar{t}", linewidth = 0, c = :viridis)
-    scatter!(objfigure, yopt[[1]], yopt[[2]]; c = :black, label = false)
+if isinteractive()
+    objfigure = contourf(durationgrid, abatementgrid, (t̄, ā) -> committedobjective([t̄, ā], optparameters); xlabel = L"\bar{t}", ylabel = L"\bar{a}", linewidth = 0, c = :viridis)
+    scatter!(objfigure, [yopt.t̄], [yopt.ā]; c = :white, label = false)
 end
 
 ## Plot solution path
-pathparameters = CommittedPathParameters(yopt, parameters, scaling)
-x0 = committedinitialguess(0., pathparameters)
+trajectory, taxes, time, terminalhamiltonian = committedpathdiagnostics(yopt, parameters, scaling);
+@printf "Terminal hamiltonian %.5e" terminalhamiltonian
 
-problem = BVP.TwoPointBVProblem{true}(
-    committednormaliseddrift!,
-    (initialcondition!, terminalcondition!),
-    x0,
-    (0., 1.),
-    pathparameters;
-    bcresid_prototype = (zeros(SA.MVector{3}), zeros(SA.MVector{4}))
-)
+abatement = getindex.(trajectory, 2)
 
-solutionpath = BVP.solve(problem, BVP.MIRK4(); dt = 1e-2)
-trajectory = [physicalstate(u, scaling) for u in solutionpath.u]
+if isinteractive()
+    afig = plot(time, abatement ./ firm.e₀; ylims = (0, 1), xlabel = "Year", label = "Fraction of abated emissions", xlims = extrema(time), c = :darkgreen, legend = :topleft, linewidth = 2.)
+
+    taxfig = twinx(afig)
+
+    plot!(taxfig, time, taxes ./ taxfactor, xlims = extrema(time), c = :darkred, label = L"Tax $\tau$", ylabel = "USD / tCO2e", legend = :bottomright, linewidth = 2.)
+    hline!(taxfig, [0.], linestyle = :dot, label = false, c = :darkred)
+
+    afig
+end
+
+## Save 
+savelabel = solutionlabel(climate, government, firm)
+savepath = "data/solutions/singular/"
+
+filename = joinpath(savepath, "$savelabel.jld2")
+
+JLD2.jldopen(filename, "w") do file
+    @pack! file = trajectory, taxes, time, climate, government, firm
+end

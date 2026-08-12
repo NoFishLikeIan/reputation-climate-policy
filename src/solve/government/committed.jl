@@ -20,9 +20,9 @@ function J₁(mₛ, firm::Firm, government::Government, climate::Climate)
 end
 
 ## Cost at transition end
-"Current terminal value under permanent partial abatement"
-function V₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
-    if ā ≈ firm.e₀
+"Annualised current damage value under permanent abatement"
+function V₃damages(ā, m̄, firm::Firm, government::Government, climate::Climate)
+    if iszero(e(ā, firm))
         return government.y₀ * d(m̄, climate)
     end
 
@@ -34,22 +34,38 @@ function V₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
     return government.y₀ * (1 - gaussianweight * gaussianintegral(m̄, α, β))
 end
 
+"Annualised current cost of the least-cost tax tail implementing partial abatement"
+function V₃tax(ā, firm::Firm, government::Government)
+    government.r * government.δ * (2firm.r - government.r) * c(ā, firm)^2 / 2
+end
+
+"Annualised current terminal value under permanent partial abatement"
+function V₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
+    value = V₃damages(ā, m̄, firm, government, climate)
+
+    if !iszero(e(ā, firm))
+        value += V₃tax(ā, firm, government)
+    end
+
+    return value
+end
+
 function ∂ₘV₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
-    if ā ≈ firm.e₀
+    if iszero(e(ā, firm))
         return government.y₀ * d′(m̄, climate)
     end
 
     emissions = e(ā, firm)
     α = government.r / emissions
+    damages = V₃damages(ā, m̄, firm, government, climate)
 
-    return α * (V₃(ā, m̄, firm, government, climate) - government.y₀ * d(m̄, climate))
+    return α * (damages - government.y₀ * d(m̄, climate))
 end
 
 ## Cost of the transition
 # Utility states
-"State of the committed planner optimization composed of initial abatemnet time 'tₛ', horizon of abatement efforts 't̄', and terminal abatemnet level 'ā'. The path is determined by local optimality."
-struct CommittedState{T} <: SA.FieldVector{3, T}
-    tₛ ::T # Initial abatemnet time
+"State of the committed planner optimisation composed of the abatement horizon 't̄' and terminal abatement level 'ā'."
+struct CommittedState{T} <: SA.FieldVector{2, T}
     t̄::T # Abatement horizon
     ā::T # Terminal abatement level 
 end
@@ -101,8 +117,8 @@ struct CommittedPathParameters{TS <: CommittedState, TP <: CommittedParameters, 
     parameters::TP
     scaling::S
 end
-function CommittedPathParameters(tₛ, duration, ā, firm::Firm, government::Government, climate::Climate)
-    x = CommittedState(tₛ, duration, ā)
+function CommittedPathParameters(duration, ā, firm::Firm, government::Government, climate::Climate)
+    x = CommittedState(duration, ā)
     parameters = CommittedParameters(firm, government, climate)
     scaling = ScalingParameters(parameters)
 
@@ -169,14 +185,14 @@ function committednormaliseddrift!(dx, x, p, s)
 end
 
 function initialcondition!(res, x, p::CommittedPathParameters)
-    @unpack y, parameters, scaling = p
-    @unpack firm, government, climate = parameters
+    @unpack parameters, scaling = p
+    @unpack firm, climate = parameters
+    physical = physicalstate(x, scaling)
+    m, a, _, _, _, λᵤ, _ = physical
 
-    mₛ = climate.m₀ + e(firm.a₀, firm) * y.tₛ
-
-    res[1] = x[1] - (mₛ - scaling.centre[1]) / scaling.scale[1]
-    res[2] = x[2] - (firm.a₀ - scaling.centre[2]) / scaling.scale[2]
-    res[3] = x[3] + (scaling.centre[3] / scaling.scale[3])
+    res[1] = (m - climate.m₀) / scaling.scale[1]
+    res[2] = (a - firm.a₀) / scaling.scale[2]
+    res[3] = λᵤ / scaling.scale[6]
 
     return
 end
@@ -197,35 +213,44 @@ function terminalcondition!(res, x, p::CommittedPathParameters)
     return
 end
 
+function committedinitialprofile(s)
+    progress = s * (2 - s)
+    investmentrate = 2 * (1 - s)
+    cumulativeabatement = s^2 - s^3 / 3
+
+    return progress, investmentrate, cumulativeabatement
+end
+
 function committedinitialguess(s, p::CommittedPathParameters)
     @unpack y, parameters, scaling = p
     @unpack firm, government, climate = parameters
 
-    progress = s^2 * (3 - 2s)
+    progress, investmentrate, cumulativeabatement = committedinitialprofile(s)
+    _, _, totalabatement = committedinitialprofile(one(s))
     Δa = y.ā - firm.a₀
 
-    mₛ = climate.m₀ + e(firm.a₀, firm) * y.tₛ
-    m = mₛ + y.t̄ * (e(firm.a₀, firm) * s - Δa * (s^3 - s^4 / 2))
-
+    m = climate.m₀ + y.t̄ * (e(firm.a₀, firm) * s - Δa * cumulativeabatement)
+    
     a = firm.a₀ + Δa * progress
-    u = 6Δa * s * (1 - s) / y.t̄
-    m̄ = mₛ + y.t̄ * (e(firm.a₀, firm) - Δa / 2)
+    u = Δa * investmentrate / y.t̄
+    m̄ = climate.m₀ + y.t̄ * (e(firm.a₀, firm) - Δa * totalabatement)
 
     λₘ = ∂ₘV₃(y.ā, m̄, firm, government, climate)
     λₐ = zero(λₘ)
     
     τ = firm.r * c(y.ā, firm)
-    λᵤ = government.r * government.δ * firm.ξ * τ
+    λ̄ᵤ = government.r * government.δ * firm.ξ * τ
+    λᵤ = λ̄ᵤ * progress
     P = V₃(y.ā, m̄, firm, government, climate)
     physical = SA.MVector(m, a, u, λₘ, λₐ, λᵤ, P)
 
     return normalisedstate(physical, p.scaling)
 end
 
-function solvecommittedpath(pathparameters::CommittedPathParameters; fallbackdt = 1e-2)
+function committedpathproblem(pathparameters::CommittedPathParameters)
     x0 = committedinitialguess(0., pathparameters)
 
-    problem = BVP.TwoPointBVProblem{true}(
+    return BVP.TwoPointBVProblem{true}(
         committednormaliseddrift!,
         (initialcondition!, terminalcondition!),
         x0,
@@ -233,28 +258,22 @@ function solvecommittedpath(pathparameters::CommittedPathParameters; fallbackdt 
         pathparameters;
         bcresid_prototype = (zeros(SA.MVector{3}), zeros(SA.MVector{4}))
     )
+end
 
-    solution = BVP.solve(problem, BVP.Shooting(ODE.Tsit5()); save_everystep = false)
+function solvecommittedpath(pathparameters::CommittedPathParameters; dt = 1e-2)
+    problem = committedpathproblem(pathparameters)
 
-    if !SciMLBase.successful_retcode(solution)
-        solution = BVP.solve(problem, BVP.MIRK4(); dt = fallbackdt, save_everystep = false)
-    end
+    solution = BVP.solve(problem, BVP.MIRK4(); dt, save_everystep = false)
     
     return solution.u[1]
 end
 
 function committedvalue(solution, pathparameters::CommittedPathParameters)
-    @unpack y, parameters, scaling = pathparameters
-    @unpack firm, government, climate = parameters
-
-    mₛ = climate.m₀ + e(firm.a₀, firm) * y.tₛ
-    V = physicalpayoff(solution[7], scaling)
-
-    return J₁(mₛ, firm, government, climate) + exp(-government.r * y.tₛ) * V
+    physicalpayoff(solution[7], pathparameters.scaling)
 end
 
 function committedobjective(y, objparameters)
-    committedobjective(CommittedState(y[1], y[2], y[3]), objparameters)
+    committedobjective(CommittedState(y[1], y[2]), objparameters)
 end
 function committedobjective(y::CommittedState, (parameters, scaling))
     pathparameters = CommittedPathParameters(y, parameters, scaling)
@@ -264,34 +283,55 @@ function committedobjective(y::CommittedState, (parameters, scaling))
     return committedvalue(solution, pathparameters)
 end
 
-function committedpath(solution)
-    parameters = solution.prob.p
-    time = parameters.tₛ .+ parameters.duration .* solution.t
-    states = map(x -> physicalstate(x, parameters), solution.u)
+function committedtailtax(t, ā, firm::Firm, government::Government)
+    if !iszero(e(ā, firm))
+        initialtax = (2firm.r - government.r) * c(ā, firm)
 
-    return time, states
+        return initialtax * exp(-(firm.r - government.r) * t)
+    end
+
+    return zero(ā)
 end
 
-function committedpathdiagnostics(solution)
-    parameters = solution.prob.p
-    firm = parameters.firm
-    government = parameters.government
-    _, states = committedpath(solution)
+function committedtailpath(
+    terminal, y::CommittedState, parameters::CommittedParameters;
+    horizon = 100., dt = 0.5
+)
+    @unpack firm, government = parameters
+    m̄ = terminal[1]
+    elapsedtime = range(0., horizon; step = dt)
+
+    states = map(elapsedtime) do t
+        SA.SVector(m̄ + e(y.ā, firm) * t, y.ā, zero(y.ā))
+    end
+    taxes = map(t -> committedtailtax(t, y.ā, firm, government), elapsedtime)
+    time = @. y.t̄ + elapsedtime
+
+    return states, taxes, time
+end
+
+
+function committedpathdiagnostics(
+    yopt, parameters::CommittedParameters, scaling
+)
+    @unpack firm, government, climate = parameters
+
+    y = CommittedState(yopt...)
+    pathparameters = CommittedPathParameters(y, parameters, scaling)
+    problem = committedpathproblem(pathparameters)
+
+    solutionpath = BVP.solve(problem, BVP.MIRK4(); dt = 1e-2)
+    states = [physicalstate(u, scaling) for u in solutionpath.u]
+
     taxes = map(x -> committedtax(x[6], firm, government), states)
     terminal = last(states)
     m̄, ā = terminal[1:2]
-    terminalvalue = iszero(e(parameters.ā, firm)) ?
-        V₃(m̄, government, parameters.climate) :
-        V₃(parameters.ā, m̄, firm, government, parameters.climate)
 
-    return (
-        minimumabatement = minimum(x -> x[2], states),
-        maximumabatement = maximum(x -> x[2], states),
-        minimuminvestment = minimum(x -> x[3], states),
-        minimumtax = minimum(taxes),
-        maximumtax = maximum(taxes),
-        terminaltimecondition = committedhamiltonian(
-            terminal, firm, government, parameters.climate
-        ) - government.r * terminalvalue,
-    )
+    terminalhamiltonian = committedhamiltonian(
+        terminal, firm, government, parameters.climate
+    ) - government.r * V₃(y.ā, m̄, firm, government, climate)
+
+    time = @. y.t̄ * solutionpath.t
+
+    return states, taxes, time, terminalhamiltonian
 end
