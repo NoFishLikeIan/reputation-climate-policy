@@ -5,20 +5,21 @@ struct NonCommittedGrid{Tᵠ, Tₘ, Tₐ}
     agrid::Tₐ
 end
 
-Base.size(grid::NonCommittedGrid) = (
-    length(grid.φgrid), length(grid.mgrid), length(grid.agrid)
-)
-Base.length(grid::NonCommittedGrid) = prod(size(grid))
-
+function Base.size(grid::NonCommittedGrid)
+    (length(grid.φgrid), length(grid.mgrid), length(grid.agrid))
+end
+function Base.length(grid::NonCommittedGrid)
+    prod(size(grid))
+end
 struct NonCommittedScalingParameters{T}
     q::T
     W::T
-end
-function NonCommittedScalingParameters(firm::Firm, government::Government)
-    q = firm.r * c(firm.e₀, firm)
-    W = government.y₀
-
-    return NonCommittedScalingParameters(q, W)
+    function NonCommittedScalingParameters(firm::Firm{T}, government::Government{T}) where T
+        q = firm.r * c(firm.e₀, firm)
+        W = government.y₀
+    
+        return new{T}(q, W)
+    end
 end
 
 struct NonCommittedParameters{TC, T, F, G, S, C, TG, TS}
@@ -38,50 +39,34 @@ struct CommittedTaxPath{TI, T}
     terminal::T
     tailtax::T
     taildecay::T
+
+    function CommittedTaxPath(active::TI, activeterminal::T, terminal, terminalabatement, firm::Firm, government::Government) where {TI, T}
+        tailtax = committedtailtax(zero(T), terminalabatement, firm, government)
+        taildecay = firm.r - government.r
+
+        return new{TI, T}(active, activeterminal, terminal, tailtax, taildecay)
+    end
 end
-function (path::CommittedTaxPath)(t)
+function (path::CommittedTaxPath{TI, T})(t) where {TI, T}
     if t < path.activeterminal
         return path.active(t)
-    elseif t < path.terminal
-        return path.tailtax * exp(
-            -path.taildecay * (t - path.activeterminal)
-        )
+    elseif path.activeterminal ≤ t ≤ path.terminal
+        decay = exp( -path.taildecay * (t - path.activeterminal))
+        return path.tailtax * decay
+    else
+        return zero(T)
     end
-
-    return zero(path.tailtax)
 end
 
-function CommittedTaxPath(
-    active, activeterminal, terminal, terminalabatement,
-    firm::Firm, government::Government
-)
-    tailtax = committedtailtax(
-        zero(activeterminal), terminalabatement, firm, government
-    )
-    taildecay = firm.r - government.r
 
-    return CommittedTaxPath(
-        active, activeterminal, terminal, tailtax, taildecay
-    )
-end
+function committedtaxterminal(activeterminal::T, terminalabatement, firm::Firm, government::Government; tolerance = 0.1taxfactor) where T
+    tailtax = committedtailtax(zero(T), terminalabatement, firm, government)
 
-function committedtaxterminal(
-    activeterminal, terminalabatement,
-    firm::Firm, government::Government;
-    tolerance = 0.1taxfactor
-)
-    tailtax = committedtailtax(
-        zero(activeterminal), terminalabatement, firm, government
-    )
-
-    if tailtax <= tolerance
+    if tailtax ≤ tolerance
         return activeterminal
     end
 
     taildecay = firm.r - government.r
-    taildecay > 0 || throw(ArgumentError(
-        "The committed tax tail requires r_f > r_g."
-    ))
 
     return activeterminal + log(tailtax / tolerance) / taildecay
 end

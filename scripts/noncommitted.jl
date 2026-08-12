@@ -41,8 +41,9 @@ includet("plotting/utils.jl")
 ## Load committed problem
 firm = Firm()
 government = Government()
-signal = Signal()
 climate = Climate()
+
+signal = Signal()
 
 committedlabel = solutionlabel(climate, government, firm)
 committedfile = joinpath("data", "solutions", "singular", "$committedlabel.jld2")
@@ -60,24 +61,19 @@ activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = I
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
 ## State space
-φgrid = range(0., 1.; length = 15)
-agrid = range(firm.a₀, firm.e₀; length = 21)
+φgrid = range(0., 1., 21)
+agrid = range(firm.a₀, firm.e₀, 21)
 
 # The padding prevents the upper m boundary from entering the domain of
 # dependence of the initial state.
 mpadding = 1.25 * e(firm.a₀, firm) * terminal
-mgrid = range(climate.m₀, climate.m₀ + mpadding; length = 31)
+mgrid = range(climate.m₀, climate.m₀ + mpadding, 31)
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
-parameters = NonCommittedParameters(
-    τᶜ, terminal, grid, firm, government, signal, climate
-)
+parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate)
 
 ## Solve backwards from the end of the committed tax tail
-@printf(
-    "Solving %d firm equations and %d government equations over %.1f years\n",
-    length(grid), length(grid), terminal
-)
+@printf "Solving %d firm equations and %d government equations over %.1f years\n" length(grid) length(grid) terminal
 
 taxswitch = (terminal - activeterminal) / terminal
 tstops = iszero(taxswitch) ? Float64[] : [taxswitch]
