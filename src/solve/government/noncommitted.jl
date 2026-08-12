@@ -208,6 +208,10 @@ function noncommittedcalendar(s, parameters::NonCommittedParameters)
     (1 - s) * parameters.horizon
 end
 
+function noncommittedreversetime(t, parameters::NonCommittedParameters)
+    1 - t / parameters.horizon
+end
+
 "Coupled firm and government system in reverse time"
 function noncommittedreversedrift!(dx, x, parameters::NonCommittedParameters, s)
     @unpack τᶜ, horizon, firm, government, signal, climate, grid, scaling = parameters
@@ -358,6 +362,14 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
     end
 
     return (; investment, tax, expectedtax)
+end
+
+function noncommittedpoliciesattime(
+    solution, parameters::NonCommittedParameters, t
+)
+    s = noncommittedreversetime(t, parameters)
+
+    return noncommittedpolicies(solution(s), parameters, s)
 end
 
 function noncommittedvalues(x, parameters::NonCommittedParameters)

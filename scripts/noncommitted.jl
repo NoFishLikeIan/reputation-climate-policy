@@ -61,13 +61,13 @@ activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = I
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
 ## State space
-φgrid = range(0., 1., 21)
-agrid = range(firm.a₀, firm.e₀, 21)
+φgrid = range(0., 1., 5)
+agrid = range(firm.a₀, firm.e₀, 5)
 
 # The padding prevents the upper m boundary from entering the domain of
 # dependence of the initial state.
 mpadding = 1.25 * e(firm.a₀, firm) * terminal
-mgrid = range(climate.m₀, climate.m₀ + mpadding, 31)
+mgrid = range(climate.m₀, climate.m₀ + mpadding, 5)
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
 parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate)
@@ -95,34 +95,87 @@ initialpolicies = noncommittedpolicies(initialstate, parameters, 1.)
 initialvalues = noncommittedvalues(initialstate, parameters)
 initialkkt = noncommittedkktdiagnostics(initialstate, parameters, 1.)
 
+initialcommittedtax = τᶜ(0.)
+initialtaxrange = extrema(initialpolicies.tax) ./ taxfactor
+initialexpectedtaxrange = extrema(initialpolicies.expectedtax) ./ taxfactor
+
 @printf(
     "Initial KKT violations: firm %.3e, tax %.3e, complementarity %.3e\n",
     initialkkt.firmviolation,
     initialkkt.taxviolation,
     initialkkt.complementarity,
 )
+@printf(
+    "At t = 0: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
+    initialcommittedtax / taxfactor,
+    initialtaxrange...,
+    initialexpectedtaxrange...,
+)
 
-## Plot initial policies
+## Policies when the committed tax is maximal
+solutiontime = noncommittedtime(solution, parameters)
+solutioncommittedtaxes = τᶜ.(solutiontime)
+solutionindex = argmax(solutioncommittedtaxes)
+policytime = solutiontime[solutionindex]
+policies = noncommittedpolicies(
+    solution.u[solutionindex], parameters, solution.t[solutionindex]
+)
+committedtaxatpolicy = τᶜ(policytime)
+
+committedindex = argmin(abs.(committedtime .- policytime))
+mindex = argmin(abs.(mgrid .- trajectory[committedindex][1]))
+aindex = argmin(abs.(agrid .- trajectory[committedindex][2]))
+
+expectedtaxerror = maximum(
+    abs.(policies.expectedtax[end, :, :] .- committedtaxatpolicy)
+)
+policytaxrange = extrema(policies.tax) ./ taxfactor
+policyexpectedtaxrange = extrema(policies.expectedtax) ./ taxfactor
+@printf(
+    "At t = %.2f: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
+    policytime,
+    committedtaxatpolicy / taxfactor,
+    policytaxrange...,
+    policyexpectedtaxrange...,
+)
+@printf(
+    "Maximum error in τᵉ(φ = 1) = τᶜ is %.3e\n",
+    expectedtaxerror,
+)
+
+## Plot policies when the committed tax is maximal
 if isinteractive()
-    mindex = firstindex(mgrid)
-    aindex = firstindex(agrid)
-
     taxfigure = plot(
         φgrid,
-        initialpolicies.tax[:, mindex, aindex] ./ taxfactor;
+        policies.tax[:, mindex, aindex] ./ taxfactor;
         xlabel = L"Reputation $\phi$",
         ylabel = "USD / tCO2e",
         label = L"Non-committed tax $\tau$",
         linewidth = 2.,
+        title = @sprintf("t = %.1f", policytime),
+    )
+    plot!(
+        taxfigure,
+        φgrid,
+        policies.expectedtax[:, mindex, aindex] ./ taxfactor;
+        label = L"Expected current tax $\tau^e$",
+        linewidth = 2.,
+    )
+    hline!(
+        taxfigure,
+        [committedtaxatpolicy / taxfactor];
+        label = L"Committed tax $\tau^c$",
+        linestyle = :dash,
     )
 
     investmentfigure = plot(
         φgrid,
-        initialpolicies.investment[:, mindex, aindex];
+        policies.investment[:, mindex, aindex];
         xlabel = L"Reputation $\phi$",
         ylabel = "GtCO2e / year²",
         label = L"Investment $u$",
         linewidth = 2.,
+        title = @sprintf("m = %.1f, a = %.1f", mgrid[mindex], agrid[aindex]),
     )
 
     plot(taxfigure, investmentfigure; layout = (1, 2), size = (900, 360))
