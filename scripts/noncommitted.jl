@@ -15,7 +15,7 @@ import StaticArrays as SA
 
 # Interpolation and integration
 import ADTypes
-import SciMLBase
+import SciMLBase, SciMLLogging, DiffEqBase
 import SpecialFunctions
 import OrdinaryDiffEq as ODE
 import OrdinaryDiffEqBDF as BDF
@@ -61,41 +61,32 @@ activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = I
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
 taxupperbound = max(maximum(committedtaxes), τᶜ(activeterminal))
-# Use `OneShotTax()` for the hidden-action sequential equilibrium.
 taxmethod = FullGeneratorTax(taxupperbound)
 
-@printf(
-    "Using the full-generator tax rule with upper bound %.1f USD / tCO2e\n",
-    taxupperbound / taxfactor,
-)
+@printf "Using the full-generator tax rule with upper bound %.1f USD / tCO2e\n" taxupperbound / taxfactor
 
 ## State space
-φgrid = range(0., 1., 5)
-agrid = range(firm.a₀, firm.e₀, 5)
+ns = (51, 50, 49)
 
-# The padding prevents the upper m boundary from entering the domain of
-# dependence of the initial state.
-mpadding = 1.25 * e(firm.a₀, firm) * terminal
-mgrid = range(climate.m₀, climate.m₀ + mpadding, 5)
+φgrid = range(0., 1., ns[1])
+agrid = range(firm.a₀, firm.e₀, ns[2])
+
+mpadding = 1.25 * e(firm.a₀, firm) * terminal # The padding prevents the upper m boundary from entering the domain of dependence of the initial state.
+mgrid = range(climate.m₀, climate.m₀ + mpadding, ns[3])
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
-parameters = NonCommittedParameters(
-    τᶜ, terminal, grid, firm, government, signal, climate; taxmethod
-)
+parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
 
 ## Solve backwards from the end of the committed tax tail
-@printf "Solving %d firm equations and %d government equations over %.1f years\n" length(grid) length(grid) terminal
+@printf "Solving %d equations over %.1f years\n" length(grid) terminal
 
 taxswitch = (terminal - activeterminal) / terminal
-tstops = iszero(taxswitch) ? Float64[] : [taxswitch]
+tstops = taxswitch > 0 ?  [taxswitch] : typeof(taxswitch)[]
 
-solution = solvenoncommitted(
-    parameters;
-    saveat = range(0., 1.; length = 101),
-    tstops,
-    abstol = 1e-6,
-    reltol = 1e-6,
-)
+problem = noncommittedproblem(parameters)
+algorithm = BDF.FBDF()
+verbosity = DiffEqBase.DEVerbosity(SciMLLogging.None())
+solution = ODE.solve(problem, algorithm; abstol = 1e-6, reltol = 1e-6, verbose = verbosity)
 
 if !SciMLBase.successful_retcode(solution)
     error("Non-committed solution failed with retcode $(solution.retcode)")
@@ -110,22 +101,16 @@ initialcommittedtax = τᶜ(0.)
 initialtaxrange = extrema(initialpolicies.tax) ./ taxfactor
 initialexpectedtaxrange = extrema(initialpolicies.expectedtax) ./ taxfactor
 
-@printf(
-    "Initial KKT violations: firm %.3e, tax %.3e, complementarity %.3e\n",
+@printf("Initial KKT violations: firm %.3e, tax %.3e, complementarity %.3e\n",
     initialkkt.firmviolation,
     initialkkt.taxviolation,
-    initialkkt.complementarity,
-)
-@printf(
-    "Initial tax Hamiltonian gap: %.3e\n",
-    initialkkt.taxhamiltoniangap,
-)
-@printf(
-    "At t = 0: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
+    initialkkt.complementarity)
+@printf("Initial tax Hamiltonian gap: %.3e\n",
+    initialkkt.taxhamiltoniangap)
+@printf("At t = 0: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
     initialcommittedtax / taxfactor,
     initialtaxrange...,
-    initialexpectedtaxrange...,
-)
+    initialexpectedtaxrange...)
 
 ## Policies during the active transition
 committedinvestment = getindex.(trajectory, 3)
@@ -204,5 +189,5 @@ if isinteractive()
         title = @sprintf("m = %.1f, a = %.1f", mgrid[mindex], agrid[aindex]),
     )
 
-    plot(taxfigure, investmentfigure; layout = (1, 2), size = (900, 360))
+    plot(taxfigure, investmentfigure; layout = (1, 2), size = (900, 360), margins = 5Plots.mm)
 end

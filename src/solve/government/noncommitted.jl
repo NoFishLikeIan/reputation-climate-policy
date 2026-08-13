@@ -11,6 +11,7 @@ end
 function Base.length(grid::NonCommittedGrid)
     prod(size(grid))
 end
+eltypes(grid::NonCommittedGrid) = promote_type(eltype(grid.φgrid), eltype(grid.mgrid), eltype(grid.agrid))
 
 abstract type NonCommittedTaxMethod end
 
@@ -45,6 +46,11 @@ struct NonCommittedParameters{TC, T, F, G, S, C, TG, TS, TM <: NonCommittedTaxMe
     taxmethod::TM
 end
 
+function NonCommittedParameters(τᶜ, horizon, grid::NonCommittedGrid,firm::Firm, government::Government, signal::Signal, climate::Climate, taxmethod::NonCommittedTaxMethod)
+    scaling = NonCommittedScalingParameters(firm, government)
+    return NonCommittedParameters(τᶜ, horizon, firm, government, signal, climate, grid, scaling, taxmethod)
+end
+
 struct CommittedTaxPath{TI, T}
     active::TI
     activeterminal::T
@@ -69,6 +75,7 @@ function (path::CommittedTaxPath{TI, T})(t) where {TI, T}
         return zero(T)
     end
 end
+Base.eltype(::CommittedTaxPath{TI, T}) where {TI, T} = T
 
 
 function committedtaxterminal(activeterminal::T, terminalabatement, firm::Firm, government::Government; tolerance = 0.1taxfactor) where T
@@ -81,19 +88,6 @@ function committedtaxterminal(activeterminal::T, terminalabatement, firm::Firm, 
     taildecay = firm.r - government.r
 
     return activeterminal + log(tailtax / tolerance) / taildecay
-end
-
-function NonCommittedParameters(
-    τᶜ, horizon, grid::NonCommittedGrid,
-    firm::Firm, government::Government, signal::Signal, climate::Climate;
-    taxmethod::NonCommittedTaxMethod = OneShotTax()
-)
-    scaling = NonCommittedScalingParameters(firm, government)
-
-    return NonCommittedParameters(
-        τᶜ, horizon, firm, government, signal, climate, grid, scaling,
-        taxmethod
-    )
 end
 
 function noncommittedviews(x, grid::NonCommittedGrid)
@@ -109,64 +103,45 @@ function noncommittedexpectedtax(φ, τ, τᶜ)
     φ * τᶜ + (1 - φ) * τ
 end
 
-function noncommittedinvestment(q, a, firm::Firm)
+function noncommittedinvestment(q::T, a, firm::Firm) where T
     if iszero(e(a, firm))
-        return zero(q)
+        return zero(T)
     end
 
-    return max((q / firm.r - c(a, firm)) / firm.ξ, zero(q))
+    investment = (q / firm.r - c(a, firm)) / firm.ξ
+
+    return max(investment, zero(T))
 end
 
-function noncommittedtaxcoefficient(
-    ::OneShotTax, ∂ᵩW, _, φ, signal::Signal
-)
+function noncommittedtaxcoefficient(∂ᵩW, _, φ, signal::Signal, ::OneShotTax)
     -φ * (1 - φ) * (signal.ϵ / signal.σ)^2 * ∂ᵩW
 end
 
-function noncommittedtaxcoefficient(
-    ::FullGeneratorTax, ∂ᵩW, ∂ᵩᵩW, φ, signal::Signal
-)
-    return (
-        φ^2 * (1 - φ) * (signal.ϵ / signal.σ)^2 *
-        (-2∂ᵩW + (1 - φ) * ∂ᵩᵩW)
-    )
+function noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal::Signal, ::FullGeneratorTax)
+    φ^2 * (1 - φ) * (signal.ϵ / signal.σ)^2 *
+    (-2∂ᵩW + (1 - φ) * ∂ᵩᵩW)
 end
 
 "Minimum-tax solution of the hidden-action condition"
-function noncommittedtax(
-    taxmethod::OneShotTax, ∂ᵩW, ∂ᵩᵩW, φ, τᶜ,
-    signal::Signal, government::Government
-)
-    taxcoefficient = noncommittedtaxcoefficient(
-        taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, signal
-    )
+function noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜ, signal::Signal, government::Government, taxmethod::OneShotTax)
+    taxcoefficient = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
 
-    if taxcoefficient <= 0 || τᶜ <= 0
+    if taxcoefficient ≤ 0 || τᶜ ≤ 0
         return zero(taxcoefficient + τᶜ)
     end
 
-    return taxcoefficient * τᶜ / (
-        government.r * government.δ + taxcoefficient
-    )
+    return taxcoefficient * τᶜ / (government.r * government.δ + taxcoefficient)
 end
 
-function fullgeneratorhamiltonian(
-    τ, taxcoefficient, τᶜ, government::Government
-)
-    return (
-        government.r * government.δ * τ^2 / 2 +
+function fullgeneratorhamiltonian(τ, taxcoefficient, τᶜ, government::Government)
+    government.r * government.δ * τ^2 / 2 +
         taxcoefficient * (τᶜ - τ)^2 / 2
-    )
 end
 
 "Global solution of the complete-generator tax problem"
-function noncommittedtax(
-    taxmethod::FullGeneratorTax, ∂ᵩW, ∂ᵩᵩW, φ, τᶜ,
-    signal::Signal, government::Government
-)
-    taxcoefficient = noncommittedtaxcoefficient(
-        taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, signal
-    )
+function noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜ, signal::Signal, government::Government, taxmethod::FullGeneratorTax)
+    taxcoefficient = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
+    
     curvature = government.r * government.δ + taxcoefficient
     zerotax = zero(taxcoefficient + τᶜ + taxmethod.upperbound)
     upperbound = zerotax + taxmethod.upperbound
@@ -177,34 +152,20 @@ function noncommittedtax(
         return clamp(τ, zerotax, upperbound)
     end
 
-    zerovalue = fullgeneratorhamiltonian(
-        zerotax, taxcoefficient, τᶜ, government
-    )
-    uppervalue = fullgeneratorhamiltonian(
-        upperbound, taxcoefficient, τᶜ, government
-    )
+    zerovalue = fullgeneratorhamiltonian(zerotax, taxcoefficient, τᶜ, government)
+    uppervalue = fullgeneratorhamiltonian(upperbound, taxcoefficient, τᶜ, government)
 
     return uppervalue < zerovalue ? upperbound : zerotax
 end
 
 function noncommittedtax(∂ᵩW, φ, τᶜ, signal::Signal, government::Government)
-    noncommittedtax(
-        OneShotTax(), ∂ᵩW, zero(∂ᵩW), φ, τᶜ, signal, government
-    )
+    noncommittedtax(∂ᵩW, zero(∂ᵩW), φ, τᶜ, signal, government, OneShotTax())
 end
 
-function noncommittedtaxresidual(
-    τ, taxmethod::NonCommittedTaxMethod, ∂ᵩW, ∂ᵩᵩW, φ, τᶜ,
-    signal::Signal, government::Government
-)
-    taxcoefficient = noncommittedtaxcoefficient(
-        taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, signal
-    )
+function noncommittedtaxresidual(τ, ∂ᵩW, ∂ᵩᵩW, φ, τᶜ, signal::Signal, government::Government, taxmethod::NonCommittedTaxMethod)
+    taxcoefficient = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
 
-    return (
-        government.r * government.δ * τ -
-        taxcoefficient * (τᶜ - τ)
-    )
+    return government.r * government.δ * τ - taxcoefficient * (τᶜ - τ)
 end
 
 
@@ -229,66 +190,49 @@ function noncommittedtaxcomplementarity(τ, residual, ::OneShotTax)
 end
 
 function noncommittedtaxcomplementarity(τ, residual, method::FullGeneratorTax)
-    iszero(method.upperbound) && return zero(residual)
+    if iszero(method.upperbound)
+        return zero(residual)
+    end
 
     min(abs(τ * residual), abs((method.upperbound - τ) * residual))
 end
 
-function noncommittedtaxgap(τ, _, _, ::OneShotTax, ::Government)
+function noncommittedtaxgap(τ, _, _, ::Government, ::OneShotTax)
     zero(τ)
 end
 
-function noncommittedtaxgap(
-    τ, taxcoefficient, τᶜ, method::FullGeneratorTax,
-    government::Government
-)
+function noncommittedtaxgap(τ, taxcoefficient, τᶜ, government::Government, method::FullGeneratorTax)
     zerotax = zero(τ + taxcoefficient + τᶜ + method.upperbound)
     upperbound = zerotax + method.upperbound
-    chosenvalue = fullgeneratorhamiltonian(
-        τ, taxcoefficient, τᶜ, government
-    )
+
+    chosenvalue = fullgeneratorhamiltonian(τ, taxcoefficient, τᶜ, government)
     minimumvalue = min(
-        fullgeneratorhamiltonian(
-            zerotax, taxcoefficient, τᶜ, government
-        ),
-        fullgeneratorhamiltonian(
-            upperbound, taxcoefficient, τᶜ, government
-        )
+        fullgeneratorhamiltonian(zerotax, taxcoefficient, τᶜ, government),
+        fullgeneratorhamiltonian(upperbound, taxcoefficient, τᶜ, government)
     )
+
     curvature = government.r * government.δ + taxcoefficient
 
     if curvature > 0
-        stationarytax = clamp(
-            taxcoefficient * τᶜ / curvature,
-            zerotax,
-            upperbound
-        )
+        stationarytax = clamp(taxcoefficient * τᶜ / curvature, zerotax, upperbound)
         minimumvalue = min(
             minimumvalue,
-            fullgeneratorhamiltonian(
-                stationarytax, taxcoefficient, τᶜ, government
-            )
+            fullgeneratorhamiltonian(stationarytax, taxcoefficient, τᶜ, government)
         )
     end
 
     return max(chosenvalue - minimumvalue, zero(chosenvalue))
 end
 
-function noncommittedtaxresidual(
-    τ, ∂ᵩW, φ, τᶜ, signal::Signal, government::Government
-)
-    noncommittedtaxresidual(
-        τ, OneShotTax(), ∂ᵩW, zero(∂ᵩW), φ, τᶜ, signal, government
-    )
+function noncommittedtaxresidual(τ, ∂ᵩW, φ, τᶜ, signal::Signal, government::Government)
+    noncommittedtaxresidual(τ, ∂ᵩW, zero(∂ᵩW), φ, τᶜ, signal, government, OneShotTax())
 end
 
 function firminvestmentgap(q, a, u, firm::Firm)
     q - firm.r * (c(a, firm) + firm.ξ * u)
 end
 
-function noncommittedflowcost(
-    a, m, u, τ, firm::Firm, government::Government, climate::Climate
-)
+function noncommittedflowcost(a, m, u, τ, firm::Firm, government::Government, climate::Climate)
     government.y₀ * d(m, climate) + l(τ, government) + investmentcost(a, u, firm)
 end
 
@@ -299,9 +243,7 @@ end
         return zero(eltype(x))
     end
 
-    return (x[i, j + 1, k] - x[i, j, k]) / (
-        grid.mgrid[j + 1] - grid.mgrid[j]
-    )
+    return (x[i, j + 1, k] - x[i, j, k]) / (grid.mgrid[j + 1] - grid.mgrid[j])
 end
 
 @inline function forwardaderivative(x, i, j, k, grid::NonCommittedGrid)
@@ -309,9 +251,7 @@ end
         return zero(eltype(x))
     end
 
-    return (x[i, j, k + 1] - x[i, j, k]) / (
-        grid.agrid[k + 1] - grid.agrid[k]
-    )
+    return (x[i, j, k + 1] - x[i, j, k]) / (grid.agrid[k + 1] - grid.agrid[k])
 end
 
 @inline function backwardφderivative(x, i, j, k, grid::NonCommittedGrid)
@@ -319,9 +259,7 @@ end
         return zero(eltype(x))
     end
 
-    return (x[i, j, k] - x[i - 1, j, k]) / (
-        grid.φgrid[i] - grid.φgrid[i - 1]
-    )
+    return (x[i, j, k] - x[i - 1, j, k]) / (grid.φgrid[i] - grid.φgrid[i - 1])
 end
 
 @inline function centralφsecondderivative(x, i, j, k, grid::NonCommittedGrid)
@@ -342,16 +280,10 @@ end
 function noncommittedterminalstate(parameters::NonCommittedParameters)
     @unpack firm, government, climate, grid, scaling = parameters
 
-    T = promote_type(
-        eltype(grid.φgrid), eltype(grid.mgrid), eltype(grid.agrid),
-        typeof(firm.r), typeof(government.r)
-    )
-    x = zeros(T, 2length(grid))
+    x = zeros(eltype(parameters.τᶜ), 2length(grid))
     _, W = noncommittedviews(x, grid)
 
-    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid),
-        i in eachindex(grid.φgrid)
-
+    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
         a = grid.agrid[k]
         m = grid.mgrid[j]
         W[i, j, k] = V₃damages(a, m, firm, government, climate) / scaling.W
@@ -370,27 +302,23 @@ function noncommittedreversetime(t, parameters::NonCommittedParameters)
 end
 
 "Coupled firm and government system in reverse time"
-function noncommittedreversedrift!(dx, x, parameters::NonCommittedParameters, s)
+function noncommittedreversedrift!(dx::TX, x, parameters::NonCommittedParameters, s) where {T, TX <: AbstractVecOrMat{T}}
     @unpack τᶜ, horizon, firm, government, signal, climate, grid, scaling, taxmethod = parameters
 
     qnormalised, Wnormalised = noncommittedviews(x, grid)
     dqnormalised, dWnormalised = noncommittedviews(dx, grid)
 
     calendartime = noncommittedcalendar(s, parameters)
-    committedtax = τᶜ(calendartime)
+    τᶜₜ  = τᶜ(calendartime)
 
-    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid),
-        i in eachindex(grid.φgrid)
-
+    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
         φ = grid.φgrid[i]
         m = grid.mgrid[j]
         a = grid.agrid[k]
 
         if iszero(φ)
-            # With known non-commitment, q = τ = u = 0 and the stationary
-            # damage value is V₃damages(a, m).
-            dqnormalised[i, j, k] = zero(eltype(dx))
-            dWnormalised[i, j, k] = zero(eltype(dx))
+            dqnormalised[i, j, k] = zero(T)
+            dWnormalised[i, j, k] = zero(T)
             continue
         end
 
@@ -407,32 +335,24 @@ function noncommittedreversedrift!(dx, x, parameters::NonCommittedParameters, s)
         ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
 
         u = noncommittedinvestment(q, a, firm)
-        τ = noncommittedtax(
-            taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, committedtax,
-            signal, government
-        )
-        τᵉ = noncommittedexpectedtax(φ, τ, committedtax)
+        τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
+        τᵉ = noncommittedexpectedtax(φ, τ, τᶜₜ )
 
-        signaltonoise = χ(τ, committedtax, signal)
+        signaltonoise = χ(τ, τᶜₜ , signal)
         bᵩ = beliefdrift(signaltonoise, φ)
         σᵩ = beliefdiffusion(signaltonoise, φ)
 
-        dq = (
-            -firm.r * q + firm.r * (τᵉ - c′(a, firm) * u) +
+        dq = -firm.r * q + firm.r * (τᵉ - c′(a, firm) * u) +
             e(a, firm) * ∂ₘq + u * ∂ₐq + σᵩ^2 * ∂ᵩᵩq / 2
-        )
-        flowcost = noncommittedflowcost(
-            a, m, u, τ, firm, government, climate
-        )
-        dW = (
-            -government.r * W + government.r * flowcost +
+
+        flowcost = noncommittedflowcost(a, m, u, τ, firm, government, climate)
+
+        dW = -government.r * W + government.r * flowcost +
             e(a, firm) * ∂ₘW + u * ∂ₐW +
             bᵩ * ∂ᵩW + σᵩ^2 * ∂ᵩᵩW / 2
-        )
 
         dqnormalised[i, j, k] = horizon * dq / scaling.q
-        dWnormalised[i, j, k] = iszero(e(a, firm)) ?
-            zero(eltype(dx)) : horizon * dW / scaling.W
+        dWnormalised[i, j, k] = iszero(e(a, firm)) ? zero(T) : horizon * dW / scaling.W
     end
 
     return dx
@@ -466,9 +386,7 @@ function noncommittedjacobianprototype(grid::NonCommittedGrid)
         end
     end
 
-    T = promote_type(
-        eltype(grid.φgrid), eltype(grid.mgrid), eltype(grid.agrid)
-    )
+    T = eltypes(grid)
 
     return SparseArrays.sparse(I, J, ones(T, length(I)), 2n, 2n)
 end
@@ -476,22 +394,9 @@ end
 function noncommittedproblem(parameters::NonCommittedParameters)
     x₀ = noncommittedterminalstate(parameters)
     jacobian = noncommittedjacobianprototype(parameters.grid)
-    drift = SciMLBase.ODEFunction(
-        noncommittedreversedrift!; jac_prototype = jacobian
-    )
+    drift = SciMLBase.ODEFunction(noncommittedreversedrift!; jac_prototype = jacobian)
 
     return SciMLBase.ODEProblem(drift, x₀, (0., 1.), parameters)
-end
-
-function solvenoncommitted(
-    parameters::NonCommittedParameters;
-    algorithm = BDF.QNDF(autodiff = ADTypes.AutoFiniteDiff()),
-    saveat = range(0., 1.; length = 101),
-    kwargs...
-)
-    problem = noncommittedproblem(parameters)
-
-    return ODE.solve(problem, algorithm; saveat, kwargs...)
 end
 
 ## Diagnostics
@@ -506,43 +411,28 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
     taxcurvature = similar(qnormalised)
 
     calendartime = noncommittedcalendar(s, parameters)
-    committedtax = τᶜ(calendartime)
+    τᶜₜ = τᶜ(calendartime)
 
-    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid),
-        i in eachindex(grid.φgrid)
-
+    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
         φ = grid.φgrid[i]
         a = grid.agrid[k]
-        q = scaling.q * qnormalised[i, j, k]
-        ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
-        ∂ᵩᵩW = scaling.W * centralφsecondderivative(
-            Wnormalised, i, j, k, grid
-        )
 
-        taxcoefficient[i, j, k] = noncommittedtaxcoefficient(
-            taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, signal
-        )
-        taxcurvature[i, j, k] = (
-            government.r * government.δ + taxcoefficient[i, j, k]
-        )
+        q = scaling.q * qnormalised[i, j, k]
+        
+        ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
+        ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
+
+        taxcoefficient[i, j, k] = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
+        taxcurvature[i, j, k] = government.r * government.δ + taxcoefficient[i, j, k]
         investment[i, j, k] = noncommittedinvestment(q, a, firm)
-        tax[i, j, k] = noncommittedtax(
-            taxmethod, ∂ᵩW, ∂ᵩᵩW, φ, committedtax,
-            signal, government
-        )
-        expectedtax[i, j, k] = noncommittedexpectedtax(
-            φ, tax[i, j, k], committedtax
-        )
+        tax[i, j, k] = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ, signal, government, taxmethod)
+        expectedtax[i, j, k] = noncommittedexpectedtax(φ, tax[i, j, k], τᶜₜ)
     end
 
-    return (;
-        investment, tax, expectedtax, taxcoefficient, taxcurvature
-    )
+    return (; investment, tax, expectedtax, taxcoefficient, taxcurvature)
 end
 
-function noncommittedpoliciesattime(
-    solution, parameters::NonCommittedParameters, t
-)
+function noncommittedpoliciesattime(solution, parameters::NonCommittedParameters, t)
     s = noncommittedreversetime(t, parameters)
 
     return noncommittedpolicies(solution(s), parameters, s)
@@ -568,7 +458,7 @@ function noncommittedresiduals(x, parameters::NonCommittedParameters, s)
 
     investmentgap = similar(qnormalised)
     taxresidual = similar(qnormalised)
-    committedtax = τᶜ(noncommittedcalendar(s, parameters))
+    τᶜₜ = τᶜ(noncommittedcalendar(s, parameters))
 
     @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid),
         i in eachindex(grid.φgrid)
@@ -576,34 +466,25 @@ function noncommittedresiduals(x, parameters::NonCommittedParameters, s)
         φ = grid.φgrid[i]
         a = grid.agrid[k]
         q = scaling.q * qnormalised[i, j, k]
-        ∂ᵩW = scaling.W * backwardφderivative(
-            Wnormalised, i, j, k, grid
-        )
-        ∂ᵩᵩW = scaling.W * centralφsecondderivative(
-            Wnormalised, i, j, k, grid
-        )
+        ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
+        ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
 
-        investmentgap[i, j, k] = firminvestmentgap(
-            q, a, policies.investment[i, j, k], firm
-        )
-        taxresidual[i, j, k] = noncommittedtaxresidual(
-            policies.tax[i, j, k], taxmethod, ∂ᵩW, ∂ᵩᵩW,
-            φ, committedtax, signal, government
-        )
+        investmentgap[i, j, k] = firminvestmentgap(q, a, policies.investment[i, j, k], firm)
+        taxresidual[i, j, k] = noncommittedtaxresidual(policies.tax[i, j, k], ∂ᵩW, ∂ᵩᵩW,φ, τᶜₜ, signal, government, taxmethod)
     end
 
     return (; investmentgap, taxresidual)
 end
 
-function noncommittedkktdiagnostics(x, parameters::NonCommittedParameters, s)
+function noncommittedkktdiagnostics(x::TX, parameters::NonCommittedParameters, s) where {T, TX <: AbstractVecOrMat{T}}
     @unpack firm, grid, taxmethod = parameters
     policies = noncommittedpolicies(x, parameters, s)
     residuals = noncommittedresiduals(x, parameters, s)
 
-    firmviolation = zero(eltype(x))
-    taxviolation = zero(eltype(x))
-    complementarity = zero(eltype(x))
-    taxhamiltoniangap = zero(eltype(x))
+    firmviolation = zero(T)
+    taxviolation = zero(T)
+    complementarity = zero(T)
+    taxhamiltoniangap = zero(T)
     committedtax = parameters.τᶜ(noncommittedcalendar(s, parameters))
 
     @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid),
@@ -623,20 +504,11 @@ function noncommittedkktdiagnostics(x, parameters::NonCommittedParameters, s)
             )
         end
 
-        taxviolation = max(
-            taxviolation,
-            noncommittedtaxviolation(τ, taxresidual, taxmethod)
-        )
-        complementarity = max(
-            complementarity,
-            noncommittedtaxcomplementarity(τ, taxresidual, taxmethod)
-        )
+        taxviolation = max(taxviolation, noncommittedtaxviolation(τ, taxresidual, taxmethod))
+        complementarity = max(complementarity, noncommittedtaxcomplementarity(τ, taxresidual, taxmethod))
         taxhamiltoniangap = max(
             taxhamiltoniangap,
-            noncommittedtaxgap(
-                τ, taxcoefficient, committedtax, taxmethod,
-                parameters.government
-            )
+            noncommittedtaxgap(τ, taxcoefficient, committedtax, parameters.government, taxmethod)
         )
     end
 
