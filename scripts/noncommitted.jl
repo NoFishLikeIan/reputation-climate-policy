@@ -60,6 +60,15 @@ terminal = committedtaxterminal(activeterminal, terminalabatement, firm, governm
 activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = Itp.ClampExtrap())
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
+taxupperbound = max(maximum(committedtaxes), τᶜ(activeterminal))
+# Use `OneShotTax()` for the hidden-action sequential equilibrium.
+taxmethod = FullGeneratorTax(taxupperbound)
+
+@printf(
+    "Using the full-generator tax rule with upper bound %.1f USD / tCO2e\n",
+    taxupperbound / taxfactor,
+)
+
 ## State space
 φgrid = range(0., 1., 5)
 agrid = range(firm.a₀, firm.e₀, 5)
@@ -70,7 +79,9 @@ mpadding = 1.25 * e(firm.a₀, firm) * terminal
 mgrid = range(climate.m₀, climate.m₀ + mpadding, 5)
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
-parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate)
+parameters = NonCommittedParameters(
+    τᶜ, terminal, grid, firm, government, signal, climate; taxmethod
+)
 
 ## Solve backwards from the end of the committed tax tail
 @printf "Solving %d firm equations and %d government equations over %.1f years\n" length(grid) length(grid) terminal
@@ -106,23 +117,26 @@ initialexpectedtaxrange = extrema(initialpolicies.expectedtax) ./ taxfactor
     initialkkt.complementarity,
 )
 @printf(
+    "Initial tax Hamiltonian gap: %.3e\n",
+    initialkkt.taxhamiltoniangap,
+)
+@printf(
     "At t = 0: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
     initialcommittedtax / taxfactor,
     initialtaxrange...,
     initialexpectedtaxrange...,
 )
 
-## Policies when the committed tax is maximal
-solutiontime = noncommittedtime(solution, parameters)
-solutioncommittedtaxes = τᶜ.(solutiontime)
-solutionindex = argmax(solutioncommittedtaxes)
-policytime = solutiontime[solutionindex]
-policies = noncommittedpolicies(
-    solution.u[solutionindex], parameters, solution.t[solutionindex]
-)
+## Policies during the active transition
+committedinvestment = getindex.(trajectory, 3)
+committedindex = argmax(committedtaxes .* committedinvestment)
+policytime = committedtime[committedindex]
+policys = noncommittedreversetime(policytime, parameters)
+policystate = solution(policys)
+policies = noncommittedpolicies(policystate, parameters, policys)
+policykkt = noncommittedkktdiagnostics(policystate, parameters, policys)
 committedtaxatpolicy = τᶜ(policytime)
 
-committedindex = argmin(abs.(committedtime .- policytime))
 mindex = argmin(abs.(mgrid .- trajectory[committedindex][1]))
 aindex = argmin(abs.(agrid .- trajectory[committedindex][2]))
 
@@ -131,6 +145,8 @@ expectedtaxerror = maximum(
 )
 policytaxrange = extrema(policies.tax) ./ taxfactor
 policyexpectedtaxrange = extrema(policies.expectedtax) ./ taxfactor
+policycoefficientrange = extrema(policies.taxcoefficient)
+policycurvaturerange = extrema(policies.taxcurvature)
 @printf(
     "At t = %.2f: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
     policytime,
@@ -139,11 +155,21 @@ policyexpectedtaxrange = extrema(policies.expectedtax) ./ taxfactor
     policyexpectedtaxrange...,
 )
 @printf(
+    "Tax coefficient [%.3e, %.3e]; tax curvature [%.3e, %.3e]\n",
+    policycoefficientrange...,
+    policycurvaturerange...,
+)
+@printf(
+    "Tax KKT violation %.3e; Hamiltonian gap %.3e\n",
+    policykkt.taxviolation,
+    policykkt.taxhamiltoniangap,
+)
+@printf(
     "Maximum error in τᵉ(φ = 1) = τᶜ is %.3e\n",
     expectedtaxerror,
 )
 
-## Plot policies when the committed tax is maximal
+## Plot policies during the active transition
 if isinteractive()
     taxfigure = plot(
         φgrid,
