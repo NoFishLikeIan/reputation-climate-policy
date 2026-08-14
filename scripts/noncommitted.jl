@@ -71,10 +71,11 @@ taxmethod = FullGeneratorTax(taxupperbound)
 ns = (51, 50, 49)
 
 φgrid = range(0., 1., ns[1])
-agrid = range(firm.a₀, firm.e₀, ns[2])
 
-mpadding = 1.25 * e(firm.a₀, firm) * terminal # The padding prevents the upper m boundary from entering the domain of dependence of the initial state.
-mgrid = range(climate.m₀, climate.m₀ + mpadding, ns[3])
+mpadding = 1.05 * e(firm.a₀, firm) * terminal # The padding prevents the upper m boundary from entering the domain of dependence of the initial state.
+mgrid = range(climate.m₀, climate.m₀ + mpadding, ns[2])
+
+agrid = range(firm.a₀, firm.e₀, ns[3])
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
 parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)

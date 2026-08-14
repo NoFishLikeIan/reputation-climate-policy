@@ -11,7 +11,12 @@ end
 function Base.length(grid::NonCommittedGrid)
     prod(size(grid))
 end
-eltypes(grid::NonCommittedGrid) = promote_type(eltype(grid.φgrid), eltype(grid.mgrid), eltype(grid.agrid))
+function eltypes(grid::NonCommittedGrid)
+    promote_type(eltype(grid.φgrid), eltype(grid.mgrid), eltype(grid.agrid))
+end
+function Base.CartesianIndices(grid::NonCommittedGrid)
+    CartesianIndices((eachindex(grid.φgrid), eachindex(grid.mgrid), eachindex(grid.agrid)))
+end
 
 abstract type NonCommittedTaxMethod end
 
@@ -254,49 +259,49 @@ function noncommittedreversedrift!(dx::TX, x, parameters::NonCommittedParameters
     calendartime = noncommittedcalendar(s, parameters)
     τᶜₜ  = τᶜ(calendartime)
 
-    Threads.@threads for k in eachindex(grid.agrid)
-        @inbounds for j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
-            φ = grid.φgrid[i]
-            m = grid.mgrid[j]
-            a = grid.agrid[k]
+    @inbounds Threads.@threads for idx in CartesianIndices(grid)
+        i, j, k = idx.I
 
-            if iszero(φ)
-                dqnormalised[i, j, k] = zero(T)
-                dWnormalised[i, j, k] = zero(T)
-                continue
-            end
+        φ = grid.φgrid[i]
+        m = grid.mgrid[j]
+        a = grid.agrid[k]
 
-            q = scaling.q * qnormalised[i, j, k]
-            W = scaling.W * Wnormalised[i, j, k]
-
-            ∂ₘq = scaling.q * forwardmderivative(qnormalised, i, j, k, grid)
-            ∂ₐq = scaling.q * forwardaderivative(qnormalised, i, j, k, grid)
-            ∂ᵩᵩq = scaling.q * centralφsecondderivative(qnormalised, i, j, k, grid)
-
-            ∂ₘW = scaling.W * forwardmderivative(Wnormalised, i, j, k, grid)
-            ∂ₐW = scaling.W * forwardaderivative(Wnormalised, i, j, k, grid)
-            ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
-            ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
-
-            u = investmentpolicy(q, a, firm)
-            τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
-            τᵉ = firmexpectedtax(φ, τ, τᶜₜ )
-
-            signaltonoise = χ(τ, τᶜₜ , signal)
-            bᵩ = beliefdrift(signaltonoise, φ)
-            σᵩ = beliefdiffusion(signaltonoise, φ)
-
-            dq = firmmarginalvaluedrift(
-                q, a, u, τᵉ, ∂ₘq, ∂ₐq, ∂ᵩᵩq, σᵩ, firm
-            )
-            dW = governmentvaluedrift(
-                W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩᵩW, bᵩ, σᵩ,
-                firm, government, climate
-            )
-
-            dqnormalised[i, j, k] = horizon * dq / scaling.q
-            dWnormalised[i, j, k] = iszero(cumulativeemissionsdrift(a, firm)) ? zero(T) : horizon * dW / scaling.W
+        if iszero(φ)
+            dqnormalised[idx] = zero(T)
+            dWnormalised[idx] = zero(T)
+            continue
         end
+
+        q = scaling.q * qnormalised[idx]
+        W = scaling.W * Wnormalised[idx]
+
+        ∂ₘq = scaling.q * forwardmderivative(qnormalised, i, j, k, grid)
+        ∂ₐq = scaling.q * forwardaderivative(qnormalised, i, j, k, grid)
+        ∂ᵩᵩq = scaling.q * centralφsecondderivative(qnormalised, i, j, k, grid)
+
+        ∂ₘW = scaling.W * forwardmderivative(Wnormalised, i, j, k, grid)
+        ∂ₐW = scaling.W * forwardaderivative(Wnormalised, i, j, k, grid)
+        ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
+        ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
+
+        u = investmentpolicy(q, a, firm)
+        τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
+        τᵉ = firmexpectedtax(φ, τ, τᶜₜ )
+
+        signaltonoise = χ(τ, τᶜₜ , signal)
+        bᵩ = beliefdrift(signaltonoise, φ)
+        σᵩ = beliefdiffusion(signaltonoise, φ)
+
+        dq = firmmarginalvaluedrift(
+            q, a, u, τᵉ, ∂ₘq, ∂ₐq, ∂ᵩᵩq, σᵩ, firm
+        )
+        dW = governmentvaluedrift(
+            W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩᵩW, bᵩ, σᵩ,
+            firm, government, climate
+        )
+
+        dqnormalised[idx] = horizon * dq / scaling.q
+        dWnormalised[idx] = iszero(cumulativeemissionsdrift(a, firm)) ? zero(T) : horizon * dW / scaling.W
     end
 
     return dx

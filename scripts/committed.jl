@@ -42,7 +42,6 @@ includet("../src/dynamics/government.jl")
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 
-includet("../src/solve/firm/committed.jl")
 includet("../src/solve/government/committed.jl")
 
 includet("plotting/utils.jl")
