@@ -7,7 +7,7 @@ using Plots
 
 import FastInterpolations as Itp
 import JLD2
-import UnPack: @unpack
+import UnPack: @unpack, @pack! 
 
 # Linear algebra
 import SparseArrays
@@ -36,8 +36,6 @@ includet("../src/utils/saving.jl")
 includet("../src/solve/government/committed.jl")
 includet("../src/solve/government/noncommitted.jl")
 
-includet("plotting/utils.jl")
-
 ## Load committed problem
 firm = Firm()
 government = Government()
@@ -46,7 +44,7 @@ climate = Climate()
 signal = Signal()
 
 committedlabel = solutionlabel(climate, government, firm)
-committedfile = joinpath("data", "solutions", "singular", "$committedlabel.jld2")
+committedfile = joinpath("data", "solutions", "committed", "$committedlabel.jld2")
 committedsolution = JLD2.load(committedfile)
 
 trajectory = committedsolution["trajectory"]
@@ -92,6 +90,7 @@ if !SciMLBase.successful_retcode(solution)
     error("Non-committed solution failed with retcode $(solution.retcode)")
 end
 
+## Diagnostics
 initialstate = last(solution.u)
 initialpolicies = noncommittedpolicies(initialstate, parameters, 1.)
 initialvalues = noncommittedvalues(initialstate, parameters)
@@ -112,7 +111,6 @@ initialexpectedtaxrange = extrema(initialpolicies.expectedtax) ./ taxfactor
     initialtaxrange...,
     initialexpectedtaxrange...)
 
-## Policies during the active transition
 committedinvestment = getindex.(trajectory, 3)
 committedindex = argmax(committedtaxes .* committedinvestment)
 policytime = committedtime[committedindex]
@@ -125,13 +123,12 @@ committedtaxatpolicy = τᶜ(policytime)
 mindex = argmin(abs.(mgrid .- trajectory[committedindex][1]))
 aindex = argmin(abs.(agrid .- trajectory[committedindex][2]))
 
-expectedtaxerror = maximum(
-    abs.(policies.expectedtax[end, :, :] .- committedtaxatpolicy)
-)
+expectedtaxerror = maximum(abs.(policies.expectedtax[end, :, :] .- committedtaxatpolicy))
 policytaxrange = extrema(policies.tax) ./ taxfactor
 policyexpectedtaxrange = extrema(policies.expectedtax) ./ taxfactor
 policycoefficientrange = extrema(policies.taxcoefficient)
 policycurvaturerange = extrema(policies.taxcurvature)
+
 @printf(
     "At t = %.2f: committed tax %.3f, non-committed tax [%.3f, %.3f], expected current tax [%.3f, %.3f] USD / tCO2e\n",
     policytime,
@@ -139,55 +136,30 @@ policycurvaturerange = extrema(policies.taxcurvature)
     policytaxrange...,
     policyexpectedtaxrange...,
 )
+
 @printf(
     "Tax coefficient [%.3e, %.3e]; tax curvature [%.3e, %.3e]\n",
     policycoefficientrange...,
     policycurvaturerange...,
 )
+
 @printf(
     "Tax KKT violation %.3e; Hamiltonian gap %.3e\n",
     policykkt.taxviolation,
     policykkt.taxhamiltoniangap,
 )
+
 @printf(
     "Maximum error in τᵉ(φ = 1) = τᶜ is %.3e\n",
     expectedtaxerror,
 )
 
-## Plot policies during the active transition
-if isinteractive()
-    taxfigure = plot(
-        φgrid,
-        policies.tax[:, mindex, aindex] ./ taxfactor;
-        xlabel = L"Reputation $\phi$",
-        ylabel = "USD / tCO2e",
-        label = L"Non-committed tax $\tau$",
-        linewidth = 2.,
-        title = @sprintf("t = %.1f", policytime),
-    )
-    plot!(
-        taxfigure,
-        φgrid,
-        policies.expectedtax[:, mindex, aindex] ./ taxfactor;
-        label = L"Expected current tax $\tau^e$",
-        linewidth = 2.,
-    )
-    hline!(
-        taxfigure,
-        [committedtaxatpolicy / taxfactor];
-        label = L"Committed tax $\tau^c$",
-        linestyle = :dash,
-    )
+## Save 
+filename = solutionlabel(climate, government, firm, signal)
+savepath = "data/solutions/uncommitted/"
 
-    investmentfigure = plot(
-        φgrid,
-        policies.investment[:, mindex, aindex];
-        xlabel = L"Reputation $\phi$",
-        ylabel = "GtCO2e / year²",
-        label = L"Investment $u$",
-        linewidth = 2.,
-        title = @sprintf("m = %.1f, a = %.1f", mgrid[mindex], agrid[aindex]),
-    )
+solutionpath = joinpath(savepath, "$filename.jld2")
 
-    plot(taxfigure, investmentfigure; layout = (1, 2), size = (900, 360), margins = 5Plots.mm)
+JLD2.jldopen(solutionpath, "w") do file
+    @pack! file = solution, grid, firm, government, climate, signal, taxmethod
 end

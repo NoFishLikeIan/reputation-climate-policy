@@ -109,7 +109,7 @@ end
 
 ## Save 
 savelabel = solutionlabel(climate, government, firm)
-savepath = "data/solutions/singular/"
+savepath = "data/solutions/committed/"
 
 filename = joinpath(savepath, "$savelabel.jld2")
 
