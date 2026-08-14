@@ -79,8 +79,7 @@ solutions = SciMLBase.EnsembleSolution[]
 policyensembles = EnsemblePolicy[] 
 for φ₀ in φs
     Printf.@printf "Solving φ₀ = %.1f\r" φ₀
-    x₀ = SA.SVector(φ₀, climate.m₀, firm.a₀)
-    sol = SDE.solve(ensembleproblem, SDE.SOSRI(); u0 = x₀, trajectories = 10_000)
+    sol = SDE.solve(ensembleproblem, SDE.SOSRI(); u0 = SA.SVector(φ₀, climate.m₀, firm.a₀), trajectories = 500)
 
     policyensemble = Vector{NTuple{3, Float64}}[]
     for soli in sol.u
