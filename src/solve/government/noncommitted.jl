@@ -51,45 +51,6 @@ function NonCommittedParameters(τᶜ, horizon, grid::NonCommittedGrid,firm::Fir
     return NonCommittedParameters(τᶜ, horizon, firm, government, signal, climate, grid, scaling, taxmethod)
 end
 
-struct CommittedTaxPath{TI, T}
-    active::TI
-    activeterminal::T
-    terminal::T
-    tailtax::T
-    taildecay::T
-
-    function CommittedTaxPath(active::TI, activeterminal::T, terminal, terminalabatement, firm::Firm, government::Government) where {TI, T}
-        tailtax = committedtailtax(zero(T), terminalabatement, firm, government)
-        taildecay = firm.r - government.r
-
-        return new{TI, T}(active, activeterminal, terminal, tailtax, taildecay)
-    end
-end
-function (path::CommittedTaxPath{TI, T})(t) where {TI, T}
-    if t < path.activeterminal
-        return path.active(t)
-    elseif path.activeterminal ≤ t ≤ path.terminal
-        decay = exp( -path.taildecay * (t - path.activeterminal))
-        return path.tailtax * decay
-    else
-        return zero(T)
-    end
-end
-Base.eltype(::CommittedTaxPath{TI, T}) where {TI, T} = T
-
-
-function committedtaxterminal(activeterminal::T, terminalabatement, firm::Firm, government::Government; tolerance = 0.1taxfactor) where T
-    tailtax = committedtailtax(zero(T), terminalabatement, firm, government)
-
-    if tailtax ≤ tolerance
-        return activeterminal
-    end
-
-    taildecay = firm.r - government.r
-
-    return activeterminal + log(tailtax / tolerance) / taildecay
-end
-
 function noncommittedviews(x, grid::NonCommittedGrid)
     n = length(grid)
     q = reshape(view(x, 1:n), size(grid))
@@ -99,20 +60,6 @@ function noncommittedviews(x, grid::NonCommittedGrid)
 end
 
 ## Policies
-function noncommittedexpectedtax(φ, τ, τᶜ)
-    φ * τᶜ + (1 - φ) * τ
-end
-
-function noncommittedinvestment(q::T, a, firm::Firm) where T
-    if iszero(e(a, firm))
-        return zero(T)
-    end
-
-    investment = (q / firm.r - c(a, firm)) / firm.ξ
-
-    return max(investment, zero(T))
-end
-
 function noncommittedtaxcoefficient(∂ᵩW, _, φ, signal::Signal, ::OneShotTax)
     -φ * (1 - φ) * (signal.ϵ / signal.σ)^2 * ∂ᵩW
 end
@@ -232,10 +179,6 @@ function firminvestmentgap(q, a, u, firm::Firm)
     q - firm.r * (c(a, firm) + firm.ξ * u)
 end
 
-function noncommittedflowcost(a, m, u, τ, firm::Firm, government::Government, climate::Climate)
-    government.y₀ * d(m, climate) + l(τ, government) + investmentcost(a, u, firm)
-end
-
 ## Finite differences
 @inline function forwardmderivative(x, i, j, k, grid::NonCommittedGrid)
     # The upper boundary should be placed beyond the states reachable before T.
@@ -311,48 +254,49 @@ function noncommittedreversedrift!(dx::TX, x, parameters::NonCommittedParameters
     calendartime = noncommittedcalendar(s, parameters)
     τᶜₜ  = τᶜ(calendartime)
 
-    @inbounds for k in eachindex(grid.agrid), j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
-        φ = grid.φgrid[i]
-        m = grid.mgrid[j]
-        a = grid.agrid[k]
+    Threads.@threads for k in eachindex(grid.agrid)
+        @inbounds for j in eachindex(grid.mgrid), i in eachindex(grid.φgrid)
+            φ = grid.φgrid[i]
+            m = grid.mgrid[j]
+            a = grid.agrid[k]
 
-        if iszero(φ)
-            dqnormalised[i, j, k] = zero(T)
-            dWnormalised[i, j, k] = zero(T)
-            continue
+            if iszero(φ)
+                dqnormalised[i, j, k] = zero(T)
+                dWnormalised[i, j, k] = zero(T)
+                continue
+            end
+
+            q = scaling.q * qnormalised[i, j, k]
+            W = scaling.W * Wnormalised[i, j, k]
+
+            ∂ₘq = scaling.q * forwardmderivative(qnormalised, i, j, k, grid)
+            ∂ₐq = scaling.q * forwardaderivative(qnormalised, i, j, k, grid)
+            ∂ᵩᵩq = scaling.q * centralφsecondderivative(qnormalised, i, j, k, grid)
+
+            ∂ₘW = scaling.W * forwardmderivative(Wnormalised, i, j, k, grid)
+            ∂ₐW = scaling.W * forwardaderivative(Wnormalised, i, j, k, grid)
+            ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
+            ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
+
+            u = investmentpolicy(q, a, firm)
+            τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
+            τᵉ = firmexpectedtax(φ, τ, τᶜₜ )
+
+            signaltonoise = χ(τ, τᶜₜ , signal)
+            bᵩ = beliefdrift(signaltonoise, φ)
+            σᵩ = beliefdiffusion(signaltonoise, φ)
+
+            dq = firmmarginalvaluedrift(
+                q, a, u, τᵉ, ∂ₘq, ∂ₐq, ∂ᵩᵩq, σᵩ, firm
+            )
+            dW = governmentvaluedrift(
+                W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩᵩW, bᵩ, σᵩ,
+                firm, government, climate
+            )
+
+            dqnormalised[i, j, k] = horizon * dq / scaling.q
+            dWnormalised[i, j, k] = iszero(cumulativeemissionsdrift(a, firm)) ? zero(T) : horizon * dW / scaling.W
         end
-
-        q = scaling.q * qnormalised[i, j, k]
-        W = scaling.W * Wnormalised[i, j, k]
-
-        ∂ₘq = scaling.q * forwardmderivative(qnormalised, i, j, k, grid)
-        ∂ₐq = scaling.q * forwardaderivative(qnormalised, i, j, k, grid)
-        ∂ᵩᵩq = scaling.q * centralφsecondderivative(qnormalised, i, j, k, grid)
-
-        ∂ₘW = scaling.W * forwardmderivative(Wnormalised, i, j, k, grid)
-        ∂ₐW = scaling.W * forwardaderivative(Wnormalised, i, j, k, grid)
-        ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
-        ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
-
-        u = noncommittedinvestment(q, a, firm)
-        τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
-        τᵉ = noncommittedexpectedtax(φ, τ, τᶜₜ )
-
-        signaltonoise = χ(τ, τᶜₜ , signal)
-        bᵩ = beliefdrift(signaltonoise, φ)
-        σᵩ = beliefdiffusion(signaltonoise, φ)
-
-        dq = -firm.r * q + firm.r * (τᵉ - c′(a, firm) * u) +
-            e(a, firm) * ∂ₘq + u * ∂ₐq + σᵩ^2 * ∂ᵩᵩq / 2
-
-        flowcost = noncommittedflowcost(a, m, u, τ, firm, government, climate)
-
-        dW = -government.r * W + government.r * flowcost +
-            e(a, firm) * ∂ₘW + u * ∂ₐW +
-            bᵩ * ∂ᵩW + σᵩ^2 * ∂ᵩᵩW / 2
-
-        dqnormalised[i, j, k] = horizon * dq / scaling.q
-        dWnormalised[i, j, k] = iszero(e(a, firm)) ? zero(T) : horizon * dW / scaling.W
     end
 
     return dx
@@ -364,26 +308,36 @@ function noncommittedjacobianprototype(grid::NonCommittedGrid)
     I = Int[]
     J = Int[]
 
-    sizehint!(I, 28n)
-    sizehint!(J, 28n)
+    sizehint!(I, 14n)
+    sizehint!(J, 14n)
 
     @inbounds for k in 1:nₐ, j in 1:nₘ, i in 1:nᵠ
         node = i + (j - 1) * nᵠ + (k - 1) * nᵠ * nₘ
-        neighbours = Int[node]
+        statecolumns = Int[node]
+        taxcolumns = Int[node]
 
-        i > 1 && push!(neighbours, node - 1)
-        i < nᵠ && push!(neighbours, node + 1)
-        j > 1 && push!(neighbours, node - nᵠ)
-        j < nₘ && push!(neighbours, node + nᵠ)
-        k > 1 && push!(neighbours, node - nᵠ * nₘ)
-        k < nₐ && push!(neighbours, node + nᵠ * nₘ)
+        i > 1 && push!(statecolumns, node - 1)
+        i < nᵠ && push!(statecolumns, node + 1)
+        j < nₘ && push!(statecolumns, node + nᵠ)
+        k < nₐ && push!(statecolumns, node + nᵠ * nₘ)
 
-        for row in (node, n + node), column in neighbours
-            push!(I, row)
+        i > 1 && push!(taxcolumns, node - 1)
+        i < nᵠ && push!(taxcolumns, node + 1)
+
+        for column in statecolumns
+            push!(I, node)
             push!(J, column)
-            push!(I, row)
+            push!(I, n + node)
             push!(J, n + column)
         end
+
+        for column in taxcolumns
+            push!(I, node)
+            push!(J, n + column)
+        end
+
+        push!(I, n + node)
+        push!(J, node)
     end
 
     T = eltypes(grid)
@@ -424,9 +378,9 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
 
         taxcoefficient[i, j, k] = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
         taxcurvature[i, j, k] = government.r * government.δ + taxcoefficient[i, j, k]
-        investment[i, j, k] = noncommittedinvestment(q, a, firm)
+        investment[i, j, k] = investmentpolicy(q, a, firm)
         tax[i, j, k] = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ, signal, government, taxmethod)
-        expectedtax[i, j, k] = noncommittedexpectedtax(φ, tax[i, j, k], τᶜₜ)
+        expectedtax[i, j, k] = firmexpectedtax(φ, tax[i, j, k], τᶜₜ)
     end
 
     return (; investment, tax, expectedtax, taxcoefficient, taxcurvature)
@@ -497,7 +451,7 @@ function noncommittedkktdiagnostics(x::TX, parameters::NonCommittedParameters, s
         taxresidual = residuals.taxresidual[i, j, k]
         taxcoefficient = policies.taxcoefficient[i, j, k]
 
-        if !iszero(e(a, firm))
+        if !iszero(cumulativeemissionsdrift(a, firm))
             firmviolation = max(firmviolation, investmentgap)
             complementarity = max(
                 complementarity, abs(u * investmentgap)

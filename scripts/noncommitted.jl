@@ -10,6 +10,7 @@ import JLD2
 import UnPack: @unpack, @pack! 
 
 # Linear algebra
+import LinearSolve
 import SparseArrays
 import StaticArrays as SA
 
@@ -25,10 +26,13 @@ includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 includet("../src/primitives/climate.jl")
 
-includet("../src/dynamics/state.jl")
-
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
+
+includet("../src/dynamics/state.jl")
+includet("../src/dynamics/belief.jl")
+includet("../src/dynamics/firm.jl")
+includet("../src/dynamics/government.jl")
 
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
@@ -82,7 +86,7 @@ taxswitch = (terminal - activeterminal) / terminal
 tstops = taxswitch > 0 ?  [taxswitch] : typeof(taxswitch)[]
 
 problem = noncommittedproblem(parameters)
-algorithm = BDF.FBDF()
+algorithm = BDF.FBDF(linsolve = LinearSolve.KrylovJL_GMRES(), concrete_jac = false)
 verbosity = DiffEqBase.DEVerbosity(SciMLLogging.None())
 solution = ODE.solve(problem, algorithm; abstol = 1e-6, reltol = 1e-6, verbose = verbosity)
 

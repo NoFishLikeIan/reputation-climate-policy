@@ -129,21 +129,15 @@ function committedtax(λᵤ, firm::Firm, government::Government)
     λᵤ / (government.r * government.δ * firm.ξ)
 end
 
-function committedacceleration(a, u, τ, firm::Firm)
-    firm.r * u + (firm.r * c(a, firm) - τ) / firm.ξ
-end
-
-function committedflowcost(a, m, u, τ, firm::Firm, government::Government, climate::Climate)
-    government.y₀ * d(m, climate) + l(τ, government) + investmentcost(a, u, firm)
-end
-
 function committedhamiltonian(x, firm::Firm, government::Government, climate::Climate)
     m, a, u, λₘ, λₐ, λᵤ, _ = x
     τ = committedtax(λᵤ, firm, government)
-    v = committedacceleration(a, u, τ, firm)
-    flowcost = committedflowcost(a, m, u, τ, firm, government, climate)
+    v = investmentratedrift(a, u, τ, firm)
+    flowcost = transitionflowcost(a, m, u, τ, firm, government, climate)
 
-    return government.r * flowcost + λₘ * e(a, firm) + λₐ * u + λᵤ * v
+    return government.r * flowcost +
+        λₘ * cumulativeemissionsdrift(a, firm) +
+        λₐ * abatementdrift(u) + λᵤ * v
 end
 
 "Canonical system in calendar time"
@@ -152,22 +146,15 @@ function committeddrift(x, parameters, _)
     m, a, u, λₘ, λₐ, λᵤ, P = x
 
     τ = committedtax(λᵤ, firm, government)
-    v = committedacceleration(a, u, τ, firm)
-    flowcost = committedflowcost(a, m, u, τ, firm, government, climate)
+    flowcost = transitionflowcost(a, m, u, τ, firm, government, climate)
 
-    dm = e(a, firm)
-    da = u
-    du = v
-    dλₘ = government.r * (λₘ - government.y₀ * d′(m, climate))
-    dλₐ = (
-        government.r * λₐ - government.r * c′(a, firm) * u + λₘ -
-        firm.r * c′(a, firm) * λᵤ / firm.ξ
-    )
-    dλᵤ = (
-        (government.r - firm.r) * λᵤ -
-        government.r * (c(a, firm) + firm.ξ * u) - λₐ
-    )
-    dP = government.r * (P - flowcost)
+    dm = cumulativeemissionsdrift(a, firm)
+    da = abatementdrift(u)
+    du = investmentratedrift(a, u, τ, firm)
+    dλₘ = cumulativeemissionscostatedrift(λₘ, m, government, climate)
+    dλₐ = abatementcostatedrift(λₘ, λₐ, λᵤ, a, u, firm, government)
+    dλᵤ = investmentratecostatedrift(λₐ, λᵤ, a, u, firm, government)
+    dP = annualisedcostdrift(P, flowcost, government)
 
     return SA.SVector(dm, da, du, dλₘ, dλₐ, dλᵤ, dP)
 end
@@ -229,11 +216,17 @@ function committedinitialguess(s, p::CommittedPathParameters)
     _, _, totalabatement = committedinitialprofile(one(s))
     Δa = y.ā - firm.a₀
 
-    m = climate.m₀ + y.t̄ * (e(firm.a₀, firm) * s - Δa * cumulativeabatement)
+    m = climate.m₀ + y.t̄ * (
+        cumulativeemissionsdrift(firm.a₀, firm) * s -
+        Δa * cumulativeabatement
+    )
     
     a = firm.a₀ + Δa * progress
     u = Δa * investmentrate / y.t̄
-    m̄ = climate.m₀ + y.t̄ * (e(firm.a₀, firm) - Δa * totalabatement)
+    m̄ = climate.m₀ + y.t̄ * (
+        cumulativeemissionsdrift(firm.a₀, firm) -
+        Δa * totalabatement
+    )
 
     λₘ = ∂ₘV₃(y.ā, m̄, firm, government, climate)
     λₐ = zero(λₘ)
@@ -283,16 +276,6 @@ function committedobjective(y::CommittedState, (parameters, scaling))
     return committedvalue(solution, pathparameters)
 end
 
-function committedtailtax(t, ā, firm::Firm, government::Government)
-    if !iszero(e(ā, firm))
-        initialtax = (2firm.r - government.r) * c(ā, firm)
-
-        return initialtax * exp(-(firm.r - government.r) * t)
-    end
-
-    return zero(ā)
-end
-
 function committedtailpath(
     terminal, y::CommittedState, parameters::CommittedParameters;
     horizon = 100., dt = 0.5
@@ -302,7 +285,11 @@ function committedtailpath(
     elapsedtime = range(0., horizon; step = dt)
 
     states = map(elapsedtime) do t
-        SA.SVector(m̄ + e(y.ā, firm) * t, y.ā, zero(y.ā))
+        SA.SVector(
+            m̄ + cumulativeemissionsdrift(y.ā, firm) * t,
+            y.ā,
+            zero(y.ā)
+        )
     end
     taxes = map(t -> committedtailtax(t, y.ā, firm, government), elapsedtime)
     time = @. y.t̄ + elapsedtime

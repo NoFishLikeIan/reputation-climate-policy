@@ -32,10 +32,12 @@ includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 includet("../src/primitives/climate.jl")
 
-includet("../src/dynamics/state.jl")
-
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
+
+includet("../src/dynamics/state.jl")
+includet("../src/dynamics/firm.jl")
+includet("../src/dynamics/government.jl")
 
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
