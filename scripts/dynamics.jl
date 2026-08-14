@@ -1,12 +1,19 @@
 using Revise
 
+import Printf
 import JLD2
 import UnPack: @unpack 
 import OrdinaryDiffEq as ODE
 import SciMLBase
 import FastInterpolations as Itp
 
-using Plots
+import LinearSolve
+import SparseArrays
+import StaticArrays as SA
+import StochasticDiffEq as SDE
+import OrdinaryDiffEq as ODE
+
+using Plots, LaTeXStrings
 Plots.default(dpi = 180, label = false, linewidth = 2.)
 
 includet("../src/primitives/constants.jl")
@@ -15,6 +22,11 @@ includet("../src/primitives/climate.jl")
 
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
+
+includet("../src/dynamics/state.jl")
+includet("../src/dynamics/belief.jl")
+includet("../src/dynamics/firm.jl")
+includet("../src/dynamics/government.jl")
 
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
@@ -51,6 +63,7 @@ parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, sig
 ## Simulate path
 function policy(t, x, solution, parameters::NonCommittedParameters, grid::NonCommittedGrid)
     φ, m, a = x
+
     s = noncommittedreversetime(t, parameters)
 
     policystate = solution(s)
@@ -58,11 +71,55 @@ function policy(t, x, solution, parameters::NonCommittedParameters, grid::NonCom
     
     τₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid), policies.tax, (φ, m, a))
     τᶜₜ = parameters.τᶜ(t)
-    uₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid), policies.investment, (φ, m, a))    
+    uₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid), policies.investment, (φ, m, a))  
 
     return (τₜ, τᶜₜ, uₜ)
 end
 
-φ₀ = rand()
-x₀ = (φ₀, climate.m₀, firm.a₀)
+function dynamicdrift(x, dynamicparameters, t)
+    solution, parameters, grid = dynamicparameters
+    φ = clamp(x[1], 0, 1)
+    m = x[2]
+    a = x[3]
 
+    τₜ, τᶜₜ, uₜ = policy(t, (φ, m, a), solution, parameters, grid)
+
+    dφ = beliefdrift(χ(τₜ, τᶜₜ, parameters.signal), φ)
+    dm = cumulativeemissionsdrift(a, parameters.firm)
+    da = uₜ
+
+    return SA.SVector(dφ, dm, da)
+end
+
+function dynamicnoise(x, dynamicparameters, t)
+    solution, parameters, grid = dynamicparameters
+    φ = clamp(x[1], 0, 1)
+    m = x[2]
+    a = x[3]
+
+    τₜ, τᶜₜ, _ = policy(t, (φ, m, a), solution, parameters, grid)
+    σᵩ = beliefdiffusion(χ(τₜ, τᶜₜ, parameters.signal), φ)
+    
+    return SA.SVector(σᵩ, 0, 0)
+end
+
+x₀ = SA.SVector(0.5, climate.m₀, firm.a₀)
+dynamicparameters = (solution, parameters, grid);
+
+dynamicfn = SDE.SDEFunction{false}(dynamicdrift, dynamicnoise)
+dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, parameters.horizon), dynamicparameters)
+φs = (0.1, 0.5, 0.75, 0.9, 1.0)
+solutions = [SDE.solve(dynamicprob, SDE.SRIW1(); u0 = SA.SVector(φ₀, climate.m₀, firm.a₀)) for φ₀ in φs];
+
+begin
+    abatementfig = hline(ylims = (0, firm.e₀), xlabel = L"t", ylabel = L"a")
+    belieffigure = hline(ylims = (0, 1), xlabel = L"t", ylabel = L"\phi")
+
+    for (i, φ₀) in enumerate(φs)
+        dynamicsol = solutions[i]
+        plot!(abatementfig, dynamicsol; idxs = 3, label = φ₀)
+        plot!(belieffigure, dynamicsol; idxs = 1, label = φ₀)
+    end
+
+    plot(belieffigure, abatementfig; margins = 5Plots.mm, size = 500 .* (2√2, 1))
+end

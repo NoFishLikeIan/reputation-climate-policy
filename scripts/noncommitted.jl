@@ -42,7 +42,7 @@ includet("../src/solve/government/noncommitted.jl")
 
 ## Load committed problem
 firm = Firm()
-government = Government()
+government = Government(δ = 0.)
 climate = Climate()
 
 signal = Signal()

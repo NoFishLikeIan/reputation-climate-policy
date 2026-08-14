@@ -50,7 +50,7 @@ const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
 firm = Firm()
-government = Government()
+government = Government(δ = 0.)
 climate = Climate()
 
 parameters = CommittedParameters(firm, government, climate)
