@@ -13,7 +13,8 @@ import StaticArrays as SA
 import StochasticDiffEq as SDE
 import OrdinaryDiffEq as ODE
 
-using Plots, LaTeXStrings
+import LaTeXStrings: @L_str
+import Plots
 Plots.default(dpi = 180, label = false, linewidth = 2.)
 
 includet("../src/primitives/constants.jl")
@@ -33,6 +34,8 @@ includet("../src/utils/saving.jl")
 
 includet("../src/solve/government/committed.jl")
 includet("../src/solve/government/noncommitted.jl")
+
+includet("../src/dynamics/simulation.jl")
 
 ## Load problem
 ## Save 
@@ -59,67 +62,64 @@ activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = I
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
 parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
+policies = constructpolicies(solution, parameters, grid)
 
 ## Simulate path
-function policy(t, x, solution, parameters::NonCommittedParameters, grid::NonCommittedGrid)
-    φ, m, a = x
-
-    s = noncommittedreversetime(t, parameters)
-
-    policystate = solution(s)
-    policies = noncommittedpolicies(policystate, parameters, s)
-    
-    τₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid), policies.tax, (φ, m, a))
-    τᶜₜ = parameters.τᶜ(t)
-    uₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid), policies.investment, (φ, m, a))  
-
-    return (τₜ, τᶜₜ, uₜ)
-end
-
-function dynamicdrift(x, dynamicparameters, t)
-    solution, parameters, grid = dynamicparameters
-    φ = clamp(x[1], 0, 1)
-    m = x[2]
-    a = x[3]
-
-    τₜ, τᶜₜ, uₜ = policy(t, (φ, m, a), solution, parameters, grid)
-
-    dφ = beliefdrift(χ(τₜ, τᶜₜ, parameters.signal), φ)
-    dm = cumulativeemissionsdrift(a, parameters.firm)
-    da = uₜ
-
-    return SA.SVector(dφ, dm, da)
-end
-
-function dynamicnoise(x, dynamicparameters, t)
-    solution, parameters, grid = dynamicparameters
-    φ = clamp(x[1], 0, 1)
-    m = x[2]
-    a = x[3]
-
-    τₜ, τᶜₜ, _ = policy(t, (φ, m, a), solution, parameters, grid)
-    σᵩ = beliefdiffusion(χ(τₜ, τᶜₜ, parameters.signal), φ)
-    
-    return SA.SVector(σᵩ, 0, 0)
-end
-
 x₀ = SA.SVector(0.5, climate.m₀, firm.a₀)
-dynamicparameters = (solution, parameters, grid);
+dynamicparameters = (policies, parameters, grid);
 
 dynamicfn = SDE.SDEFunction{false}(dynamicdrift, dynamicnoise)
 dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, parameters.horizon), dynamicparameters)
-φs = (0.1, 0.5, 0.75, 0.9, 1.0)
-solutions = [SDE.solve(dynamicprob, SDE.SRIW1(); u0 = SA.SVector(φ₀, climate.m₀, firm.a₀)) for φ₀ in φs];
+ensembleproblem = SDE.EnsembleProblem(dynamicprob)
+
+φs = [0.1, 0.2, 0.5, 0.75, 0.9, 1.0]
+
+solutions = SciMLBase.EnsembleSolution[] 
+for φ₀ in φs
+    Printf.@printf "Solving φ₀ = %.1f\r" φ₀
+    x₀ = SA.SVector(φ₀, climate.m₀, firm.a₀)
+    sol = SDE.solve(ensembleproblem, SDE.SOSRI(); u0 = x₀, trajectories = 10_000)
+
+    push!(solutions, sol)
+end
+
+##
+figurepath = joinpath("figures", solutionlabel(climate, government, firm, signal))
+
+!ispath(figurepath) && mkpath(figurepath)
 
 begin
-    abatementfig = hline(ylims = (0, firm.e₀), xlabel = L"t", ylabel = L"a")
-    belieffigure = hline(ylims = (0, 1), xlabel = L"t", ylabel = L"\phi")
+    nφ = length(φs)
+    beliefcolors = Plots.palette(:Dark2_3, nφ)
+    beliefsfigures = Plots.Plot[]
+    concentrationfigures = Plots.Plot[]
+    abatemnetfigures = Plots.Plot[]
 
     for (i, φ₀) in enumerate(φs)
+        belieffigure = Plots.hline(ylims = (0, 1), xlabel = "Year", title = L"$\phi_0 = %$(φ₀)$")
+        concentrationfig = Plots.hline(ylims = extrema(grid.mgrid), xlabel = "Year", ylabel = "GtCO2", title = L"$\phi_0 = %$(φ₀)$")
+        abatementfigure = Plots.hline(ylims = (0, firm.e₀), xlabel = "Year", ylabel = "GtCO2 per year", title = L"$\phi_0 = %$(φ₀)$")
+
         dynamicsol = solutions[i]
-        plot!(abatementfig, dynamicsol; idxs = 3, label = φ₀)
-        plot!(belieffigure, dynamicsol; idxs = 1, label = φ₀)
+        Plots.plot!(belieffigure, dynamicsol; idxs = 1, alpha = 0.25, c = beliefcolors[i])
+        Plots.plot!(concentrationfig, dynamicsol; idxs = 2, alpha = 0.25, c = beliefcolors[i])
+        Plots.plot!(abatementfigure, dynamicsol; idxs = 3, alpha = 0.25, c = beliefcolors[i])
+
+        push!(beliefsfigures, belieffigure)
+        push!(concentrationfigures, concentrationfig)
+        push!(abatemnetfigures, abatementfigure)
     end
 
-    plot(belieffigure, abatementfig; margins = 5Plots.mm, size = 500 .* (2√2, 1))
+    rows = isqrt(nφ)
+    columns = nφ - rows
+
+    joinbeliefsfigure = Plots.plot(beliefsfigures...; layout = (rows, columns), size = 1000 .* (√2, 1), plot_title = L"Belief $\phi$", ylims = (0, 1))
+    jointconcentrationfig = Plots.plot(concentrationfigures...; layout = (rows, columns), size = 1000 .* (√2, 1), plot_title = L"Concentration $m$", ylims = extrema(grid.mgrid))
+    jointabatementfigure = Plots.plot(abatemnetfigures...; layout = (rows, columns), size = 1000 .* (√2, 1), plot_title = L"Abatemnet $a$", ylims = (0, firm.e₀))
+
+    Plots.savefig(joinbeliefsfigure, joinpath(figurepath, "beliefs.png"))
+    Plots.savefig(jointconcentrationfig, joinpath(figurepath, "concentration.png"))
+    Plots.savefig(jointabatementfigure, joinpath(figurepath, "abatement.png"))
+
+    println("Saved figures in ", figurepath)
 end
