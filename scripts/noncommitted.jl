@@ -41,11 +41,7 @@ includet("../src/solve/government/committed.jl")
 includet("../src/solve/government/noncommitted.jl")
 
 ## Load committed problem
-firm = Firm()
-government = Government(δ = 0.)
-climate = Climate()
-
-signal = Signal()
+firm, government, signal, climate = initmodels()
 
 committedlabel = solutionlabel(climate, government, firm)
 committedfile = joinpath("data", "solutions", "committed", "$committedlabel.jld2")

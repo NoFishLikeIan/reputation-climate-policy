@@ -9,55 +9,41 @@ function parameterargumentsettings()
             dest_name = "e₀"
             default = nothing
             help = "Baseline emissions."
-        "--nu", "--ν"
-            arg_type = Float64
-            dest_name = "ν"
-            default = nothing
-            help = "Marginal abatement cost slope."
-        "--omega", "--ω"
-            arg_type = Float64
-            dest_name = "ω"
-            default = nothing
-            help = "Free abatement share."
-        "--lresidual0", "--lresidual₀"
-            arg_type = Float64
-            dest_name = "lresidual₀"
-            default = nothing
-            help = "Benchmark annual residual-exposure stranded-assets loss share."
-        "--lretirement0", "--lretirement₀", "--l0", "--l₀"
-            arg_type = Float64
-            dest_name = "lretirement₀"
-            default = nothing
-            help = "Net-zero annual accelerated-retirement stranded-assets loss share."
-        "--residualdelta", "--residualδ", "--delta", "--δ"
-            arg_type = Float64
-            dest_name = "δresidual"
-            default = nothing
-            help = "Dimensionless residual-exposure stranded-assets parameter."
-        "--retirementdelta", "--retirementδ"
-            arg_type = Float64
-            dest_name = "δretirement"
-            default = nothing
-            help = "Dimensionless accelerated-retirement stranded-assets parameter, calibrated at net zero."
         "--a0", "--a₀"
             arg_type = Float64
             dest_name = "a₀"
             default = nothing
             help = "Benchmark abatement."
+        "--kappa", "--κ"
+            arg_type = Float64
+            dest_name = "κ"
+            default = nothing
+            help = "Marginal abatement cost slope."
         "--xi", "--ξ"
             arg_type = Float64
             dest_name = "ξ"
             default = nothing
             help = "Investment-rate adjustment cost."
+        "--firm-discount", "--firm-r"
+            arg_type = Float64
+            dest_name = "firm_r"
+            default = nothing
+            help = "Firm discount rate."
         "--y0", "--y₀"
             arg_type = Float64
             dest_name = "y₀"
             default = nothing
             help = "Output."
-        "--r"
+        "--government-discount", "--government-r", "--r"
             arg_type = Float64
+            dest_name = "government_r"
             default = nothing
-            help = "Discount rate."
+            help = "Government discount rate."
+        "--delta", "--δ"
+            arg_type = Float64
+            dest_name = "δ"
+            default = nothing
+            help = "Government tax-adjustment cost coefficient."
         "--epsilon", "--eps", "--ϵ", "--ε"
             arg_type = Float64
             dest_name = "ϵ"
@@ -78,6 +64,11 @@ function parameterargumentsettings()
             dest_name = "ζ"
             default = nothing
             help = "TCRE."
+        "--m0", "--m₀"
+            arg_type = Float64
+            dest_name = "m₀"
+            default = nothing
+            help = "Initial cumulative emissions."
     end
 
     return settings
@@ -101,24 +92,18 @@ end
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
 
-    firmkwargs = parameterkwargs(parsed, (:e₀, :ν, :ω, :lresidual₀, :lretirement₀, :a₀, :ξ))
-    government = Government(; parameterkwargs(parsed, (:y₀, :r))...)
+    firmkwargs = parameterkwargs(parsed, (:e₀, :a₀, :κ, :ξ))
+    firmr = get(parsed, :firm_r, nothing)
+    firmr === nothing || (firmkwargs[:r] = firmr)
 
-    δresidual = get(parsed, :δresidual, nothing)
-    if δresidual !== nothing
-        benchmarkfirm = Firm(; firmkwargs...)
-        firmkwargs[:lresidual₀] = residualshare(δresidual, government, benchmarkfirm)
-    end
-
-    δretirement = get(parsed, :δretirement, nothing)
-    if δretirement !== nothing
-        benchmarkfirm = Firm(; firmkwargs...)
-        firmkwargs[:lretirement₀] = retirementshare(δretirement, government, benchmarkfirm)
-    end
+    governmentkwargs = parameterkwargs(parsed, (:y₀, :δ))
+    governmentr = get(parsed, :government_r, nothing)
+    governmentr === nothing || (governmentkwargs[:r] = governmentr)
 
     firm = Firm(; firmkwargs...)
+    government = Government(; governmentkwargs...)
     signal = Signal(; parameterkwargs(parsed, (:ϵ, :σ))...)
-    climate = Climate(; parameterkwargs(parsed, (:γ, :ζ))...)
+    climate = Climate(; parameterkwargs(parsed, (:γ, :ζ, :m₀))...)
 
     return firm, government, signal, climate
 end

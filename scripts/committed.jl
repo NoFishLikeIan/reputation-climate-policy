@@ -49,9 +49,7 @@ includet("plotting/utils.jl")
 const SIMPATH = joinpath("data", "solutions")
 
 ## Defaults
-firm = Firm()
-government = Government(δ = 0.)
-climate = Climate()
+firm, government, signal, climate = initmodels()
 
 parameters = CommittedParameters(firm, government, climate)
 scaling = ScalingParameters(parameters)

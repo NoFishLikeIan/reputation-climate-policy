@@ -1,7 +1,7 @@
 Base.@kwdef struct Government{T <: Real}
     y₀::T = y₀
-    r::T = 0.02
-    δ::T = 40.
+    r::T = 0.01
+    δ::T = 30.
 end
 
 function l(τ, government::Government)
