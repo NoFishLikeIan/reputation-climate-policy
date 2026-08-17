@@ -39,12 +39,13 @@ includet("../src/dynamics/simulation.jl")
 
 ## Load problem
 ## Save 
-filename = "e04.190e01_kappa8.453e-02_xi1.718e00_firmdiscount7.000e-02_y01.972e02_r2.000e-02_gamma1.000e-02_zeta4.800e-04_epsilon1.000e00_sigma3.800e-01.jld2"
+firm, government, signal, climate = initmodels()
+filename = "$(solutionlabel(climate, government, firm, signal)).jld2"
 solpath = joinpath("data", "solutions", "uncommitted", filename)
 if !isfile(solpath) throw("File $solpath not found.") end
 
 file = JLD2.jldopen(solpath, "r")
-@unpack solution, grid, firm, government, climate, signal, taxmethod = file
+@unpack solution, grid, taxmethod = file
 close(file)
 
 committedlabel = solutionlabel(climate, government, firm)
