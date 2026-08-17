@@ -41,7 +41,6 @@ includet("../src/dynamics/simulation.jl")
 ## Load problem
 ## Save 
 firm, government, signal, climate = initmodels()
-government = Government(δ = 10.)
 
 taxmethod = OneShotTax()
 filename = solutionfilename(climate, government, firm)
