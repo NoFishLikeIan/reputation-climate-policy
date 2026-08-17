@@ -7,7 +7,7 @@ using Plots
 
 import FastInterpolations as Itp
 import JLD2
-import UnPack: @unpack, @pack! 
+import UnPack: @unpack
 
 # Linear algebra
 import LinearSolve
@@ -43,13 +43,14 @@ includet("../src/solve/government/noncommitted.jl")
 ## Load committed problem
 firm, government, signal, climate = initmodels()
 
-committedlabel = solutionlabel(climate, government, firm)
-committedfile = joinpath("data", "solutions", "committed", "$committedlabel.jld2")
-committedsolution = JLD2.load(committedfile)
+committedfile = joinpath("data", "solutions", solutionfilename(climate, government, firm))
+if !isfile(committedfile)
+    error("Committed solution file $committedfile not found. Run scripts/committed.jl first.")
+end
 
-trajectory = committedsolution["trajectory"]
-committedtaxes = committedsolution["taxes"]
-committedtime = committedsolution["time"]
+trajectory, committedtaxes, committedtime = JLD2.jldopen(committedfile, "r") do file
+    file["trajectory"], file["taxes"], file["time"]
+end
 
 activeterminal = last(committedtime)
 terminalabatement = last(trajectory)[2]
@@ -58,11 +59,7 @@ terminal = committedtaxterminal(activeterminal, terminalabatement, firm, governm
 activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = Itp.ClampExtrap())
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
-taxupperbound = max(maximum(committedtaxes), τᶜ(activeterminal))
-taxmethod = FullGeneratorTax(taxupperbound)
-
-@printf "Using the full-generator tax rule with upper bound %.1f USD / tCO2e\n" taxupperbound / taxfactor
-
+taxmethod = OneShotTax()
 ## State space
 ns = (51, 50, 49)
 
@@ -156,11 +153,11 @@ policycurvaturerange = extrema(policies.taxcurvature)
 )
 
 ## Save 
-filename = solutionlabel(climate, government, firm, signal)
-savepath = "data/solutions/uncommitted/"
+solutionkey = uncommittedsolutionkey(signal, taxmethod)
 
-solutionpath = joinpath(savepath, "$filename.jld2")
-
-JLD2.jldopen(solutionpath, "w") do file
-    @pack! file = solution, grid, firm, government, climate, signal, taxmethod
+JLD2.jldopen(committedfile, "a+") do file
+    file["$solutionkey/solution"] = solution
+    file["$solutionkey/grid"] = grid
+    file["$solutionkey/signal"] = signal
+    file["$solutionkey/taxmethod"] = taxmethod
 end

@@ -81,7 +81,7 @@ objective, yopt, ret = NLopt.optimize(opt, y0)
 yopt = CommittedState(yopt...)
 
 ## Plot optimisation problem
-durationgrid = range(50., 100.; step = 0.5)
+durationgrid = range(10., 100.; step = 0.5)
 abatementgrid = range(firm.a₀, firm.e₀; step = 0.5)
 
 if isinteractive()
@@ -107,10 +107,8 @@ if isinteractive()
 end
 
 ## Save 
-savelabel = solutionlabel(climate, government, firm)
-savepath = "data/solutions/committed/"
-
-filename = joinpath(savepath, "$savelabel.jld2")
+filename = joinpath(SIMPATH, solutionfilename(climate, government, firm))
+ispath(SIMPATH) || mkpath(SIMPATH)
 
 JLD2.jldopen(filename, "w") do file
     @pack! file = trajectory, taxes, time, climate, government, firm

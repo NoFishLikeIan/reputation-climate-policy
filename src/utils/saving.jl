@@ -1,3 +1,5 @@
+import SHA
+
 function parameterstring(x)
     # `string` uses Julia's shortest round-trippable representation for floats,
     # so distinct parameter values are not collapsed by display rounding.
@@ -26,10 +28,49 @@ function solutionlabel(climate::Climate, government::Government, firm::Firm)
     ), "_")
 end
 
-function solutionlabel(climate::Climate, government::Government, firm::Firm, signal::Signal)
+function signallabel(signal::Signal)
     join((
-        solutionlabel(climate, government, firm),
         "epsilon$(parameterstring(signal.ϵ))",
         "sigma$(parameterstring(signal.σ))",
     ), "_")
+end
+
+function solutionlabel(climate::Climate, government::Government, firm::Firm, signal::Signal)
+    join((
+        solutionlabel(climate, government, firm),
+        signallabel(signal),
+    ), "_")
+end
+
+function taxmethodlabel(taxmethod)
+    fields = (
+        "$(field)$(parameterstring(getfield(taxmethod, field)))"
+        for field in fieldnames(typeof(taxmethod))
+    )
+
+    join((string(nameof(typeof(taxmethod))), fields...), "_")
+end
+
+function solutionlabel(
+    climate::Climate,
+    government::Government,
+    firm::Firm,
+    signal::Signal,
+    taxmethod,
+)
+    join((
+        solutionlabel(climate, government, firm, signal),
+        "taxmethod$(taxmethodlabel(taxmethod))",
+    ), "_")
+end
+
+"Short, stable filename determined by every committed-solution parameter."
+function solutionfilename(climate::Climate, government::Government, firm::Firm)
+    digest = bytes2hex(SHA.sha256(solutionlabel(climate, government, firm)))
+    "solution-$digest.jld2"
+end
+
+"JLD2 group containing one signal and tax-method-specific uncommitted solution."
+function uncommittedsolutionkey(signal::Signal, taxmethod)
+    join(("uncommitted", signallabel(signal), taxmethodlabel(taxmethod)), "/")
 end
