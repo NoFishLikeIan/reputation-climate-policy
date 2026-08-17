@@ -2,7 +2,8 @@ function constructpolicies(solution, parameters::NonCommittedParameters, grid::N
     n = length(solution.t)
     investment = Array{Float64}(undef, size(grid)..., n)
     tax = similar(investment)
-    policies = (; tax, investment)
+    sgrid = solution.t
+    policies = (; tax, investment, sgrid)
 
     return constructpolicies!(policies, solution, parameters)
 end
@@ -21,13 +22,17 @@ end
 function policy(t, x, policies, parameters::NonCommittedParameters, grid::NonCommittedGrid; extrap = Itp.ClampExtrap())
     s = noncommittedreversetime(t, parameters)
     φ, m, a = x
-    
-    ninterp = size(policies.tax, 4)
-    sspace = range(0, 1, ninterp)
 
     τᶜₜ = parameters.τᶜ(t)
-    τₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid, sspace), policies.tax, (φ, m, a, s); extrap)
-    uₜ = Itp.linear_interp((grid.φgrid, grid.mgrid, grid.agrid, sspace), policies.investment, (φ, m, a, s); extrap)  
+    interpolationspace = (grid.φgrid, grid.mgrid, grid.agrid, policies.sgrid)
+    state = (φ, m, a, s)
+
+    τₜ = Itp.linear_interp(
+        interpolationspace, policies.tax, state; extrap
+    )
+    uₜ = Itp.linear_interp(
+        interpolationspace, policies.investment, state; extrap
+    )
 
     return (τₜ, τᶜₜ, uₜ)
 end
