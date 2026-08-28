@@ -1,5 +1,8 @@
 using Revise
 
+import DotEnv
+DotEnv.load!()
+
 import JLD2
 import SciMLBase
 import FastInterpolations as Itp
@@ -224,7 +227,8 @@ function plottrajectorysummary!(axis, times, pathtimes, paths; color, scale = id
     return axis
 end
 
-figurepath = joinpath("figures", splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
+plotpath = joinpath(ENV["PLOTPATH"])
+figurepath = joinpath(plotpath, splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
 !ispath(figurepath) && mkpath(figurepath)
 
 ## Committed government

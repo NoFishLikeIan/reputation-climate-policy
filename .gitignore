@@ -362,3 +362,4 @@ data
 .juliaup/juliaup/.juliaup-lock
 
 references
+.env

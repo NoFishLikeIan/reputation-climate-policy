@@ -1,6 +1,9 @@
 ## Setup
 using Revise
 
+import DotEnv
+DotEnv.load!()
+
 import Printf
 import JLD2
 import SciMLBase
@@ -44,7 +47,7 @@ savepublicationfigure = function (basename, figure)
     CairoMakie.save("$basename.png", figure; px_per_unit = 2)
 end
 
-plotpath = "figures/preliminaries"
+plotpath = joinpath(ENV["PLOTPATH"], "preliminaries")
 if !ispath(plotpath) mkpath(plotpath) end
 
 includet("colours.jl")
@@ -132,8 +135,9 @@ begin
     initialtemperature = temperature(climate.m₀, climate)
     emissionsvalues = e.(agrid, Ref(firm))
     initialemissions = e(firm.a₀, firm)
-    initialtaxdollars = τ₀ / taxfactor
-    netzerotaxdollars = firm.r * c(firm.e₀, firm) / taxfactor
+    initialtax = sustainingtax(firm.a₀, firm)
+    initialtaxdollars = initialtax / taxfactor
+    netzerotaxdollars = sustainingtax(firm.e₀, firm) / taxfactor
     taxgrid = range(
         0.0,
         1.05 * max(initialtaxdollars, netzerotaxdollars);
@@ -144,12 +148,11 @@ begin
         firm.e₀,
     )
     initialtaxabatement = min(
-        τ₀ / (firm.r * firm.κ),
+        initialtax / (firm.r * firm.κ),
         firm.e₀,
     )
-    initialabatementtaxdollars = firm.r * c(firm.a₀, firm) / taxfactor
     φgrid = range(0.0, 1.0; length = 501)
-    calibrationtaxgap = τ₀
+    calibrationtaxgap = initialtax
     calibrationχ = χ(zero(calibrationtaxgap), calibrationtaxgap, signal)
     beliefdriftvalues = beliefdrift.(calibrationχ, φgrid)
     beliefdiffusionvalues = beliefdiffusion.(calibrationχ, φgrid)
@@ -203,8 +206,7 @@ begin
         CairoMakie.lines!(axis, taxgrid, longrunabatement; color = defaultpalette[:committed], linewidth = mainlinewidth, label = L"$\tau=r_f c(a)$")
         CairoMakie.vlines!(axis, [initialtaxdollars]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
         CairoMakie.hlines!(axis, [firm.a₀, firm.e₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
-        CairoMakie.scatter!(axis, [initialtaxdollars], [initialtaxabatement]; color = defaultpalette[:abatement], markersize = 14, strokewidth = 0, label = L"Response to $\tau_0$")
-        CairoMakie.scatter!(axis, [initialabatementtaxdollars], [firm.a₀]; color = defaultpalette[:emissions], markersize = 14, strokewidth = 0, label = L"Tax sustaining $a_0$")
+        CairoMakie.scatter!(axis, [initialtaxdollars], [initialtaxabatement]; color = defaultpalette[:abatement], markersize = 14, strokewidth = 0, label = L"Initial sustaining tax")
         CairoMakie.text!(axis, last(taxgrid), firm.e₀; text = "Net zero", align = (:right, :bottom), offset = (0, 4), color = defaultpalette[:guide], fontsize = 14)
         CairoMakie.axislegend(axis; position = :lt)
 
@@ -285,4 +287,63 @@ begin
     end
 
     calibrationfig
+end
+
+
+## Non committed tax coefficient
+begin
+    coefficienttaxmethod = OneShotTax()
+    coefficientbeliefgrid = range(0.0, 1.0; length = 501)
+
+    # At φ = 1/2, this upper bound makes the coefficient equal to one.
+    maximumreputationvalue = 16 * (signal.σ / signal.ϵ)^2
+    reputationvaluegrid = range(0.0, maximumreputationvalue; length = 501)
+    reputationvaluebillions = 1_000 .* reputationvaluegrid
+
+    taxcoefficientpercentage = [
+        100 * inv(1 + government.r * government.δ / noncommittedtaxcoefficient(-p, φ, signal, coefficienttaxmethod,))
+        for φ in coefficientbeliefgrid, p in reputationvaluegrid
+    ]
+    coefficientlevels = range(0.0, 100.0; length = 11)
+
+    coefficientfig = CairoMakie.Figure(size = (520, 340))
+    coefficientaxis = CairoMakie.Axis(
+        coefficientfig[1, 1];
+        xlabel = L"Belief $\phi$",
+        ylabel = L"Value of reputation $p$ [bn USD]",
+        limits = ((0, 1), extrema(reputationvaluebillions)),
+        xticks = 0:0.1:1,
+        yticks = denseyticks,
+    )
+    coefficientplot = CairoMakie.contourf!(
+        coefficientaxis,
+        coefficientbeliefgrid,
+        reputationvaluebillions,
+        taxcoefficientpercentage;
+        levels = coefficientlevels,
+        colormap = :YlGnBu_9,
+    )
+    CairoMakie.contour!(
+        coefficientaxis,
+        coefficientbeliefgrid,
+        reputationvaluebillions,
+        taxcoefficientpercentage;
+        levels = coefficientlevels,
+        color = (:white, 0.45),
+        linewidth = 1.0,
+    )
+    CairoMakie.Colorbar(
+        coefficientfig[1, 2],
+        coefficientplot;
+        label = L"Tax ratio $\tau_t / \tau^{\mathrm{c}}_t$",
+        ticks = 0:20:100,
+        tickformat = values -> [Printf.@sprintf "%.0f%%" value for value in values],
+    )
+
+    savepublicationfigure(
+        joinpath(plotpath, "noncommitted-tax-coefficient"),
+        coefficientfig,
+    )
+
+    coefficientfig
 end

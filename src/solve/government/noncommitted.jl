@@ -65,13 +65,14 @@ function noncommittedviews(x, grid::NonCommittedGrid)
 end
 
 ## Policies
-function noncommittedtaxcoefficient(∂ᵩW, _, φ, signal::Signal, ::OneShotTax)
+function noncommittedtaxcoefficient(∂ᵩW, φ, signal::Signal, ::OneShotTax)
     -φ * (1 - φ) * (signal.ϵ / signal.σ)^2 * ∂ᵩW
 end
-
+function noncommittedtaxcoefficient(∂ᵩW, _, φ, signal::Signal, taxtype::OneShotTax)
+    noncommittedtaxcoefficient(∂ᵩW, φ, signal, taxtype)
+end
 function noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal::Signal, ::FullGeneratorTax)
-    φ^2 * (1 - φ) * (signal.ϵ / signal.σ)^2 *
-    (-2∂ᵩW + (1 - φ) * ∂ᵩᵩW)
+    φ^2 * (1 - φ) * (signal.ϵ / signal.σ)^2 * (-2∂ᵩW + (1 - φ) * ∂ᵩᵩW)
 end
 
 "Minimum-tax solution of the hidden-action condition"

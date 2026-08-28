@@ -173,13 +173,18 @@ end
 
 function initialcondition!(res, x, p::CommittedPathParameters)
     @unpack parameters, scaling = p
-    @unpack firm, climate = parameters
+    @unpack firm, government, climate = parameters
     physical = physicalstate(x, scaling)
     m, a, _, _, _, λᵤ, _ = physical
 
+    # Calibrate the initial tax to keep a = a₀ stationary in the absence of
+    # additional investment, instead of imposing the zero-tax natural boundary.
+    initialtax = sustainingtax(firm.a₀, firm)
+    initialλᵤ = government.r * government.δ * firm.ξ * initialtax
+
     res[1] = (m - climate.m₀) / scaling.scale[1]
     res[2] = (a - firm.a₀) / scaling.scale[2]
-    res[3] = λᵤ / scaling.scale[6]
+    res[3] = (λᵤ - initialλᵤ) / scaling.scale[6]
 
     return
 end
@@ -231,9 +236,11 @@ function committedinitialguess(s, p::CommittedPathParameters)
     λₘ = ∂ₘV₃(y.ā, m̄, firm, government, climate)
     λₐ = zero(λₘ)
     
-    τ = firm.r * c(y.ā, firm)
-    λ̄ᵤ = government.r * government.δ * firm.ξ * τ
-    λᵤ = λ̄ᵤ * progress
+    initialtax = sustainingtax(firm.a₀, firm)
+    terminaltax = sustainingtax(y.ā, firm)
+    initialλᵤ = government.r * government.δ * firm.ξ * initialtax
+    terminalλᵤ = government.r * government.δ * firm.ξ * terminaltax
+    λᵤ = initialλᵤ + (terminalλᵤ - initialλᵤ) * progress
     P = V₃(y.ā, m̄, firm, government, climate)
     physical = SA.MVector(m, a, u, λₘ, λₐ, λᵤ, P)
 
