@@ -20,6 +20,32 @@ import Printf
 import CairoMakie
 import Colors
 
+publicationtheme = CairoMakie.Theme(
+    fontsize = 16,
+    Axis = (;
+        titlesize = 18,
+        titlegap = 8,
+        xlabelsize = 16,
+        ylabelsize = 16,
+        xticklabelsize = 14,
+        yticklabelsize = 14,
+        xgridcolor = (:black, 0.08),
+        ygridcolor = (:black, 0.08),
+        topspinevisible = false,
+        rightspinevisible = false,
+    ),
+    Legend = (;
+        labelsize = 13,
+        framevisible = false,
+    ),
+)
+CairoMakie.set_theme!(publicationtheme)
+
+savepublicationfigure = function (basename, figure)
+    CairoMakie.save("$basename.pdf", figure; pt_per_unit = 1)
+    CairoMakie.save("$basename.png", figure; px_per_unit = 2)
+end
+
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 includet("../../src/primitives/climate.jl")
@@ -89,7 +115,7 @@ plottimes = range(0., endtime - 5.; length = 501)
 startyear = 2025
 plotyears = startyear .+ plottimes
 yearlimits = extrema(plotyears)
-yearticks = startyear:5:floor(Int, last(plotyears))
+yearticks = startyear:10:floor(Int, last(plotyears))
 denseyticks = CairoMakie.LinearTicks(8)
 
 ϵ = 0.025
@@ -127,6 +153,17 @@ for φ₀ in φs
 end
 
 ## Plot
+samplepathlinewidth = 1.0
+medianlinewidth = 3.5
+committedlinewidth = 3.0
+guidelinewidth = 2.0
+samplepathopacity = 0.14
+intervalopacity = 0.22
+paneltitlefontsize = 20
+annotationfontsize = 13
+panelwidth = 300
+panelheight = 320
+
 function trajectoryvalue(t, pathtimes, pathvalues)
     isempty(pathtimes) && return NaN
     (t < first(pathtimes) || t > last(pathtimes)) && return NaN
@@ -171,8 +208,8 @@ function plottrajectorysummary!(axis, times, pathtimes, paths; color, scale = id
             axis,
             pathtimes[pathindex],
             scaledpaths[pathindex];
-            color = (color, 0.10),
-            linewidth = 0.6,
+            color = (color, samplepathopacity),
+            linewidth = samplepathlinewidth,
         )
     end
 
@@ -181,16 +218,14 @@ function plottrajectorysummary!(axis, times, pathtimes, paths; color, scale = id
     median = [isempty(observations(i)) ? NaN : Statistics.median(observations(i)) for i in axes(values, 1)]
     upper = [isempty(observations(i)) ? NaN : Statistics.quantile(observations(i), interval[2]) for i in axes(values, 1)]
 
-    CairoMakie.band!(axis, times, lower, upper; color = (color, 0.18))
-    CairoMakie.lines!(axis, times, median; color = color, linewidth = 2.5, plotkwargs...)
+    CairoMakie.band!(axis, times, lower, upper; color = (color, intervalopacity))
+    CairoMakie.lines!(axis, times, median; color = color, linewidth = medianlinewidth, plotkwargs...)
 
     return axis
 end
 
 figurepath = joinpath("figures", splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
 !ispath(figurepath) && mkpath(figurepath)
-
-axiswidth = 300
 
 ## Committed government
 committedyears = startyear .+ committedtime
@@ -200,11 +235,11 @@ committedtaxdollars = committedtaxes ./ taxfactor
 
 begin
 
-    committedfig = CairoMakie.Figure(size = (√2 * axiswidth) .* (3, 1))
+    committedfig = CairoMakie.Figure(size = (3 * panelwidth, panelheight))
 
-    CairoMakie.Label(committedfig[0, 1], L"$\tau^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
-    CairoMakie.Label(committedfig[0, 2], L"$a^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
-    CairoMakie.Label(committedfig[0, 3], L"$\zeta m^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 1], L"$\tau^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 2], L"$a^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 3], L"$\zeta m^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
 
     committedtaxaxis = CairoMakie.Axis(
         committedfig[1, 1];
@@ -219,7 +254,7 @@ begin
         committedyears,
         committedtaxdollars;
         color = defaultpalette[:committed],
-        linewidth = 2.5,
+        linewidth = medianlinewidth,
     )
 
     committedabatementaxis = CairoMakie.Axis(
@@ -234,15 +269,15 @@ begin
         committedabatementaxis,
         committedyears,
         committedabatement;
-        color = defaultpalette[:abatement],
-        linewidth = 2.5,
+        color = defaultpalette[:committed],
+        linewidth = medianlinewidth,
     )
     CairoMakie.hlines!(
         committedabatementaxis,
         [firm.e₀];
-        color = defaultpalette[:guide],
+        color = defaultpalette[:committed],
         linestyle = :dot,
-        linewidth = 1.5,
+        linewidth = guidelinewidth,
     )
     CairoMakie.text!(
         committedabatementaxis,
@@ -251,8 +286,8 @@ begin
         text = "Net zero",
         align = (:right, :bottom),
         offset = (0, 4),
-        color = defaultpalette[:guide],
-        fontsize = 12,
+        color = defaultpalette[:committed],
+        fontsize = annotationfontsize,
     )
 
     committedtemperatureaxis = CairoMakie.Axis(
@@ -267,8 +302,8 @@ begin
         committedtemperatureaxis,
         committedyears,
         committedtemperatures;
-        color = defaultpalette[:damages],
-        linewidth = 2.5,
+        color = defaultpalette[:committed],
+        linewidth = medianlinewidth,
     )
 
     CairoMakie.linkxaxes!(
@@ -276,7 +311,7 @@ begin
         committedabatementaxis,
         committedtemperatureaxis,
     )
-    CairoMakie.save(joinpath(figurepath, "committed-trajectories.png"), committedfig)
+    savepublicationfigure(joinpath(figurepath, "committed-trajectories"), committedfig)
 
     println("Saved committed-government trajectories in ", figurepath)
 
@@ -294,7 +329,7 @@ begin
 
     columns = nφ ≤ 3 ? nφ : ceil(Int, sqrt(nφ))
     rows = cld(nφ, columns)
-    figuresize = (√2 * axiswidth) .* (columns, 1)
+    figuresize = (columns * panelwidth, rows * panelheight)
 
     beliefsfigjoint = CairoMakie.Figure(size = figuresize)
     beliefvaluefigjoint = CairoMakie.Figure(size = figuresize)
@@ -308,15 +343,15 @@ begin
     abatementaxes = CairoMakie.Axis[]
     taxaxes = CairoMakie.Axis[]
 
-    CairoMakie.Label(beliefsfigjoint[0, 1:columns], L"Belief $\phi$"; fontsize = 24)
+    CairoMakie.Label(beliefsfigjoint[0, 1:columns], L"Belief $\phi$"; fontsize = paneltitlefontsize)
     CairoMakie.Label(
         beliefvaluefigjoint[0, 1:columns],
         L"Value of beliefs $-\phi(1-\phi)\partial_{\phi} u$";
-        fontsize = 24,
+        fontsize = paneltitlefontsize,
     )
-    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $T$"; fontsize = 24)
-    CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = 24)
-    CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = 24)
+    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $T$"; fontsize = paneltitlefontsize)
+    CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = paneltitlefontsize)
+    CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = paneltitlefontsize)
 
     for (i, φ₀) in enumerate(φs)
         Printf.@printf "Plotting φ₀ = %.4f\n" φ₀
@@ -393,7 +428,7 @@ begin
             committedtemperatures;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = 2,
+            linewidth = committedlinewidth,
         )
         CairoMakie.lines!(
             abatementaxis,
@@ -401,14 +436,14 @@ begin
             committedabatement;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = 2,
+            linewidth = committedlinewidth,
         )
         CairoMakie.hlines!(
             abatementaxis,
             [firm.e₀];
             color = defaultpalette[:guide],
             linestyle = :dot,
-            linewidth = 1.5,
+            linewidth = guidelinewidth,
         )
 
         # Policy
@@ -431,7 +466,7 @@ begin
             τᶜtraj;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = 2,
+            linewidth = committedlinewidth,
         )
     end
 
@@ -441,11 +476,11 @@ begin
     CairoMakie.linkyaxes!(abatementaxes)
     CairoMakie.linkyaxes!(taxaxes)
 
-    CairoMakie.save(joinpath(figurepath, "beliefs.png"), beliefsfigjoint)
-    CairoMakie.save(joinpath(figurepath, "belief-value.png"), beliefvaluefigjoint)
-    CairoMakie.save(joinpath(figurepath, "temperature.png"), temperaturefigjoint)
-    CairoMakie.save(joinpath(figurepath, "abatement.png"), abatementfigjoint)
-    CairoMakie.save(joinpath(figurepath, "tax.png"), taxfigjoint)
+    savepublicationfigure(joinpath(figurepath, "beliefs"), beliefsfigjoint)
+    savepublicationfigure(joinpath(figurepath, "belief-value"), beliefvaluefigjoint)
+    savepublicationfigure(joinpath(figurepath, "temperature"), temperaturefigjoint)
+    savepublicationfigure(joinpath(figurepath, "abatement"), abatementfigjoint)
+    savepublicationfigure(joinpath(figurepath, "tax"), taxfigjoint)
 
     println("Saved figures in ", figurepath)
 end
