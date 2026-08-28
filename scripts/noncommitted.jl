@@ -61,7 +61,7 @@ activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = I
 
 taxmethod = OneShotTax()
 ## State space
-ns = (51, 50, 49)
+ns = (101, 50, 49)
 
 φgrid = range(0., 1., ns[1])
 

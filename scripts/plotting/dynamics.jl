@@ -1,7 +1,6 @@
 using Revise
 
 import JLD2
-import OrdinaryDiffEq as ODE
 import SciMLBase
 import FastInterpolations as Itp
 
@@ -11,6 +10,8 @@ import StaticArrays as SA
 import Statistics
 import StochasticDiffEq as SDE
 import OrdinaryDiffEq as ODE
+# import StochasticDiffEqROCK as SROCK
+import StochasticDiffEqImplicit as SDEImpl
 
 import UnPack: @unpack
 import LaTeXStrings: @L_str
@@ -84,16 +85,22 @@ endtime = activeterminal
 dynamicfn = SDE.SDEFunction{false}(dynamicdrift, dynamicnoise)
 dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, endtime), dynamicparameters)
 ensembleproblem = SDE.EnsembleProblem(dynamicprob)
-plottimes = range(0., endtime; length = 501)
+plottimes = range(0., endtime - 5.; length = 501)
 startyear = 2025
 plotyears = startyear .+ plottimes
+yearlimits = extrema(plotyears)
+yearticks = startyear:5:floor(Int, last(plotyears))
+denseyticks = CairoMakie.LinearTicks(8)
 
-φs = [1e-2, 0.2, 0.5, 1 - 1e-2]
+ϵ = 0.025
+φs = [ϵ, 0.5, 1 - ϵ]
 EnsemblePolicy = Vector{Vector{NTuple{3, Float64}}}
+EnsembleBeliefValue = Vector{Vector{Float64}}
 solutions = SciMLBase.EnsembleSolution[]
 policyensembles = EnsemblePolicy[]
+beliefvalueensembles = EnsembleBeliefValue[]
 for φ₀ in φs
-    Printf.@printf "Solving φ₀ = %.1f\r" φ₀
+    Printf.@printf "Solving φ₀ = %.4f\r" φ₀
     sol = SDE.solve(
         ensembleproblem,
         SDE.SOSRI();
@@ -103,13 +110,20 @@ for φ₀ in φs
     )
 
     policyensemble = Vector{NTuple{3, Float64}}[]
+    beliefvalueensemble = Vector{Float64}[]
     for soli in sol.u
         policytraj = [ policy(t, u, policies, parameters, grid) for (t, u) in zip(soli.t, soli.u) ]
+        beliefvaluetraj = [
+            interpolatebeliefvalue(t, u, policies, parameters, grid)
+            for (t, u) in zip(soli.t, soli.u)
+        ]
         push!(policyensemble, policytraj)
+        push!(beliefvalueensemble, beliefvaluetraj)
     end
 
     push!(solutions, sol)
     push!(policyensembles, policyensemble)
+    push!(beliefvalueensembles, beliefvalueensemble)
 end
 
 ## Plot
@@ -176,6 +190,100 @@ end
 figurepath = joinpath("figures", splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
 !ispath(figurepath) && mkpath(figurepath)
 
+axiswidth = 300
+
+## Committed government
+committedyears = startyear .+ committedtime
+committedtemperatures = temperature.(getindex.(trajectory, 1), Ref(climate))
+committedabatement = getindex.(trajectory, 2)
+committedtaxdollars = committedtaxes ./ taxfactor
+
+begin
+
+    committedfig = CairoMakie.Figure(size = (√2 * axiswidth) .* (3, 1))
+
+    CairoMakie.Label(committedfig[0, 1], L"$\tau^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 2], L"$a^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 3], L"$\zeta m^{\mathrm{c}}_t$"; fontsize = 24, tellwidth = false)
+
+    committedtaxaxis = CairoMakie.Axis(
+        committedfig[1, 1];
+        xlabel = "Year",
+        ylabel = "Carbon tax [USD/tCO2e]",
+        limits = (yearlimits, (0, nothing)),
+        xticks = yearticks,
+        yticks = denseyticks,
+    )
+    CairoMakie.lines!(
+        committedtaxaxis,
+        committedyears,
+        committedtaxdollars;
+        color = defaultpalette[:committed],
+        linewidth = 2.5,
+    )
+
+    committedabatementaxis = CairoMakie.Axis(
+        committedfig[1, 2];
+        xlabel = "Year",
+        ylabel = "Abatement [GtCO2e/year]",
+        limits = (yearlimits, (0, 1.05 * firm.e₀)),
+        xticks = yearticks,
+        yticks = denseyticks,
+    )
+    CairoMakie.lines!(
+        committedabatementaxis,
+        committedyears,
+        committedabatement;
+        color = defaultpalette[:abatement],
+        linewidth = 2.5,
+    )
+    CairoMakie.hlines!(
+        committedabatementaxis,
+        [firm.e₀];
+        color = defaultpalette[:guide],
+        linestyle = :dot,
+        linewidth = 1.5,
+    )
+    CairoMakie.text!(
+        committedabatementaxis,
+        last(committedyears),
+        firm.e₀;
+        text = "Net zero",
+        align = (:right, :bottom),
+        offset = (0, 4),
+        color = defaultpalette[:guide],
+        fontsize = 12,
+    )
+
+    committedtemperatureaxis = CairoMakie.Axis(
+        committedfig[1, 3];
+        xlabel = "Year",
+        ylabel = "Temperature [°C]",
+        limits = (yearlimits, nothing),
+        xticks = yearticks,
+        yticks = denseyticks,
+    )
+    CairoMakie.lines!(
+        committedtemperatureaxis,
+        committedyears,
+        committedtemperatures;
+        color = defaultpalette[:damages],
+        linewidth = 2.5,
+    )
+
+    CairoMakie.linkxaxes!(
+        committedtaxaxis,
+        committedabatementaxis,
+        committedtemperatureaxis,
+    )
+    CairoMakie.save(joinpath(figurepath, "committed-trajectories.png"), committedfig)
+
+    println("Saved committed-government trajectories in ", figurepath)
+
+    committedfig
+end
+
+## Noncomitted
 begin
     nφ = length(φs)
     beliefcolormap = CairoMakie.resample_cmap(beliefgradient, 256)
@@ -184,15 +292,28 @@ begin
     ]
     beliefcolors = beliefcolor.(φs)
 
-    columns = ceil(Int, sqrt(nφ))
-    figuresize = (round(Int, 1000 * sqrt(2)), 1000)
+    columns = nφ ≤ 3 ? nφ : ceil(Int, sqrt(nφ))
+    rows = cld(nφ, columns)
+    figuresize = (√2 * axiswidth) .* (columns, 1)
 
     beliefsfigjoint = CairoMakie.Figure(size = figuresize)
+    beliefvaluefigjoint = CairoMakie.Figure(size = figuresize)
     temperaturefigjoint = CairoMakie.Figure(size = figuresize)
     abatementfigjoint = CairoMakie.Figure(size = figuresize)
     taxfigjoint = CairoMakie.Figure(size = figuresize)
 
+    beliefaxes = CairoMakie.Axis[]
+    beliefvalueaxes = CairoMakie.Axis[]
+    temperatureaxes = CairoMakie.Axis[]
+    abatementaxes = CairoMakie.Axis[]
+    taxaxes = CairoMakie.Axis[]
+
     CairoMakie.Label(beliefsfigjoint[0, 1:columns], L"Belief $\phi$"; fontsize = 24)
+    CairoMakie.Label(
+        beliefvaluefigjoint[0, 1:columns],
+        L"Value of beliefs $-\phi(1-\phi)\partial_{\phi} u$";
+        fontsize = 24,
+    )
     CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $T$"; fontsize = 24)
     CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = 24)
     CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = 24)
@@ -208,27 +329,55 @@ begin
         # State
         beliefaxis = CairoMakie.Axis(
             beliefsfigjoint[row, column];
-            limits = (nothing, (0, 1)),
+            limits = (yearlimits, (0, 1)),
             xlabel = "Year",
             title = axistitle,
+            xticks = yearticks,
+            yticks = denseyticks,
+        )
+        beliefvalueaxis = CairoMakie.Axis(
+            beliefvaluefigjoint[row, column];
+            limits = (yearlimits, nothing),
+            xlabel = "Year",
+            ylabel = "Value [bn USD]",
+            title = axistitle,
+            xticks = yearticks,
+            yticks = denseyticks,
         )
         temperatureaxis = CairoMakie.Axis(
             temperaturefigjoint[row, column];
-            limits = (nothing, temperature.(extrema(grid.mgrid), Ref(climate))),
+            limits = (yearlimits, temperature.(extrema(grid.mgrid), Ref(climate))),
             xlabel = "Year",
             ylabel = "°C",
             title = axistitle,
+            xticks = yearticks,
+            yticks = denseyticks,
         )
         abatementaxis = CairoMakie.Axis(
             abatementfigjoint[row, column];
-            limits = (nothing, (0, firm.e₀)),
+            limits = (yearlimits, (0, 1.05 * firm.e₀)),
             xlabel = "Year",
             ylabel = "GtCO2 per year",
             title = axistitle,
+            xticks = yearticks,
+            yticks = denseyticks,
         )
+
+        push!(beliefaxes, beliefaxis)
+        push!(beliefvalueaxes, beliefvalueaxis)
+        push!(temperatureaxes, temperatureaxis)
+        push!(abatementaxes, abatementaxis)
 
         pathyears = [startyear .+ path.t for path in dynamicsol.u]
         plottrajectorysummary!(beliefaxis, plotyears, pathyears, [getindex.(path.u, 1) for path in dynamicsol.u]; color = color)
+        plottrajectorysummary!(
+            beliefvalueaxis,
+            plotyears,
+            pathyears,
+            beliefvalueensembles[i];
+            color = color,
+            scale = value -> 1_000 * value,
+        )
         plottrajectorysummary!(
             temperatureaxis,
             plotyears,
@@ -238,22 +387,62 @@ begin
             scale = m -> temperature(m, climate),
         )
         plottrajectorysummary!(abatementaxis, plotyears, pathyears, [getindex.(path.u, 3) for path in dynamicsol.u]; color = color)
+        CairoMakie.lines!(
+            temperatureaxis,
+            committedyears,
+            committedtemperatures;
+            color = defaultpalette[:committed],
+            linestyle = :dash,
+            linewidth = 2,
+        )
+        CairoMakie.lines!(
+            abatementaxis,
+            committedyears,
+            committedabatement;
+            color = defaultpalette[:committed],
+            linestyle = :dash,
+            linewidth = 2,
+        )
+        CairoMakie.hlines!(
+            abatementaxis,
+            [firm.e₀];
+            color = defaultpalette[:guide],
+            linestyle = :dot,
+            linewidth = 1.5,
+        )
 
         # Policy
         policyensemble = policyensembles[i]
         τᶜtraj = [τᶜ(t) / taxfactor for t in plottimes]
         taxaxis = CairoMakie.Axis(
             taxfigjoint[row, column];
-            limits = (nothing, (0, nothing)),
+            limits = (yearlimits, (0, nothing)),
             xlabel = "Year",
             ylabel = "USD per tCO2",
             title = axistitle,
+            xticks = yearticks,
+            yticks = denseyticks,
         )
+        push!(taxaxes, taxaxis)
         plottrajectorysummary!(taxaxis, plotyears, pathyears, [getindex.(path, 1) for path in policyensemble]; color, scale = τ -> τ / taxfactor)
-        CairoMakie.lines!(taxaxis, plotyears, τᶜtraj; color = color, linestyle = :dash, linewidth = 2)
+        CairoMakie.lines!(
+            taxaxis,
+            plotyears,
+            τᶜtraj;
+            color = defaultpalette[:committed],
+            linestyle = :dash,
+            linewidth = 2,
+        )
     end
 
+    CairoMakie.linkyaxes!(beliefaxes)
+    CairoMakie.linkyaxes!(beliefvalueaxes)
+    CairoMakie.linkyaxes!(temperatureaxes)
+    CairoMakie.linkyaxes!(abatementaxes)
+    CairoMakie.linkyaxes!(taxaxes)
+
     CairoMakie.save(joinpath(figurepath, "beliefs.png"), beliefsfigjoint)
+    CairoMakie.save(joinpath(figurepath, "belief-value.png"), beliefvaluefigjoint)
     CairoMakie.save(joinpath(figurepath, "temperature.png"), temperaturefigjoint)
     CairoMakie.save(joinpath(figurepath, "abatement.png"), abatementfigjoint)
     CairoMakie.save(joinpath(figurepath, "tax.png"), taxfigjoint)

@@ -57,8 +57,8 @@ begin
         xlabel = L"Cumulative emissions $m_t$ [GtCO2e]",
         ylabel = "Output loss [% GDP / year]",
         limits = (extrema(mgrid), (0, nothing)),
-        ytickformat = values -> [Printf.@sprintf "%.0f%%" 100x for x in values],
-        yticks = 0:0.01:0.05
+        ytickformat = values -> [Printf.@sprintf "%.1f%%" 100x for x in values],
+        yticks = 0:0.005:0.05
     )
 
     CairoMakie.lines!(damageaxis, mgrid, damagevalues; color = defaultpalette[:damages], label = L"Damages $d(m)$")
@@ -80,14 +80,14 @@ begin
     macfig = CairoMakie.Figure(size = (600, 400))
     macaxis = CairoMakie.Axis(
         macfig[1, 1];
-        xlabel = L"Abatement $a_t$ [GtCO2e / year]",
+        xlabel = L"Abatement $a_{i, t}$ [GtCO2e / year]",
         ylabel = L"Output loss [% GDP / year] $$",
         limits = (extrema(agrid), (0, nothing)),
-        ytickformat = values -> [Printf.@sprintf "%.1f%%" 100x for x in values],
-        yticks = (0:0.5:2) ./ 100
+        ytickformat = values -> [Printf.@sprintf "%.2f%%" 100x for x in values],
+        yticks = (0:0.25:2) ./ 100
     )
 
-    CairoMakie.lines!(macaxis, agrid, macvalues; color = defaultpalette[:mac], label = L"Marginal abatement cost $c'(a)$")
+    CairoMakie.lines!(macaxis, agrid, macvalues; color = defaultpalette[:mac], label = L"Marginal abatement cost $c(a_{i, t})$")
     CairoMakie.axislegend(macaxis; position = :rt)
     CairoMakie.save(joinpath(plotpath, "marginal-abatement-costs.png"), macfig)
 

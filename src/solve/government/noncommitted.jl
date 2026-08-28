@@ -368,6 +368,7 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
     expectedtax = similar(qnormalised)
     taxcoefficient = similar(qnormalised)
     taxcurvature = similar(qnormalised)
+    beliefvalue = similar(qnormalised)
 
     calendartime = noncommittedcalendar(s, parameters)
     τᶜₜ = τᶜ(calendartime)
@@ -381,6 +382,7 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
         ∂ᵩW = scaling.W * backwardφderivative(Wnormalised, i, j, k, grid)
         ∂ᵩᵩW = scaling.W * centralφsecondderivative(Wnormalised, i, j, k, grid)
 
+        beliefvalue[i, j, k] = -φ * (1 - φ) * ∂ᵩW
         taxcoefficient[i, j, k] = noncommittedtaxcoefficient(∂ᵩW, ∂ᵩᵩW, φ, signal, taxmethod)
         taxcurvature[i, j, k] = government.r * government.δ + taxcoefficient[i, j, k]
         investment[i, j, k] = investmentpolicy(q, a, firm)
@@ -388,7 +390,7 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
         expectedtax[i, j, k] = firmexpectedtax(φ, tax[i, j, k], τᶜₜ)
     end
 
-    return (; investment, tax, expectedtax, taxcoefficient, taxcurvature)
+    return (; investment, tax, expectedtax, taxcoefficient, taxcurvature, beliefvalue)
 end
 
 function noncommittedpoliciesattime(solution, parameters::NonCommittedParameters, t)
@@ -407,7 +409,7 @@ function noncommittedvalues(x, parameters::NonCommittedParameters)
 end
 
 function noncommittedtime(solution, parameters::NonCommittedParameters)
-    noncommittedcalendar.(solution.t, Ref(parameters))
+    map(Base.Fix2(noncommittedcalendar, parameters), solution.t)
 end
 
 function noncommittedresiduals(x, parameters::NonCommittedParameters, s)

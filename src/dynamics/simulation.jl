@@ -2,8 +2,9 @@ function constructpolicies(solution, parameters::NonCommittedParameters, grid::N
     n = length(solution.t)
     investment = Array{Float64}(undef, size(grid)..., n)
     tax = similar(investment)
+    beliefvalue = similar(investment)
     sgrid = solution.t
-    policies = (; tax, investment, sgrid)
+    policies = (; tax, investment, beliefvalue, sgrid)
 
     return constructpolicies!(policies, solution, parameters)
 end
@@ -14,6 +15,7 @@ function constructpolicies!(policies, solution, parameters::NonCommittedParamete
 
         policies.tax[:, :, :, i] .= timepolicy.tax
         policies.investment[:, :, :, i] .= timepolicy.investment
+        policies.beliefvalue[:, :, :, i] .= timepolicy.beliefvalue
     end
 
     return policies
@@ -35,6 +37,25 @@ function policy(t, x, policies, parameters::NonCommittedParameters, grid::NonCom
     )
 
     return (τₜ, τᶜₜ, uₜ)
+end
+
+function interpolatebeliefvalue(
+    t,
+    x,
+    policies,
+    parameters::NonCommittedParameters,
+    grid::NonCommittedGrid;
+    extrap = Itp.ClampExtrap(),
+)
+    s = noncommittedreversetime(t, parameters)
+    φ, m, a = x
+
+    interpolationspace = (grid.φgrid, grid.mgrid, grid.agrid, policies.sgrid)
+    state = (φ, m, a, s)
+
+    return Itp.linear_interp(
+        interpolationspace, policies.beliefvalue, state; extrap
+    )
 end
 
 function dynamicdrift(x, dynamicparameters, t)
