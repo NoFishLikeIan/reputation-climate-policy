@@ -1,53 +1,20 @@
 using Revise
 
-import DotEnv
-DotEnv.load!()
+import DotEnv; DotEnv.load!()
 
 import JLD2
+import UnPack: @unpack
+import LaTeXStrings: @L_str
+import Printf
+
 import SciMLBase
 import FastInterpolations as Itp
-
 import LinearSolve
 import SparseArrays
 import StaticArrays as SA
 import Statistics
 import StochasticDiffEq as SDE
 import OrdinaryDiffEq as ODE
-# import StochasticDiffEqROCK as SROCK
-import StochasticDiffEqImplicit as SDEImpl
-
-import UnPack: @unpack
-import LaTeXStrings: @L_str
-
-import Printf
-import CairoMakie
-import Colors
-
-publicationtheme = CairoMakie.Theme(
-    fontsize = 16,
-    Axis = (;
-        titlesize = 18,
-        titlegap = 8,
-        xlabelsize = 16,
-        ylabelsize = 16,
-        xticklabelsize = 14,
-        yticklabelsize = 14,
-        xgridcolor = (:black, 0.08),
-        ygridcolor = (:black, 0.08),
-        topspinevisible = false,
-        rightspinevisible = false,
-    ),
-    Legend = (;
-        labelsize = 13,
-        framevisible = false,
-    ),
-)
-CairoMakie.set_theme!(publicationtheme)
-
-savepublicationfigure = function (basename, figure)
-    CairoMakie.save("$basename.pdf", figure; pt_per_unit = 1)
-    CairoMakie.save("$basename.png", figure; px_per_unit = 2)
-end
 
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
@@ -69,7 +36,15 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
+## Plotting
+import CairoMakie
+import Colors
+
+includet("publication.jl")
 includet("colours.jl")
+includet("simulationplots.jl")
+
+CairoMakie.set_theme!(publicationtheme)
 
 ## Load problem
 ## Save
@@ -78,9 +53,11 @@ firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
 filename = solutionfilename(climate, government, firm)
 solpath = joinpath("data", "solutions", filename)
+
 if !isfile(solpath) throw("File $solpath not found.") end
 
 solutionkey = uncommittedsolutionkey(signal, taxmethod)
+
 solution, grid, taxmethod, trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
     if !haskey(file, solutionkey)
         error("Uncommitted solution $solutionkey not found in $solpath.")
@@ -113,8 +90,7 @@ endtime = activeterminal
 
 dynamicfn = SDE.SDEFunction{false}(dynamicdrift, dynamicnoise)
 dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, endtime), dynamicparameters)
-ensembleproblem = SDE.EnsembleProblem(dynamicprob)
-plottimes = range(0., endtime - 5.; length = 501)
+plottimes = range(0., endtime, 501)
 startyear = 2025
 plotyears = startyear .+ plottimes
 yearlimits = extrema(plotyears)
@@ -123,111 +99,31 @@ denseyticks = CairoMakie.LinearTicks(8)
 
 ϵ = 0.025
 φs = [ϵ, 0.5, 1 - ϵ]
-EnsemblePolicy = Vector{Vector{NTuple{3, Float64}}}
-EnsembleBeliefValue = Vector{Vector{Float64}}
-solutions = SciMLBase.EnsembleSolution[]
-policyensembles = EnsemblePolicy[]
-beliefvalueensembles = EnsembleBeliefValue[]
+
+function plottingoutput(solution, _)
+    return simulationplotpath(solution, policies, parameters, grid, climate), false
+end
+
+ensembleproblem = SDE.EnsembleProblem(dynamicprob; output_func = plottingoutput)
+plotsummaries = SimulationPlotSummary[]
+
 for φ₀ in φs
     Printf.@printf "Solving φ₀ = %.4f\r" φ₀
+
     sol = SDE.solve(
         ensembleproblem,
         SDE.SOSRI();
         u0 = SA.SVector(φ₀, climate.m₀, firm.a₀),
         trajectories = 10_000,
         saveat = plottimes,
+        save_everystep = false,
+        dense = false,
     )
 
-    policyensemble = Vector{NTuple{3, Float64}}[]
-    beliefvalueensemble = Vector{Float64}[]
-    for soli in sol.u
-        policytraj = [ policy(t, u, policies, parameters, grid) for (t, u) in zip(soli.t, soli.u) ]
-        beliefvaluetraj = [
-            interpolatebeliefvalue(t, u, policies, parameters, grid)
-            for (t, u) in zip(soli.t, soli.u)
-        ]
-        push!(policyensemble, policytraj)
-        push!(beliefvalueensemble, beliefvaluetraj)
-    end
-
-    push!(solutions, sol)
-    push!(policyensembles, policyensemble)
-    push!(beliefvalueensembles, beliefvalueensemble)
+    push!(plotsummaries, summarizesimulation(sol.u))
 end
 
-## Plot
-samplepathlinewidth = 1.0
-medianlinewidth = 3.5
-committedlinewidth = 3.0
-guidelinewidth = 2.0
-samplepathopacity = 0.14
-intervalopacity = 0.22
-paneltitlefontsize = 20
-annotationfontsize = 13
-panelwidth = 300
-panelheight = 320
-
-function trajectoryvalue(t, pathtimes, pathvalues)
-    isempty(pathtimes) && return NaN
-    (t < first(pathtimes) || t > last(pathtimes)) && return NaN
-
-    rightindex = searchsortedfirst(pathtimes, t)
-    if rightindex ≤ length(pathtimes) && pathtimes[rightindex] == t
-        return pathvalues[rightindex]
-    end
-
-    (rightindex == 1 || rightindex > length(pathtimes)) && return NaN
-    leftindex = rightindex - 1
-    weight = (t - pathtimes[leftindex]) / (pathtimes[rightindex] - pathtimes[leftindex])
-
-    return (1 - weight) * pathvalues[leftindex] + weight * pathvalues[rightindex]
-end
-
-function plottrajectorysummary!(axis, times, pathtimes, paths; color, scale = identity, interval = (0.025, 0.975), samplepaths = 50, plotkwargs...)
-    isempty(paths) && return axis
-    length(pathtimes) == length(paths) || throw(DimensionMismatch("Each path needs its own time vector."))
-
-    scaledpaths = [scale.(path) for path in paths]
-    for (pathindex, (path_times, path_values)) in enumerate(zip(pathtimes, scaledpaths))
-        length(path_times) == length(path_values) || throw(DimensionMismatch("Path $pathindex has different numbers of times and values."))
-        issorted(path_times) || throw(ArgumentError("Times for path $pathindex are not sorted."))
-        isempty(path_values) && throw(ArgumentError("Path $pathindex is empty."))
-    end
-
-    npaths = length(scaledpaths)
-    values = Matrix{Float64}(undef, length(times), npaths)
-    for pathindex in eachindex(scaledpaths)
-        values[:, pathindex] .= trajectoryvalue.(times, Ref(pathtimes[pathindex]), Ref(scaledpaths[pathindex]))
-    end
-
-    # Stratify the displayed paths by their terminal outcome so that small
-    # branches are less likely to disappear from the subsample.
-    terminalorder = sortperm(last.(scaledpaths))
-    sampleranks = unique(round.(Int, range(1, npaths; length = min(samplepaths, npaths))))
-    sampleindices = terminalorder[sampleranks]
-
-    for pathindex in sampleindices
-        CairoMakie.lines!(
-            axis,
-            pathtimes[pathindex],
-            scaledpaths[pathindex];
-            color = (color, samplepathopacity),
-            linewidth = samplepathlinewidth,
-        )
-    end
-
-    observations(timeindex) = filter(isfinite, view(values, timeindex, :))
-    lower = [isempty(observations(i)) ? NaN : Statistics.quantile(observations(i), interval[1]) for i in axes(values, 1)]
-    median = [isempty(observations(i)) ? NaN : Statistics.median(observations(i)) for i in axes(values, 1)]
-    upper = [isempty(observations(i)) ? NaN : Statistics.quantile(observations(i), interval[2]) for i in axes(values, 1)]
-
-    CairoMakie.band!(axis, times, lower, upper; color = (color, intervalopacity))
-    CairoMakie.lines!(axis, times, median; color = color, linewidth = medianlinewidth, plotkwargs...)
-
-    return axis
-end
-
-plotpath = joinpath(ENV["PLOTPATH"])
+plotpath = get(ENV, "PLOTPATH", "figures")
 figurepath = joinpath(plotpath, splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
 !ispath(figurepath) && mkpath(figurepath)
 
@@ -239,11 +135,16 @@ committedtaxdollars = committedtaxes ./ taxfactor
 
 begin
 
-    committedfig = CairoMakie.Figure(size = (3 * panelwidth, panelheight))
+    committedfig = CairoMakie.Figure(
+        size = (
+            3 * publicationdefault(:panelwidth),
+            publicationdefault(:panelheight),
+        ),
+    )
 
-    CairoMakie.Label(committedfig[0, 1], L"$\tau^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
-    CairoMakie.Label(committedfig[0, 2], L"$a^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
-    CairoMakie.Label(committedfig[0, 3], L"$\zeta m^{\mathrm{c}}_t$"; fontsize = paneltitlefontsize, tellwidth = false)
+    CairoMakie.Label(committedfig[0, 1], L"$\tau^{\mathrm{c}}_t$"; fontsize = publicationdefault(:paneltitlefontsize), tellwidth = false)
+    CairoMakie.Label(committedfig[0, 2], L"$a^{\mathrm{c}}_t$"; fontsize = publicationdefault(:paneltitlefontsize), tellwidth = false)
+    CairoMakie.Label(committedfig[0, 3], L"$\zeta m^{\mathrm{c}}_t$"; fontsize = publicationdefault(:paneltitlefontsize), tellwidth = false)
 
     committedtaxaxis = CairoMakie.Axis(
         committedfig[1, 1];
@@ -258,7 +159,7 @@ begin
         committedyears,
         committedtaxdollars;
         color = defaultpalette[:committed],
-        linewidth = medianlinewidth,
+        linewidth = publicationdefault(:medianlinewidth),
     )
 
     committedabatementaxis = CairoMakie.Axis(
@@ -274,24 +175,14 @@ begin
         committedyears,
         committedabatement;
         color = defaultpalette[:committed],
-        linewidth = medianlinewidth,
+        linewidth = publicationdefault(:medianlinewidth),
     )
     CairoMakie.hlines!(
         committedabatementaxis,
         [firm.e₀];
         color = defaultpalette[:committed],
         linestyle = :dot,
-        linewidth = guidelinewidth,
-    )
-    CairoMakie.text!(
-        committedabatementaxis,
-        last(committedyears),
-        firm.e₀;
-        text = "Net zero",
-        align = (:right, :bottom),
-        offset = (0, 4),
-        color = defaultpalette[:committed],
-        fontsize = annotationfontsize,
+        linewidth = publicationdefault(:guidelinewidth),
     )
 
     committedtemperatureaxis = CairoMakie.Axis(
@@ -307,7 +198,7 @@ begin
         committedyears,
         committedtemperatures;
         color = defaultpalette[:committed],
-        linewidth = medianlinewidth,
+        linewidth = publicationdefault(:medianlinewidth),
     )
 
     CairoMakie.linkxaxes!(
@@ -333,7 +224,10 @@ begin
 
     columns = nφ ≤ 3 ? nφ : ceil(Int, sqrt(nφ))
     rows = cld(nφ, columns)
-    figuresize = (columns * panelwidth, rows * panelheight)
+    figuresize = (
+        columns * publicationdefault(:panelwidth),
+        rows * publicationdefault(:panelheight),
+    )
 
     beliefsfigjoint = CairoMakie.Figure(size = figuresize)
     beliefvaluefigjoint = CairoMakie.Figure(size = figuresize)
@@ -347,31 +241,39 @@ begin
     abatementaxes = CairoMakie.Axis[]
     taxaxes = CairoMakie.Axis[]
 
-    CairoMakie.Label(beliefsfigjoint[0, 1:columns], L"Belief $\phi$"; fontsize = paneltitlefontsize)
+    CairoMakie.Label(beliefsfigjoint[0, 1:columns], L"Belief $\phi$"; fontsize = publicationdefault(:paneltitlefontsize))
     CairoMakie.Label(
         beliefvaluefigjoint[0, 1:columns],
         L"Value of beliefs $-\phi(1-\phi)\partial_{\phi} u$";
-        fontsize = paneltitlefontsize,
+        fontsize = publicationdefault(:paneltitlefontsize),
     )
-    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $T$"; fontsize = paneltitlefontsize)
-    CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = paneltitlefontsize)
-    CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = paneltitlefontsize)
+    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $\chi m$"; fontsize = publicationdefault(:paneltitlefontsize))
+    CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = publicationdefault(:paneltitlefontsize))
+    CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = publicationdefault(:paneltitlefontsize))
 
     for (i, φ₀) in enumerate(φs)
         Printf.@printf "Plotting φ₀ = %.4f\n" φ₀
-        dynamicsol = solutions[i]
+        plotsummary = plotsummaries[i]
         color = beliefcolors[i]
         row = cld(i, columns)
         column = mod1(i, columns)
         axistitle = L"$\phi_0 = %$(φ₀)$"
+        panelxticks = (
+            yearticks,
+            [
+                column == 1 || year != first(yearticks) ? string(year) : ""
+                for year in yearticks
+            ],
+        )
 
         # State
         beliefaxis = CairoMakie.Axis(
             beliefsfigjoint[row, column];
             limits = (yearlimits, (0, 1)),
             xlabel = "Year",
+            ylabel = L"Belief $\phi$",
             title = axistitle,
-            xticks = yearticks,
+            xticks = panelxticks,
             yticks = denseyticks,
         )
         beliefvalueaxis = CairoMakie.Axis(
@@ -380,7 +282,7 @@ begin
             xlabel = "Year",
             ylabel = "Value [bn USD]",
             title = axistitle,
-            xticks = yearticks,
+            xticks = panelxticks,
             yticks = denseyticks,
         )
         temperatureaxis = CairoMakie.Axis(
@@ -389,7 +291,7 @@ begin
             xlabel = "Year",
             ylabel = "°C",
             title = axistitle,
-            xticks = yearticks,
+            xticks = panelxticks,
             yticks = denseyticks,
         )
         abatementaxis = CairoMakie.Axis(
@@ -398,7 +300,7 @@ begin
             xlabel = "Year",
             ylabel = "GtCO2 per year",
             title = axistitle,
-            xticks = yearticks,
+            xticks = panelxticks,
             yticks = denseyticks,
         )
 
@@ -407,32 +309,17 @@ begin
         push!(temperatureaxes, temperatureaxis)
         push!(abatementaxes, abatementaxis)
 
-        pathyears = [startyear .+ path.t for path in dynamicsol.u]
-        plottrajectorysummary!(beliefaxis, plotyears, pathyears, [getindex.(path.u, 1) for path in dynamicsol.u]; color = color)
-        plottrajectorysummary!(
-            beliefvalueaxis,
-            plotyears,
-            pathyears,
-            beliefvalueensembles[i];
-            color = color,
-            scale = value -> 1_000 * value,
-        )
-        plottrajectorysummary!(
-            temperatureaxis,
-            plotyears,
-            pathyears,
-            [getindex.(path.u, 2) for path in dynamicsol.u];
-            color = color,
-            scale = m -> temperature(m, climate),
-        )
-        plottrajectorysummary!(abatementaxis, plotyears, pathyears, [getindex.(path.u, 3) for path in dynamicsol.u]; color = color)
+        plottrajectorysummary!(beliefaxis, plotyears, plotsummary.belief; color = color)
+        plottrajectorysummary!(beliefvalueaxis, plotyears, plotsummary.beliefvalue; color = color)
+        plottrajectorysummary!(temperatureaxis, plotyears, plotsummary.temperature; color = color)
+        plottrajectorysummary!(abatementaxis, plotyears, plotsummary.abatement; color = color)
         CairoMakie.lines!(
             temperatureaxis,
             committedyears,
             committedtemperatures;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = committedlinewidth,
+            linewidth = publicationdefault(:committedlinewidth),
         )
         CairoMakie.lines!(
             abatementaxis,
@@ -440,18 +327,17 @@ begin
             committedabatement;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = committedlinewidth,
+            linewidth = publicationdefault(:committedlinewidth),
         )
         CairoMakie.hlines!(
             abatementaxis,
             [firm.e₀];
             color = defaultpalette[:guide],
             linestyle = :dot,
-            linewidth = guidelinewidth,
+            linewidth = publicationdefault(:guidelinewidth),
         )
 
         # Policy
-        policyensemble = policyensembles[i]
         τᶜtraj = [τᶜ(t) / taxfactor for t in plottimes]
         taxaxis = CairoMakie.Axis(
             taxfigjoint[row, column];
@@ -459,26 +345,32 @@ begin
             xlabel = "Year",
             ylabel = "USD per tCO2",
             title = axistitle,
-            xticks = yearticks,
+            xticks = panelxticks,
             yticks = denseyticks,
         )
         push!(taxaxes, taxaxis)
-        plottrajectorysummary!(taxaxis, plotyears, pathyears, [getindex.(path, 1) for path in policyensemble]; color, scale = τ -> τ / taxfactor)
+        plottrajectorysummary!(taxaxis, plotyears, plotsummary.tax; color = color)
         CairoMakie.lines!(
             taxaxis,
             plotyears,
             τᶜtraj;
             color = defaultpalette[:committed],
             linestyle = :dash,
-            linewidth = committedlinewidth,
+            linewidth = publicationdefault(:committedlinewidth),
         )
     end
 
-    CairoMakie.linkyaxes!(beliefaxes)
-    CairoMakie.linkyaxes!(beliefvalueaxes)
-    CairoMakie.linkyaxes!(temperatureaxes)
-    CairoMakie.linkyaxes!(abatementaxes)
-    CairoMakie.linkyaxes!(taxaxes)
+    allaxes = (beliefaxes, beliefvalueaxes, temperatureaxes, abatementaxes, taxaxes)
+    for axes in allaxes
+        CairoMakie.linkyaxes!(axes)
+        for axis in axes[2:end]
+            CairoMakie.hideydecorations!(
+                axis;
+                grid = false,
+                minorgrid = false,
+            )
+        end
+    end
 
     savepublicationfigure(joinpath(figurepath, "beliefs"), beliefsfigjoint)
     savepublicationfigure(joinpath(figurepath, "belief-value"), beliefvaluefigjoint)
@@ -487,4 +379,41 @@ begin
     savepublicationfigure(joinpath(figurepath, "tax"), taxfigjoint)
 
     println("Saved figures in ", figurepath)
+end
+
+## Simulation with random ϕ₀
+function reinitφ₀(problem, ctx)
+    φ₀ = rand()
+    u0 = SA.SVector(φ₀, problem.u0[2], problem.u0[3])
+    return SDE.remake(problem; u0 = u0)
+end
+
+function abatementoutput(solution, _)
+    return simulationstatepath(solution, 3), false
+end
+
+ensembleuniqueprob = SDE.EnsembleProblem(
+    dynamicprob;
+    prob_func = reinitφ₀,
+    output_func = abatementoutput,
+)
+sol = SDE.solve(
+    ensembleuniqueprob,
+    SDE.SOSRI();
+    trajectories = 1_000,
+    saveat = plottimes,
+    save_everystep = false,
+    dense = false,
+)
+randomplotsummary = trajectoryplotsummary(sol.u, 1)
+sol = nothing
+GC.gc()
+
+begin
+    abatementfig = CairoMakie.Figure()
+    abatemnetaxis = CairoMakie.Axis(abatementfig[1, 1]; xlabel = "Year", ylabel = "GtCO2 per year", xticks = yearticks, yticks = denseyticks, limits = (yearlimits, (0, 1.05 * firm.e₀)))
+
+    plottrajectorysummary!(abatemnetaxis, plotyears, randomplotsummary; color = :black)
+
+    abatementfig
 end

@@ -18,34 +18,11 @@ import CairoMakie
 import Colors
 import LaTeXStrings: @L_str
 
-publicationtheme = CairoMakie.Theme(
-    fontsize = 16,
-    Axis = (;
-        titlesize = 18,
-        titlegap = 8,
-        xlabelsize = 16,
-        ylabelsize = 16,
-        xticklabelsize = 14,
-        yticklabelsize = 14,
-        xgridcolor = (:black, 0.08),
-        ygridcolor = (:black, 0.08),
-        topspinevisible = false,
-        rightspinevisible = false,
-    ),
-    Legend = (;
-        labelsize = 13,
-        framevisible = false,
-    ),
-)
+includet("publication.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 singlepanelsize = (420, 300)
 combinedfiguresize = (900, 620)
-
-savepublicationfigure = function (basename, figure)
-    CairoMakie.save("$basename.pdf", figure; pt_per_unit = 1)
-    CairoMakie.save("$basename.png", figure; px_per_unit = 2)
-end
 
 plotpath = joinpath(ENV["PLOTPATH"], "preliminaries")
 if !ispath(plotpath) mkpath(plotpath) end
@@ -72,6 +49,8 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
+
+
 firm, government, signal, climate = initmodels()
 
 ## Welfare costs
@@ -79,8 +58,6 @@ firm, government, signal, climate = initmodels()
 mgrid = range(0., m₀ + Δm, 501);
 percentageformatter = x -> Printf.@sprintf "%.2f%%" 100x
 denseyticks = CairoMakie.LinearTicks(8)
-mainlinewidth = 3.5
-guidelinewidth = 2.0
 
 begin
     damagevalues = map(m -> d(m, climate), mgrid)
@@ -96,9 +73,9 @@ begin
         yticks = 0:0.005:0.05
     )
 
-    CairoMakie.lines!(damageaxis, mgrid, damagevalues; color = defaultpalette[:damages], linewidth = mainlinewidth, label = L"Damages $d(m)$")
-    CairoMakie.lines!(damageaxis, [m₀, m₀], [0, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
-    CairoMakie.lines!(damageaxis, [0, m₀], [initialdamage, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
+    CairoMakie.lines!(damageaxis, mgrid, damagevalues; color = defaultpalette[:damages], linewidth = publicationdefault(:medianlinewidth), label = L"Damages $d(m)$")
+    CairoMakie.lines!(damageaxis, [m₀, m₀], [0, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+    CairoMakie.lines!(damageaxis, [0, m₀], [initialdamage, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
     CairoMakie.scatter!(damageaxis, [m₀], [initialdamage]; color = defaultpalette[:damages], strokewidth = 0)
     CairoMakie.axislegend(damageaxis; position = :lt)
     savepublicationfigure(joinpath(plotpath, "damages"), damagefig)
@@ -122,7 +99,7 @@ begin
         yticks = (0:0.25:2) ./ 100
     )
 
-    CairoMakie.lines!(macaxis, agrid, macvalues; color = defaultpalette[:mac], linewidth = mainlinewidth, label = L"Marginal abatement cost $c(a_{i, t})$")
+    CairoMakie.lines!(macaxis, agrid, macvalues; color = defaultpalette[:mac], linewidth = publicationdefault(:medianlinewidth), label = L"Marginal abatement cost $c(a_{i, t})$")
     CairoMakie.axislegend(macaxis; position = :rt)
     savepublicationfigure(joinpath(plotpath, "marginal-abatement-costs"), macfig)
 
@@ -166,9 +143,9 @@ begin
             limits = (extrema(mgrid), (0, nothing)),
             yticks = denseyticks,
         )
-        CairoMakie.lines!(axis, mgrid, temperaturevalues; color = defaultpalette[:damages], linewidth = mainlinewidth, label = L"$T(m)=\zeta m$")
-        CairoMakie.vlines!(axis, [climate.m₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
-        CairoMakie.hlines!(axis, [initialtemperature]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
+        CairoMakie.lines!(axis, mgrid, temperaturevalues; color = defaultpalette[:damages], linewidth = publicationdefault(:medianlinewidth), label = L"$T(m)=\zeta m$")
+        CairoMakie.vlines!(axis, [climate.m₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+        CairoMakie.hlines!(axis, [initialtemperature]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
         CairoMakie.scatter!(axis, [climate.m₀], [initialtemperature]; color = defaultpalette[:damages], markersize = 14, strokewidth = 0, label = "Initial calibration")
         CairoMakie.axislegend(axis; position = :lt)
 
@@ -184,9 +161,9 @@ begin
             limits = (extrema(agrid), (0, 1.05 * firm.e₀)),
             yticks = denseyticks,
         )
-        CairoMakie.lines!(axis, agrid, emissionsvalues; color = defaultpalette[:emissions], linewidth = mainlinewidth, label = L"$e(a)=e_0-a$")
-        CairoMakie.vlines!(axis, [firm.a₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
-        CairoMakie.hlines!(axis, [initialemissions]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
+        CairoMakie.lines!(axis, agrid, emissionsvalues; color = defaultpalette[:emissions], linewidth = publicationdefault(:medianlinewidth), label = L"$e(a)=e_0-a$")
+        CairoMakie.vlines!(axis, [firm.a₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+        CairoMakie.hlines!(axis, [initialemissions]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
         CairoMakie.scatter!(axis, [firm.a₀], [initialemissions]; color = defaultpalette[:emissions], markersize = 14, strokewidth = 0, label = "Initial calibration")
         CairoMakie.scatter!(axis, [firm.e₀], [0.0]; color = defaultpalette[:abatement], markersize = 14, strokewidth = 0, label = "Net zero")
         CairoMakie.axislegend(axis; position = :rt)
@@ -203,9 +180,9 @@ begin
             limits = (extrema(taxgrid), (0, 1.05 * firm.e₀)),
             yticks = denseyticks,
         )
-        CairoMakie.lines!(axis, taxgrid, longrunabatement; color = defaultpalette[:committed], linewidth = mainlinewidth, label = L"$\tau=r_f c(a)$")
-        CairoMakie.vlines!(axis, [initialtaxdollars]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
-        CairoMakie.hlines!(axis, [firm.a₀, firm.e₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = guidelinewidth)
+        CairoMakie.lines!(axis, taxgrid, longrunabatement; color = defaultpalette[:committed], linewidth = publicationdefault(:medianlinewidth), label = L"$\tau=r_f c(a)$")
+        CairoMakie.vlines!(axis, [initialtaxdollars]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+        CairoMakie.hlines!(axis, [firm.a₀, firm.e₀]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
         CairoMakie.scatter!(axis, [initialtaxdollars], [initialtaxabatement]; color = defaultpalette[:abatement], markersize = 14, strokewidth = 0, label = L"Initial sustaining tax")
         CairoMakie.text!(axis, last(taxgrid), firm.e₀; text = "Net zero", align = (:right, :bottom), offset = (0, 4), color = defaultpalette[:guide], fontsize = 14)
         CairoMakie.axislegend(axis; position = :lt)
@@ -227,8 +204,8 @@ begin
             yticks = denseyticks,
             ytickformat = values -> percentageformatter.(values),
         )
-        CairoMakie.hlines!(axis, [0.0]; color = defaultpalette[:guide], linewidth = guidelinewidth)
-        CairoMakie.lines!(axis, φgrid, beliefdriftvalues; color = defaultpalette[:damages], linewidth = mainlinewidth, label = L"$\mu_\phi(\phi)$")
+        CairoMakie.hlines!(axis, [0.0]; color = defaultpalette[:guide], linewidth = publicationdefault(:guidelinewidth))
+        CairoMakie.lines!(axis, φgrid, beliefdriftvalues; color = defaultpalette[:damages], linewidth = publicationdefault(:medianlinewidth), label = L"$\mu_\phi(\phi)$")
         CairoMakie.axislegend(axis; position = :rb)
 
         axis
@@ -248,7 +225,7 @@ begin
             yticks = denseyticks,
             ytickformat = values -> percentageformatter.(values),
         )
-        CairoMakie.lines!(axis, φgrid, beliefdiffusionvalues; color = defaultpalette[:committed], linewidth = mainlinewidth, label = L"$\sigma_\phi(\phi)$")
+        CairoMakie.lines!(axis, φgrid, beliefdiffusionvalues; color = defaultpalette[:committed], linewidth = publicationdefault(:medianlinewidth), label = L"$\sigma_\phi(\phi)$")
         CairoMakie.axislegend(axis; position = :rt)
 
         axis

@@ -161,3 +161,5 @@ JLD2.jldopen(committedfile, "a+") do file
     file["$solutionkey/signal"] = signal
     file["$solutionkey/taxmethod"] = taxmethod
 end
+
+@printf "Appended outcome in %s\n" committedfile

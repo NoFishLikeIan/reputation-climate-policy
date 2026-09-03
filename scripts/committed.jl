@@ -47,9 +47,16 @@ includet("../src/solve/government/committed.jl")
 includet("plotting/utils.jl")
 
 const SIMPATH = joinpath("data", "solutions")
+ispath(SIMPATH) || mkpath(SIMPATH)
 
 ## Defaults
 firm, government, signal, climate = initmodels()
+
+filename = joinpath(SIMPATH, solutionfilename(climate, government, firm))
+
+if isfile(filename)
+    throw("Committed solution in $filename already saved! Breaking to avoid overwriting.")
+end
 
 parameters = CommittedParameters(firm, government, climate)
 scaling = ScalingParameters(parameters)
@@ -107,9 +114,8 @@ if isinteractive()
 end
 
 ## Save 
-filename = joinpath(SIMPATH, solutionfilename(climate, government, firm))
-ispath(SIMPATH) || mkpath(SIMPATH)
-
 JLD2.jldopen(filename, "w") do file
     @pack! file = trajectory, taxes, time, climate, government, firm
 end
+
+@printf "Saved outcome in %s\n" filename
