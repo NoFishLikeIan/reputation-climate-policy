@@ -247,7 +247,10 @@ function noncommittedcalendar(s, parameters::NonCommittedParameters)
 end
 
 function noncommittedreversetime(t, parameters::NonCommittedParameters)
-    1 - t / parameters.horizon
+    noncommittedreversetime(t, parameters.horizon)
+end
+function noncommittedreversetime(t, horizon)
+    1 - t / horizon
 end
 
 "Coupled firm and government system in reverse time"

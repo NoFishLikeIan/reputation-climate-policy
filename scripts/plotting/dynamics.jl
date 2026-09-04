@@ -14,6 +14,7 @@ import SparseArrays
 import StaticArrays as SA
 import Statistics
 import StochasticDiffEq as SDE
+import StochasticDiffEqImplicit as SDEImplicit
 import OrdinaryDiffEq as ODE
 
 includet("../../src/primitives/constants.jl")
@@ -47,21 +48,18 @@ includet("simulationplots.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 ## Load problem
-## Save
+## Setup import
 firm, government, signal, climate = initmodels()
 
 taxmethod = OneShotTax()
 filename = solutionfilename(climate, government, firm)
 solpath = joinpath("data", "solutions", filename)
-
 if !isfile(solpath) throw("File $solpath not found.") end
 
-solutionkey = uncommittedsolutionkey(signal, taxmethod)
-
 solution, grid, taxmethod, trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
-    if !haskey(file, solutionkey)
-        error("Uncommitted solution $solutionkey not found in $solpath.")
-    end
+    solutionkey = uncommittedsolutionkey(signal, taxmethod)
+
+    if !haskey(file, solutionkey) error("Uncommitted solution $solutionkey not found in $solpath.") end
 
     (
         file["$solutionkey/solution"],
@@ -80,44 +78,48 @@ terminal = committedtaxterminal(activeterminal, terminalabatement, firm, governm
 activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = Itp.ClampExtrap())
 τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
 
+models = (firm, government, signal, climate)
 parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
 policies = constructpolicies(solution, parameters, grid)
 
 ## Simulate path
-x₀ = SA.SVector(0.5, climate.m₀, firm.a₀)
-dynamicparameters = (policies, parameters, grid);
-endtime = activeterminal
+x₀ = SA.SVector(0., climate.m₀, firm.a₀)
+dynamicparameters = (policies, τᶜ, terminal, models)
+horizonsimulation = terminal
 
-dynamicfn = SDE.SDEFunction{false}(dynamicdrift, dynamicnoise)
-dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, endtime), dynamicparameters)
-plottimes = range(0., endtime, 501)
+dynamicfn = SDE.SDEFunction{false}(logdynamicdrift, logdynamicnoise)
+dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, horizonsimulation), dynamicparameters)
+
+# Test solver
+sol = SDE.solve(dynamicprob)
+
+plottimes = range(0., horizonsimulation, 501)
 startyear = 2025
 plotyears = startyear .+ plottimes
 yearlimits = extrema(plotyears)
 yearticks = startyear:10:floor(Int, last(plotyears))
 denseyticks = CairoMakie.LinearTicks(8)
 
-ϵ = 0.025
+ϵ = 0.1
 φs = [ϵ, 0.5, 1 - ϵ]
 
 function plottingoutput(solution, _)
-    return simulationplotpath(solution, policies, parameters, grid, climate), false
+    return simulationplotpath(solution, policies, terminal, climate), false
 end
 
 ensembleproblem = SDE.EnsembleProblem(dynamicprob; output_func = plottingoutput)
 plotsummaries = SimulationPlotSummary[]
-
 for φ₀ in φs
-    Printf.@printf "Solving φ₀ = %.4f\r" φ₀
+    Printf.@printf "Solving φ₀ = %.3f\n" φ₀
+    ℓ₀ = log(φ₀ / (1 - φ₀))
 
     sol = SDE.solve(
-        ensembleproblem,
-        SDE.SOSRI();
-        u0 = SA.SVector(φ₀, climate.m₀, firm.a₀),
-        trajectories = 10_000,
+        ensembleproblem;
+        u0 = SA.SVector(ℓ₀, climate.m₀, firm.a₀),
+        trajectories = 100,
         saveat = plottimes,
         save_everystep = false,
-        dense = false,
+        dense = false
     )
 
     push!(plotsummaries, summarizesimulation(sol.u))
@@ -414,6 +416,7 @@ begin
     abatemnetaxis = CairoMakie.Axis(abatementfig[1, 1]; xlabel = "Year", ylabel = "GtCO2 per year", xticks = yearticks, yticks = denseyticks, limits = (yearlimits, (0, 1.05 * firm.e₀)))
 
     plottrajectorysummary!(abatemnetaxis, plotyears, randomplotsummary; color = :black)
+    savepublicationfigure(joinpath(figurepath, "random-init-fig"), abatementfig)
 
     abatementfig
 end

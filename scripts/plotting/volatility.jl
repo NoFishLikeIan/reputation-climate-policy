@@ -98,7 +98,21 @@ function constructvolatilitypolicies(solution, parameters, grid)
         tax[:, :, :, i] .= policies.tax
     end
 
-    return (; tax, investment, sgrid = solution.t)
+    interpolationspace = (
+        grid.φgrid,
+        grid.mgrid,
+        grid.agrid,
+        solution.t,
+    )
+
+    return (;
+        tax = Itp.linear_interp(interpolationspace, tax; extrap = clampextrap),
+        investment = Itp.linear_interp(
+            interpolationspace,
+            investment;
+            extrap = clampextrap,
+        ),
+    )
 end
 
 function loadvolatilityequilibrium(σ)
@@ -450,14 +464,11 @@ end
 
 function episodedrift(x, context, t)
     equilibrium = episodeequilibrium(t, context)
-    φ, _, a = x
-    tax, committedtax, investment = policy(
-        t,
-        x,
-        equilibrium.policies,
-        equilibrium.parameters,
-        equilibrium.grid,
-    )
+    φ, m, a = x
+    s = noncommittedreversetime(t, equilibrium.parameters)
+    tax = equilibrium.policies.tax(φ, m, a, s)
+    committedtax = equilibrium.parameters.τᶜ(t)
+    investment = equilibrium.policies.investment(φ, m, a, s)
     precision = χ(tax, committedtax, equilibrium.signal)
 
     return SA.SVector(
@@ -469,14 +480,10 @@ end
 
 function episodenoise(x, context, t)
     equilibrium = episodeequilibrium(t, context)
-    φ = x[1]
-    tax, committedtax, _ = policy(
-        t,
-        x,
-        equilibrium.policies,
-        equilibrium.parameters,
-        equilibrium.grid,
-    )
+    φ, m, a = x
+    s = noncommittedreversetime(t, equilibrium.parameters)
+    tax = equilibrium.policies.tax(φ, m, a, s)
+    committedtax = equilibrium.parameters.τᶜ(t)
     precision = χ(tax, committedtax, equilibrium.signal)
 
     return SA.SVector(beliefdiffusion(precision, φ), 0.0, 0.0)
@@ -597,13 +604,10 @@ function simulationobjects(solution, context)
             t = path.t[timeindex]
             state = path.u[timeindex]
             equilibrium = episodeequilibrium(t, context)
-            currenttax, _, currentinvestment = policy(
-                t,
-                state,
-                equilibrium.policies,
-                equilibrium.parameters,
-                equilibrium.grid,
-            )
+            φ, m, a = state
+            s = noncommittedreversetime(t, equilibrium.parameters)
+            currenttax = equilibrium.policies.tax(φ, m, a, s)
+            currentinvestment = equilibrium.policies.investment(φ, m, a, s)
 
             belief[timeindex, pathindex] = state[1]
             cumulativeemissions[timeindex, pathindex] = state[2]

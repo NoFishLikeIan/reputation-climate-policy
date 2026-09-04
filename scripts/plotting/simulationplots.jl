@@ -20,16 +20,19 @@ struct SimulationPlotSummary{T <: AbstractFloat}
     tax::TrajectoryPlotSummary{T}
 end
 
-function simulationplotpath(solution, policies, parameters, grid, climate)
+function simulationplotpath(solution, policies, horizon, climate)
     SciMLBase.successful_retcode(solution) || error("Simulation failed with return code $(solution.retcode).")
 
     values = Matrix{Float32}(undef, length(solution.t), 5)
     for (timeindex, (time, state)) in enumerate(zip(solution.t, solution.u))
-        tax, _, _ = policy(time, state, policies, parameters, grid)
-        values[timeindex, 1] = state[1]
-        values[timeindex, 2] = 1_000 * interpolatebeliefvalue(time, state, policies, parameters, grid)
-        values[timeindex, 3] = temperature(state[2], climate)
-        values[timeindex, 4] = state[3]
+        φ, m, a = state
+        s = noncommittedreversetime(time, horizon)
+
+        values[timeindex, 1] = φ
+        values[timeindex, 2] = 1_000 * policies.beliefvalue(φ, m, a, s)
+        values[timeindex, 3] = temperature(m, climate)
+        values[timeindex, 4] = a
+        tax = policies.tax(φ, m, a, s)
         values[timeindex, 5] = tax / taxfactor
     end
 
