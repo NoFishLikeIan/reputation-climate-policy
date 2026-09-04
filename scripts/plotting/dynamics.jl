@@ -386,7 +386,8 @@ end
 ## Simulation with random ϕ₀
 function reinitφ₀(problem, ctx)
     φ₀ = rand()
-    u0 = SA.SVector(φ₀, problem.u0[2], problem.u0[3])
+    ℓ₀ = log(φ₀ / (1 - φ₀))
+    u0 = SA.SVector(ℓ₀, problem.u0[2], problem.u0[3])
     return SDE.remake(problem; u0 = u0)
 end
 

@@ -25,7 +25,8 @@ function simulationplotpath(solution, policies, horizon, climate)
 
     values = Matrix{Float32}(undef, length(solution.t), 5)
     for (timeindex, (time, state)) in enumerate(zip(solution.t, solution.u))
-        φ, m, a = state
+        ℓ, m, a = state
+        φ = logistic(ℓ)
         s = noncommittedreversetime(time, horizon)
 
         values[timeindex, 1] = φ

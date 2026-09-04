@@ -464,7 +464,8 @@ end
 
 function episodedrift(x, context, t)
     equilibrium = episodeequilibrium(t, context)
-    φ, m, a = x
+    ℓ, m, a = x
+    φ = logistic(ℓ)
     s = noncommittedreversetime(t, equilibrium.parameters)
     tax = equilibrium.policies.tax(φ, m, a, s)
     committedtax = equilibrium.parameters.τᶜ(t)
@@ -472,7 +473,7 @@ function episodedrift(x, context, t)
     precision = χ(tax, committedtax, equilibrium.signal)
 
     return SA.SVector(
-        beliefdrift(precision, φ),
+        -precision^2 / 2,
         cumulativeemissionsdrift(a, firm),
         investment,
     )
@@ -480,13 +481,14 @@ end
 
 function episodenoise(x, context, t)
     equilibrium = episodeequilibrium(t, context)
-    φ, m, a = x
+    ℓ, m, a = x
+    φ = logistic(ℓ)
     s = noncommittedreversetime(t, equilibrium.parameters)
     tax = equilibrium.policies.tax(φ, m, a, s)
     committedtax = equilibrium.parameters.τᶜ(t)
     precision = χ(tax, committedtax, equilibrium.signal)
 
-    return SA.SVector(beliefdiffusion(precision, φ), 0.0, 0.0)
+    return SA.SVector(precision, 0.0, 0.0)
 end
 
 simtimes = range(0.0, activeterminal; length = simulationpoints)
@@ -499,7 +501,8 @@ episodecontext(shockequilibrium, currentepisode) = (;
 
 function solveepisode(currentepisode, shockequilibrium)
     context = episodecontext(shockequilibrium, currentepisode)
-    initialstate = SA.SVector(initialbelief, climate.m₀, firm.a₀)
+    initiallogodds = log(initialbelief / (1 - initialbelief))
+    initialstate = SA.SVector(initiallogodds, climate.m₀, firm.a₀)
     dynamicfunction = SDE.SDEFunction{false}(episodedrift, episodenoise)
     problem = SDE.SDEProblem(
         dynamicfunction,
@@ -604,17 +607,18 @@ function simulationobjects(solution, context)
             t = path.t[timeindex]
             state = path.u[timeindex]
             equilibrium = episodeequilibrium(t, context)
-            φ, m, a = state
+            ℓ, m, a = state
+            φ = logistic(ℓ)
             s = noncommittedreversetime(t, equilibrium.parameters)
             currenttax = equilibrium.policies.tax(φ, m, a, s)
             currentinvestment = equilibrium.policies.investment(φ, m, a, s)
 
-            belief[timeindex, pathindex] = state[1]
-            cumulativeemissions[timeindex, pathindex] = state[2]
-            abatement[timeindex, pathindex] = state[3]
+            belief[timeindex, pathindex] = φ
+            cumulativeemissions[timeindex, pathindex] = m
+            abatement[timeindex, pathindex] = a
             tax[timeindex, pathindex] = currenttax
             investment[timeindex, pathindex] = currentinvestment
-            warming[timeindex, pathindex] = temperature(state[2], climate)
+            warming[timeindex, pathindex] = temperature(m, climate)
         end
     end
 
@@ -859,7 +863,7 @@ function continuationcost(solution)
         interpolatestate(
             values.W,
             grid,
-            last(path.u)[1],
+            logistic(last(path.u)[1]),
             last(path.u)[2],
             last(path.u)[3],
         )
