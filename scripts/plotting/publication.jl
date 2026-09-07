@@ -1,3 +1,18 @@
+const publicationsettings = (;
+    samplepathlinewidth = 1.0,
+    medianlinewidth = 3.5,
+    committedlinewidth = 3.0,
+    guidelinewidth = 2.0,
+    samplepathopacity = 0.14,
+    intervalopacity = 0.22,
+    paneltitlefontsize = 20,
+    annotationfontsize = 13,
+    panelwidth = 300,
+    panelheight = 320,
+)
+const startyear = 2025
+const denseyticks = CairoMakie.LinearTicks(8)
+
 const publicationtheme = CairoMakie.Theme(
     fontsize = 16,
     Axis = (;
@@ -16,25 +31,13 @@ const publicationtheme = CairoMakie.Theme(
         labelsize = 13,
         framevisible = false,
     ),
-    publication = (;
-        samplepathlinewidth = 1.0,
-        medianlinewidth = 3.5,
-        committedlinewidth = 3.0,
-        guidelinewidth = 2.0,
-        samplepathopacity = 0.14,
-        intervalopacity = 0.22,
-        paneltitlefontsize = 20,
-        annotationfontsize = 13,
-        panelwidth = 300,
-        panelheight = 320,
-    ),
 )
 
-function publicationdefault(key::Symbol)
-    CairoMakie.to_value(publicationtheme[:publication, key])
-end
+publicationdefault(key::Symbol) = getproperty(publicationsettings, key)
+percenttickformat(values) = [Printf.@sprintf("%.0f%%", 100value) for value in values]
 
 function savepublicationfigure(basename, figure)
     CairoMakie.save("$basename.pdf", figure; pt_per_unit = 1)
     CairoMakie.save("$basename.png", figure; px_per_unit = 2)
+    return figure
 end

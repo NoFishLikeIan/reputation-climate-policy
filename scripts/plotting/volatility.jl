@@ -1,12 +1,9 @@
 using Revise
 
-import DotEnv; DotEnv.load!()
+import DotEnv
+DotEnv.load!()
 
 import JLD2
-import UnPack: @unpack
-import LaTeXStrings: @L_str
-import Printf
-
 import SciMLBase
 import FastInterpolations as Itp
 import LinearSolve
@@ -15,6 +12,11 @@ import StaticArrays as SA
 import Statistics
 import StochasticDiffEq as SDE
 import OrdinaryDiffEq as ODE
+import UnPack: @unpack
+import LaTeXStrings: @L_str
+import Printf
+import CairoMakie
+import Colors
 
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
@@ -36,44 +38,38 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
-## Plotting
-import CairoMakie
-import Colors
-
 includet("publication.jl")
 includet("colours.jl")
-includet("simulationplots.jl")
 
 CairoMakie.set_theme!(publicationtheme)
 
 ## Configuration
-σs = @. σ̂ * 2^(-1, 0, 1, 2)
+volatilitymultipliers = 2.0 .^ (-1:2)
 volatilitylabels = ("Low", "Normal", "High", "Very high")
 volatilitycolors = (defaultpalette[:abatement], defaultpalette[:committed], Colors.colorant"#D18B47", defaultpalette[:damages])
 
-startyear = 2025
 φ₀ = 0.5
+beliefxticks = 0:0.2:1
 
-# The episode calculations use common ensemble seeds and regime-specific
-# feedback policies. Entry into and exit from an elevated-volatility regime are
-# both unexpected. A known exit date requires resolving the continuation problem.
 simulationtrajectories = 1_000
 simulationseed = UInt64(11148705)
 
 simulationpoints = 281
-shocktime = 10.0
-shocktimes = [5.0, shocktime, 15.0]
-shockdurations = [2.0, 5.0, 10.0]
-selectedshocktime = shocktime
-selectedshockduration = 10.0
-initialbelief = φ₀
+episodestart = 10.0
+episodestarttimes = [5.0, episodestart, 15.0]
+episodedurations = [2.0, 5.0, 10.0]
+selectedepisodestart = episodestart
+selectedepisodeduration = 10.0
 
 ## Load equilibria
 firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
+σs = signal.σ .* volatilitymultipliers
 
 filename = solutionfilename(climate, government, firm)
-solpath = joinpath("data", "solutions", filename)
+datapath = get(ENV, "DATAPATH", "data")
+plotpath = get(ENV, "PLOTPATH", "figures")
+solpath = joinpath(datapath, "solutions", filename)
 isfile(solpath) || error("File $solpath not found.")
 
 trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
@@ -83,80 +79,53 @@ end
 activeterminal = last(committedtime)
 terminalabatement = last(trajectory)[2]
 terminal = committedtaxterminal(activeterminal, terminalabatement, firm, government)
-
-activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = Itp.ClampExtrap())
-τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
-
-function constructvolatilitypolicies(solution, parameters, grid)
-    n = length(solution.t)
-    investment = Array{Float64}(undef, size(grid)..., n)
-    tax = similar(investment)
-
-    for (i, s) in enumerate(solution.t)
-        policies = noncommittedpolicies(solution(s), parameters, s)
-        investment[:, :, :, i] .= policies.investment
-        tax[:, :, :, i] .= policies.tax
-    end
-
-    interpolationspace = (
-        grid.φgrid,
-        grid.mgrid,
-        grid.agrid,
-        solution.t,
-    )
-
-    return (;
-        tax = Itp.linear_interp(interpolationspace, tax; extrap = clampextrap),
-        investment = Itp.linear_interp(
-            interpolationspace,
-            investment;
-            extrap = clampextrap,
-        ),
-    )
-end
+activecommittedtax = Itp.linear_interp(
+    committedtime,
+    committedtaxes;
+    extrap = Itp.ClampExtrap(),
+)
+τᶜ = CommittedTaxPath(
+    activecommittedtax,
+    activeterminal,
+    terminal,
+    terminalabatement,
+    firm,
+    government,
+)
+horizonsimulation = 1.2terminal
 
 function loadvolatilityequilibrium(σ)
-    comparisonsignal = Signal(σ = σ)
+    comparisonsignal = Signal(; ϵ = signal.ϵ, σ)
     solutionkey = uncommittedsolutionkey(comparisonsignal, taxmethod)
-
     solution, grid, savedtaxmethod = JLD2.jldopen(solpath, "r") do file
         haskey(file, solutionkey) || error(
             "Uncommitted solution $solutionkey not found in $solpath.",
         )
-
-        (
-            file["$solutionkey/solution"],
-            file["$solutionkey/grid"],
-            file["$solutionkey/taxmethod"],
-        )
+        file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
     end
+    parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, comparisonsignal, climate, savedtaxmethod)
+    policies = constructpolicies(solution, parameters, grid)
+    models = (firm, government, comparisonsignal, climate)
+    dynamicparameters = (policies, τᶜ, terminal, models)
 
-    typeof(savedtaxmethod) == typeof(taxmethod) || error(
-        "Expected $(typeof(taxmethod)) at $solutionkey, found $(typeof(savedtaxmethod)).",
-    )
-
-    parameters = NonCommittedParameters(
-        τᶜ,
-        terminal,
-        grid,
-        firm,
-        government,
-        comparisonsignal,
-        climate,
-        savedtaxmethod,
-    )
-    policies = constructvolatilitypolicies(solution, parameters, grid)
-
-    return (; σ, signal = comparisonsignal, solution, grid, parameters, policies)
+    return (; σ, signal = comparisonsignal, solution, grid, parameters, policies, dynamicparameters)
 end
 
 equilibria = map(loadvolatilityequilibrium, σs)
-normalequilibrium = first(equilibria)
-shockequilibria = equilibria[2:end]
-shocklabels = volatilitylabels[2:end]
-shockcolors = volatilitycolors[2:end]
+normalindex = findfirst(==(1.0), volatilitymultipliers)
+episodeindices = findall(!=(1.0), volatilitymultipliers)
 
-figurepath = joinpath(ENV["PLOTPATH"], splitext(filename)[1], "volatility-shocks", taxmethodlabel(taxmethod))
+normalequilibrium = equilibria[normalindex]
+episodeequilibria = equilibria[episodeindices]
+episodelabels = map(index -> volatilitylabels[index], episodeindices)
+episodecolors = map(index -> volatilitycolors[index], episodeindices)
+grid = normalequilibrium.grid
+figurepath = joinpath(
+    plotpath,
+    splitext(filename)[1],
+    "volatility-shocks",
+    taxmethodlabel(taxmethod),
+)
 ispath(figurepath) || mkpath(figurepath)
 
 function interpolatestate(array, grid, φ, m, a)
@@ -170,224 +139,49 @@ end
 
 function equilibriumslice(equilibrium, t, φvalues, m, a)
     @unpack parameters, grid, solution = equilibrium
-
     s = noncommittedreversetime(t, parameters)
-    statevalues = solution(s)
-    policies = noncommittedpolicies(statevalues, parameters, s)
-    values = noncommittedvalues(statevalues, parameters)
+    policies = noncommittedpolicies(solution(s), parameters, s)
     committedtax = parameters.τᶜ(t)
+    tax = [interpolatestate(policies.tax, grid, φ, m, a) for φ in φvalues]
+    taxgap = committedtax .- tax
+    precision = χ.(tax, committedtax, Ref(equilibrium.signal))
+    posteriorloading = @. φvalues * (1 - φvalues) * equilibrium.signal.ϵ * taxgap / equilibrium.signal.σ^2
+    beliefvolatility = beliefdiffusion.(precision, φvalues)
 
-    tax = Vector{Float64}(undef, length(φvalues))
-    expectedtax = similar(tax)
-    investment = similar(tax)
-    welfare = similar(tax)
-    posteriorloading = similar(tax)
-    beliefvolatility = similar(tax)
-    reputationloss = similar(tax)
-
-    for i in eachindex(φvalues)
-        φ = φvalues[i]
-        tax[i] = interpolatestate(policies.tax, grid, φ, m, a)
-        expectedtax[i] = interpolatestate(policies.expectedtax, grid, φ, m, a)
-        investment[i] = interpolatestate(policies.investment, grid, φ, m, a)
-        welfare[i] = interpolatestate(values.W, grid, φ, m, a)
-
-        gap = committedtax - tax[i]
-        precision = χ(tax[i], committedtax, equilibrium.signal)
-        posteriorloading[i] = φ * (1 - φ) * equilibrium.signal.ϵ * gap /
-            equilibrium.signal.σ^2
-        beliefvolatility[i] = beliefdiffusion(precision, φ)
-        reputationloss[i] = -beliefdrift(precision, φ)
-    end
-
-    return (;
-        tax,
-        expectedtax,
-        investment,
-        welfare,
-        posteriorloading,
-        beliefvolatility,
-        reputationloss,
-        taxgap = (committedtax .- tax) ./ committedtax,
-        committedtax,
-    )
-end
-
-function responseheatmap!(axisposition, years, beliefs, response; colorrange, xlabel, ylabel)
-    axis = CairoMakie.Axis(
-        axisposition;
-        xlabel,
-        ylabel,
-        xticks = startyear:10:floor(Int, last(years)),
-        yticks = 0:0.25:1,
-    )
-    plot = CairoMakie.heatmap!(
-        axis,
-        years,
-        beliefs,
-        response;
-        colormap = :RdBu_11,
-        colorrange,
-    )
-    if minimum(response) ≤ 0 ≤ maximum(response)
-        CairoMakie.contour!(
-            axis,
-            years,
-            beliefs,
-            response;
-            levels = [0.0],
-            color = (:black, 0.45),
-            linewidth = 1.2,
-        )
-    end
-
-    return axis, plot
-end
-
-## Immediate response to an unexpected permanent increase in volatility
-maptimes = range(0.0, activeterminal; length = 41)
-mapyears = startyear .+ maptimes
-
-grid = equilibria[1].grid
-φindices = (firstindex(grid.φgrid) + 2):(lastindex(grid.φgrid) - 1)
-mapbeliefs = collect(grid.φgrid[φindices])
-
-committedm = Itp.linear_interp(
-    committedtime,
-    getindex.(trajectory, 1);
-    extrap = Itp.ClampExtrap(),
-)
-committeda = Itp.linear_interp(
-    committedtime,
-    getindex.(trajectory, 2);
-    extrap = Itp.ClampExtrap(),
-)
-
-function volatilityresponse(comparisonequilibrium)
-    tax = Matrix{Float64}(undef, length(maptimes), length(mapbeliefs))
-    expectedtax = similar(tax)
-    investment = similar(tax)
-    welfare = similar(tax)
-
-    for (timeindex, t) in enumerate(maptimes)
-        m = committedm(t)
-        a = committeda(t)
-        normal = equilibriumslice(normalequilibrium, t, mapbeliefs, m, a)
-        comparison = equilibriumslice(comparisonequilibrium, t, mapbeliefs, m, a)
-
-        tax[timeindex, :] .= 100 .* (comparison.tax .- normal.tax) ./ normal.committedtax
-        expectedtax[timeindex, :] .= 100 .* (comparison.expectedtax .- normal.expectedtax) ./
-            normal.committedtax
-        investment[timeindex, :] .= comparison.investment .- normal.investment
-        welfare[timeindex, :] .= 1_000 .* (comparison.welfare .- normal.welfare)
-    end
-
-    return (; tax, expectedtax, investment, welfare)
-end
-
-volatilityresponses = map(volatilityresponse, shockequilibria)
-responsenames = (:tax, :expectedtax, :investment, :welfare)
-responsetitles = (
-    "(a) Implemented tax",
-    "(b) Expected tax",
-    "(c) Abatement investment",
-    "(d) Welfare costs",
-)
-responsebarlabels = (
-    L"$\Delta_\sigma\tau/\tau^{\mathrm{c}}$ [pp]",
-    L"$\Delta_\sigma\tau^e/\tau^{\mathrm{c}}$ [pp]",
-    L"$\Delta_\sigma\dot a$ [GtCO2e/year$^2$]",
-    L"$\Delta_\sigma u$ [bn USD]",
-)
-
-begin
-    shockmapfig = CairoMakie.Figure(size = (1_350, 700))
-    mapaxes = CairoMakie.Axis[]
-    for (column, responsename) in enumerate(responsenames)
-        Printf.@printf "Plotting column %i and response %s" column responsename
-
-        maximumresponse = max(
-            maximum(maximum(abs, getproperty(response, responsename)) for response in volatilityresponses),
-            1e-12,
-        )
-        colorrange = (-maximumresponse, maximumresponse)
-        columnplots = Any[]
-        CairoMakie.Label(
-            shockmapfig[0, column],
-            responsetitles[column];
-            fontsize = publicationdefault(:paneltitlefontsize),
-        )
-
-        for row in eachindex(shockequilibria)
-            axis, plot = responseheatmap!(
-                shockmapfig[row, column],
-                mapyears,
-                mapbeliefs,
-                getproperty(volatilityresponses[row], responsename);
-                colorrange,
-                xlabel = row == lastindex(shockequilibria) ? "Year" : "",
-                ylabel = column == 1 ? L"Reputation $\phi$" : "",
-            )
-            push!(mapaxes, axis)
-            push!(columnplots, plot)
-            column > 1 && CairoMakie.hideydecorations!(axis; grid = false)
-            row < lastindex(shockequilibria) && CairoMakie.hidexdecorations!(axis; grid = false)
-        end
-
-        CairoMakie.Colorbar(
-            shockmapfig[3, column],
-            first(columnplots);
-            label = responsebarlabels[column],
-            vertical = false,
-        )
-    end
-    for row in eachindex(shockequilibria)
-        CairoMakie.Label(
-            shockmapfig[row, 0],
-            "$(shocklabels[row])\nσ = $(shockequilibria[row].σ)";
-            rotation = π / 2,
-            fontsize = 15,
-        )
-    end
-    CairoMakie.linkxaxes!(mapaxes...)
-    CairoMakie.linkyaxes!(mapaxes...)
-    CairoMakie.Label(
-        shockmapfig[4, 1:4],
-        L"Each response is relative to normal volatility and evaluated along $(m_t^{\mathrm{c}},a_t^{\mathrm{c}})$";
-        fontsize = 12,
-        color = defaultpalette[:guide],
-    )
-
-    savepublicationfigure(
-        joinpath(figurepath, "volatility-shock-map"),
-        shockmapfig,
-    )
-
-    shockmapfig
+    return (; taxgap = taxgap ./ committedtax, posteriorloading, beliefvolatility)
 end
 
 ## Belief attenuation at the initial physical state
-column = 1
+φindices = (firstindex(grid.φgrid) + 2):(lastindex(grid.φgrid) - 1)
+attenuationbeliefs = collect(grid.φgrid[φindices])
+
 initialobjects = map(equilibria) do equilibrium
     equilibriumslice(
         equilibrium,
         0.0,
-        mapbeliefs,
+        attenuationbeliefs,
         climate.m₀,
         firm.a₀,
     )
 end
 
 begin
-    attenuationfig = CairoMakie.Figure(size = (930, 350))
+    attenuationfig = CairoMakie.Figure(
+        size = (
+            3 * publicationdefault(:panelwidth),
+            publicationdefault(:panelheight) + 80,
+        ),
+    )
     gapaxis = CairoMakie.Axis(
         attenuationfig[1, 1];
         xlabel = L"Reputation $\phi$",
         ylabel = L"Tax gap $(\tau^{\mathrm{c}}-\tau)/\tau^{\mathrm{c}}$",
         title = "(a) Endogenous policy gap",
         limits = ((0, 1), nothing),
-        xticks = 0:0.25:1,
-        ytickformat = values -> [Printf.@sprintf("%.0f%%", 100value) for value in values],
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
+        ytickformat = percenttickformat,
     )
     loadingaxis = CairoMakie.Axis(
         attenuationfig[1, 2];
@@ -395,7 +189,9 @@ begin
         ylabel = L"Posterior loading on $\mathrm{d}s$",
         title = "(b) Response to a common signal",
         limits = ((0, 1), nothing),
-        xticks = 0:0.25:1,
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
     )
     diffusionaxis = CairoMakie.Axis(
         attenuationfig[1, 3];
@@ -403,7 +199,9 @@ begin
         ylabel = L"Belief diffusion $\sigma_\phi$",
         title = "(c) Equilibrium belief volatility",
         limits = ((0, 1), nothing),
-        xticks = 0:0.25:1,
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
     )
 
     for (equilibrium, objects, labelname, color) in zip(
@@ -412,10 +210,10 @@ begin
         volatilitylabels,
         volatilitycolors,
     )
-        label = "$labelname (σ = $(equilibrium.σ))"
+        label = Printf.@sprintf("%s (σ = %.2f)", labelname, equilibrium.σ)
         CairoMakie.lines!(
             gapaxis,
-            mapbeliefs,
+            attenuationbeliefs,
             objects.taxgap;
             color,
             linewidth = publicationdefault(:medianlinewidth),
@@ -423,7 +221,7 @@ begin
         )
         CairoMakie.lines!(
             loadingaxis,
-            mapbeliefs,
+            attenuationbeliefs,
             objects.posteriorloading;
             color,
             linewidth = publicationdefault(:medianlinewidth),
@@ -431,7 +229,7 @@ begin
         )
         CairoMakie.lines!(
             diffusionaxis,
-            mapbeliefs,
+            attenuationbeliefs,
             objects.beliefvolatility;
             color,
             linewidth = publicationdefault(:medianlinewidth),
@@ -458,61 +256,32 @@ end
 episode(start, duration) = (; start, stop = start + duration)
 baselineepisode = (; start = Inf, stop = Inf)
 
-function episodeequilibrium(t, context)
-    context.episode.start ≤ t < context.episode.stop ? context.shock : context.normal
-end
+episodeequilibrium(t, context) = context.episode.start ≤ t < context.episode.stop ? context.alternative : context.normal
+episodedrift(x, context, t) = logdynamicdrift(x, episodeequilibrium(t, context).dynamicparameters, t)
+episodenoise(x, context, t) = logdynamicnoise(x, episodeequilibrium(t, context).dynamicparameters, t)
 
-function episodedrift(x, context, t)
-    equilibrium = episodeequilibrium(t, context)
-    ℓ, m, a = x
-    φ = logistic(ℓ)
-    s = noncommittedreversetime(t, equilibrium.parameters)
-    tax = equilibrium.policies.tax(φ, m, a, s)
-    committedtax = equilibrium.parameters.τᶜ(t)
-    investment = equilibrium.policies.investment(φ, m, a, s)
-    precision = χ(tax, committedtax, equilibrium.signal)
+simulationtimes = range(0.0, horizonsimulation; length = simulationpoints)
 
-    return SA.SVector(
-        -precision^2 / 2,
-        cumulativeemissionsdrift(a, firm),
-        investment,
-    )
-end
-
-function episodenoise(x, context, t)
-    equilibrium = episodeequilibrium(t, context)
-    ℓ, m, a = x
-    φ = logistic(ℓ)
-    s = noncommittedreversetime(t, equilibrium.parameters)
-    tax = equilibrium.policies.tax(φ, m, a, s)
-    committedtax = equilibrium.parameters.τᶜ(t)
-    precision = χ(tax, committedtax, equilibrium.signal)
-
-    return SA.SVector(precision, 0.0, 0.0)
-end
-
-simtimes = range(0.0, activeterminal; length = simulationpoints)
-
-episodecontext(shockequilibrium, currentepisode) = (;
+episodecontext(alternativeequilibrium, currentepisode) = (;
     normal = normalequilibrium,
-    shock = shockequilibrium,
+    alternative = alternativeequilibrium,
     episode = currentepisode,
 )
 
-function solveepisode(currentepisode, shockequilibrium)
-    context = episodecontext(shockequilibrium, currentepisode)
-    initiallogodds = log(initialbelief / (1 - initialbelief))
+function solveepisode(currentepisode, alternativeequilibrium)
+    context = episodecontext(alternativeequilibrium, currentepisode)
+    initiallogodds = logit(φ₀)
     initialstate = SA.SVector(initiallogodds, climate.m₀, firm.a₀)
     dynamicfunction = SDE.SDEFunction{false}(episodedrift, episodenoise)
     problem = SDE.SDEProblem(
         dynamicfunction,
         initialstate,
-        (0.0, activeterminal),
+        (0.0, horizonsimulation),
         context,
     )
     ensemble = SDE.EnsembleProblem(problem)
     stops = filter(
-        t -> 0 < t < activeterminal,
+        t -> 0 < t < horizonsimulation,
         [currentepisode.start, currentepisode.stop],
     )
 
@@ -521,7 +290,7 @@ function solveepisode(currentepisode, shockequilibrium)
         SDE.SOSRI(),
         SciMLBase.EnsembleSerial();
         trajectories = simulationtrajectories,
-        saveat = simtimes,
+        saveat = simulationtimes,
         save_everystep = false,
         dense = false,
         tstops = stops,
@@ -529,11 +298,7 @@ function solveepisode(currentepisode, shockequilibrium)
     )
 end
 
-selectedshocktime in shocktimes || error("The selected shock time is not in shocktimes.")
-selectedshockduration in shockdurations || error(
-    "The selected shock duration is not in shockdurations.",
-)
-selectedepisode = episode(selectedshocktime, selectedshockduration)
+selectedepisode = episode(selectedepisodestart, selectedepisodeduration)
 
 baselinecontext = episodecontext(normalequilibrium, baselineepisode)
 println("Simulating the normal-volatility benchmark")
@@ -541,57 +306,55 @@ baselinesolution = solveepisode(baselineepisode, normalequilibrium)
 
 abatementpersistence = Array{Float64}(
     undef,
-    length(shocktimes),
-    length(shockdurations),
-    length(shockequilibria),
+    length(episodestarttimes),
+    length(episodedurations),
+    length(episodeequilibria),
 )
 temperaturepersistence = similar(abatementpersistence)
-selectedsolutions = Vector{Any}(undef, length(shockequilibria))
+selectedsolutions = Vector{Any}(undef, length(episodeequilibria))
 selectedcontexts = [
     episodecontext(equilibrium, selectedepisode)
-    for equilibrium in shockequilibria
+    for equilibrium in episodeequilibria
 ]
 
-for (shockindex, shockequilibrium) in enumerate(shockequilibria)
-    for (timeindex, shockstart) in enumerate(shocktimes)
-        for (durationindex, duration) in enumerate(shockdurations)
-            shockstart + duration < activeterminal || error(
-                "The episode starting at $shockstart with duration $duration exceeds the simulation horizon.",
+for (episodeindex, alternativeequilibrium) in enumerate(episodeequilibria)
+    for (timeindex, start) in enumerate(episodestarttimes)
+        for (durationindex, duration) in enumerate(episodedurations)
+            0 ≤ start < start + duration ≤ horizonsimulation || error(
+                "The episode starting at $start with duration $duration exceeds the simulation horizon.",
             )
             Printf.@printf(
                 "Simulating %s volatility from %d to %d\n",
-                lowercase(shocklabels[shockindex]),
-                round(Int, startyear + shockstart),
-                round(Int, startyear + shockstart + duration),
+                lowercase(episodelabels[episodeindex]),
+                round(Int, startyear + start),
+                round(Int, startyear + start + duration),
             )
-            solution = solveepisode(
-                episode(shockstart, duration),
-                shockequilibrium,
-            )
-            abatementpersistence[timeindex, durationindex, shockindex] = Statistics.median([
-                last(solution.u[pathindex].u)[3] -
+            episodesolution = solveepisode(episode(start, duration), alternativeequilibrium)
+            abatementpersistence[timeindex, durationindex, episodeindex] = Statistics.median([
+                last(episodesolution.u[pathindex].u)[3] -
                     last(baselinesolution.u[pathindex].u)[3]
-                for pathindex in eachindex(solution.u)
+                for pathindex in eachindex(episodesolution.u)
             ])
-            temperaturepersistence[timeindex, durationindex, shockindex] = Statistics.median([
-                temperature(last(solution.u[pathindex].u)[2], climate) -
+            temperaturepersistence[timeindex, durationindex, episodeindex] = Statistics.median([
+                temperature(last(episodesolution.u[pathindex].u)[2], climate) -
                     temperature(last(baselinesolution.u[pathindex].u)[2], climate)
-                for pathindex in eachindex(solution.u)
+                for pathindex in eachindex(episodesolution.u)
             ])
 
-            if shockstart == selectedshocktime && duration == selectedshockduration
-                selectedsolutions[shockindex] = solution
+            if start == selectedepisodestart && duration == selectedepisodeduration
+                selectedsolutions[episodeindex] = episodesolution
             else
-                solution = nothing
+                episodesolution = nothing
                 GC.gc()
             end
         end
     end
 end
 
-function simulationobjects(solution, context)
-    ntimes = length(simtimes)
-    npaths = length(solution.u)
+
+function simulationobjects(simulation, context)
+    ntimes = length(simulationtimes)
+    npaths = length(simulation.u)
     belief = Matrix{Float64}(undef, ntimes, npaths)
     cumulativeemissions = similar(belief)
     abatement = similar(belief)
@@ -599,7 +362,7 @@ function simulationobjects(solution, context)
     investment = similar(belief)
     warming = similar(belief)
 
-    for (pathindex, path) in enumerate(solution.u)
+    for (pathindex, path) in enumerate(simulation.u)
         length(path.u) == ntimes || error(
             "Path $pathindex has $(length(path.u)) saved states; expected $ntimes.",
         )
@@ -633,11 +396,11 @@ medianseries(values) = [
 baselineobjects = simulationobjects(baselinesolution, baselinecontext)
 
 selectedobjects = map(
-    (solution, context) -> simulationobjects(solution, context),
+    (simulation, context) -> simulationobjects(simulation, context),
     selectedsolutions,
     selectedcontexts,
 )
-simulationyears = startyear .+ simtimes
+simulationyears = startyear .+ simulationtimes
 
 eventresponses = map(selectedobjects) do objects
     (
@@ -656,12 +419,12 @@ function eventaxis!(position, responses; title, ylabel)
         title,
         limits = (extrema(simulationyears), nothing),
         xticks = startyear:10:floor(Int, last(simulationyears)),
-        yticks = CairoMakie.LinearTicks(6),
+        yticks = denseyticks,
     )
     CairoMakie.vspan!(
         axis,
-        startyear + selectedshocktime,
-        startyear + selectedshocktime + selectedshockduration;
+        startyear + selectedepisodestart,
+        startyear + selectedepisodestart + selectedepisodeduration;
         color = (defaultpalette[:guide], 0.16),
     )
     CairoMakie.hlines!(
@@ -671,7 +434,7 @@ function eventaxis!(position, responses; title, ylabel)
         linestyle = :dot,
         linewidth = publicationdefault(:guidelinewidth),
     )
-    for (response, label, color) in zip(responses, shocklabels, shockcolors)
+    for (response, label, color) in zip(responses, episodelabels, episodecolors)
         CairoMakie.lines!(
             axis,
             simulationyears,
@@ -686,7 +449,12 @@ function eventaxis!(position, responses; title, ylabel)
 end
 
 begin
-    eventfig = CairoMakie.Figure(size = (900, 700))
+    eventfig = CairoMakie.Figure(
+        size = (
+            2 * publicationdefault(:panelwidth),
+            2 * publicationdefault(:panelheight) + 120,
+        ),
+    )
     eventtaxaxis = eventaxis!(
         eventfig[1, 1],
         getproperty.(eventresponses, :tax);
@@ -721,8 +489,8 @@ begin
         eventfig[0, 1:2],
         Printf.@sprintf(
             "Median response to an unexpected volatility episode, %d–%d",
-            round(Int, startyear + selectedshocktime),
-            round(Int, startyear + selectedshocktime + selectedshockduration),
+            round(Int, startyear + selectedepisodestart),
+            round(Int, startyear + selectedepisodestart + selectedepisodeduration),
         );
         fontsize = publicationdefault(:paneltitlefontsize),
     )
@@ -748,10 +516,17 @@ begin
     eventfig
 end
 
-## Persistence by shock date and duration
+## Persistence by episode date and duration
 begin
-    persistencefig = CairoMakie.Figure(size = (900, 650))
-    persistenceyears = startyear .+ shocktimes
+    episoderows = length(episodeequilibria)
+    colorbarrow = episoderows + 1
+    persistencefig = CairoMakie.Figure(
+        size = (
+            2 * publicationdefault(:panelwidth),
+            episoderows * publicationdefault(:panelheight) + 90,
+        ),
+    )
+    persistenceyears = startyear .+ episodestarttimes
     persistencearrays = (abatementpersistence, temperaturepersistence)
     persistencetitles = (
         "(a) Abatement at the horizon",
@@ -765,7 +540,7 @@ begin
 
     for column in eachindex(persistencearrays)
         values = persistencearrays[column]
-        maximumvalue = max(maximum(abs, values), 1e-12)
+        maximumvalue = max(maximum(abs, values), eps(Float64))
         colorrange = (-maximumvalue, maximumvalue)
         columnplots = Any[]
         CairoMakie.Label(
@@ -774,18 +549,18 @@ begin
             fontsize = publicationdefault(:paneltitlefontsize),
         )
 
-        for row in eachindex(shockequilibria)
+        for row in eachindex(episodeequilibria)
             axis = CairoMakie.Axis(
                 persistencefig[row, column];
-                xlabel = row == lastindex(shockequilibria) ? "Start of episode" : "",
+                xlabel = row == lastindex(episodeequilibria) ? "Start of episode" : "",
                 ylabel = column == 1 ? "Duration [years]" : "",
                 xticks = round.(Int, persistenceyears),
-                yticks = shockdurations,
+                yticks = episodedurations,
             )
             plot = CairoMakie.heatmap!(
                 axis,
                 persistenceyears,
-                shockdurations,
+                episodedurations,
                 view(values, :, :, row);
                 colormap = :RdBu_11,
                 colorrange,
@@ -793,20 +568,20 @@ begin
             push!(persistenceaxes, axis)
             push!(columnplots, plot)
             column > 1 && CairoMakie.hideydecorations!(axis; grid = false)
-            row < lastindex(shockequilibria) && CairoMakie.hidexdecorations!(axis; grid = false)
+            row < lastindex(episodeequilibria) && CairoMakie.hidexdecorations!(axis; grid = false)
         end
 
         CairoMakie.Colorbar(
-            persistencefig[3, column],
+            persistencefig[colorbarrow, column],
             first(columnplots);
             label = persistencebarlabels[column],
             vertical = false,
         )
     end
-    for row in eachindex(shockequilibria)
+    for row in eachindex(episodeequilibria)
         CairoMakie.Label(
             persistencefig[row, 0],
-            "$(shocklabels[row])\nσ = $(shockequilibria[row].σ)";
+            Printf.@sprintf("%s\nσ = %.2f", episodelabels[row], episodeequilibria[row].σ);
             rotation = π / 2,
             fontsize = 15,
         )
@@ -841,9 +616,9 @@ function discountedflow(values)
         for timeindex in axes(values, 1)
     ]
     discountedcost = 0.0
-    for timeindex in firstindex(simtimes):(lastindex(simtimes) - 1)
-        lefttime = simtimes[timeindex]
-        righttime = simtimes[timeindex + 1]
+    for timeindex in firstindex(simulationtimes):(lastindex(simulationtimes) - 1)
+        lefttime = simulationtimes[timeindex]
+        righttime = simulationtimes[timeindex + 1]
         leftvalue = exp(-government.r * lefttime) * expectedflow[timeindex]
         rightvalue = exp(-government.r * righttime) * expectedflow[timeindex + 1]
         discountedcost += (righttime - lefttime) * (leftvalue + rightvalue) / 2
@@ -852,8 +627,8 @@ function discountedflow(values)
     return government.r * discountedcost
 end
 
-function continuationcost(solution)
-    t = last(simtimes)
+function continuationcost(simulation)
+    t = last(simulationtimes)
     s = noncommittedreversetime(t, normalequilibrium.parameters)
     values = noncommittedvalues(
         normalequilibrium.solution(s),
@@ -867,7 +642,7 @@ function continuationcost(solution)
             last(path.u)[2],
             last(path.u)[3],
         )
-        for path in solution.u
+        for path in simulation.u
     ]
 
     return exp(-government.r * t) * Statistics.mean(continuationvalues)
@@ -875,15 +650,16 @@ end
 
 baselineflows = flowcomponents(baselineobjects)
 selectedflows = map(flowcomponents, selectedobjects)
-welfarecomponents = reduce(hcat, map(selectedflows, selectedsolutions) do flows, solution
+welfarecolumns = map(selectedflows, selectedsolutions) do flows, simulation
     components = 1_000 .* [
         discountedflow(flows.damages) - discountedflow(baselineflows.damages),
         discountedflow(flows.investment) - discountedflow(baselineflows.investment),
         discountedflow(flows.taxation) - discountedflow(baselineflows.taxation),
-        continuationcost(solution) - continuationcost(baselinesolution),
+        continuationcost(simulation) - continuationcost(baselinesolution),
     ]
     return [components; sum(components)]
-end)
+end
+welfarecomponents = hcat(welfarecolumns...)
 welfarelabels = [
     "Climate damages",
     "Investment",
@@ -893,14 +669,19 @@ welfarelabels = [
 ]
 
 begin
-    welfarefig = CairoMakie.Figure(size = (760, 440))
+    welfarefig = CairoMakie.Figure(
+        size = (
+            2 * publicationdefault(:panelwidth),
+            publicationdefault(:panelheight) + 120,
+        ),
+    )
     welfareaxis = CairoMakie.Axis(
         welfarefig[1, 1];
         ylabel = "Change in annualised welfare costs [bn USD]",
         title = "Welfare effect of the selected volatility episode",
         xticks = (eachindex(welfarelabels), welfarelabels),
         xticklabelrotation = π / 8,
-        yticks = CairoMakie.LinearTicks(7),
+        yticks = denseyticks,
     )
     CairoMakie.hlines!(
         welfareaxis,
@@ -909,15 +690,15 @@ begin
         linestyle = :dot,
         linewidth = publicationdefault(:guidelinewidth),
     )
-    for shockindex in eachindex(shockequilibria)
+    for episodeindex in eachindex(episodeequilibria)
         CairoMakie.barplot!(
             welfareaxis,
             eachindex(welfarelabels),
-            view(welfarecomponents, :, shockindex);
-            color = shockcolors[shockindex],
-            dodge = fill(shockindex, length(welfarelabels)),
-            n_dodge = length(shockequilibria),
-            label = shocklabels[shockindex],
+            view(welfarecomponents, :, episodeindex);
+            color = episodecolors[episodeindex],
+            dodge = fill(episodeindex, length(welfarelabels)),
+            n_dodge = length(episodeequilibria),
+            label = episodelabels[episodeindex],
         )
     end
     CairoMakie.Legend(

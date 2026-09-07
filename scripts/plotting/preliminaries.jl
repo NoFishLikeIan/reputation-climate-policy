@@ -4,30 +4,19 @@ using Revise
 import DotEnv
 DotEnv.load!()
 
-import Printf
 import JLD2
 import SciMLBase
 import FastInterpolations as Itp
-
 import LinearSolve
 import SparseArrays
 import StaticArrays as SA
+import Statistics
+import OrdinaryDiffEq as ODE
 import UnPack: @unpack
-
+import LaTeXStrings: @L_str
+import Printf
 import CairoMakie
 import Colors
-import LaTeXStrings: @L_str
-
-includet("publication.jl")
-CairoMakie.set_theme!(publicationtheme)
-
-singlepanelsize = (420, 300)
-combinedfiguresize = (900, 620)
-
-plotpath = joinpath(ENV["PLOTPATH"], "preliminaries")
-if !ispath(plotpath) mkpath(plotpath) end
-
-includet("colours.jl")
 
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
@@ -49,19 +38,26 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
+includet("publication.jl")
+includet("colours.jl")
 
+CairoMakie.set_theme!(publicationtheme)
 
+singlepanelsize = (420, 300)
+combinedfiguresize = (900, 620)
+plotpath = get(ENV, "PLOTPATH", "figures")
+figurepath = joinpath(plotpath, "preliminaries")
+ispath(figurepath) || mkpath(figurepath)
 firm, government, signal, climate = initmodels()
 
 ## Welfare costs
-Δm = 100firm.e₀ # 50 years without abatement
-mgrid = range(0., m₀ + Δm, 501);
+Δm = 100firm.e₀ # 100 years without abatement
+mgrid = range(0.0, climate.m₀ + Δm, 501)
 percentageformatter = x -> Printf.@sprintf "%.2f%%" 100x
-denseyticks = CairoMakie.LinearTicks(8)
 
 begin
     damagevalues = map(m -> d(m, climate), mgrid)
-    initialdamage = d(m₀, climate)
+    initialdamage = d(climate.m₀, climate)
 
     damagefig = CairoMakie.Figure(size = singlepanelsize)
     damageaxis = CairoMakie.Axis(
@@ -70,20 +66,20 @@ begin
         ylabel = "Output loss [% GDP / year]",
         limits = (extrema(mgrid), (0, nothing)),
         ytickformat = values -> [Printf.@sprintf "%.1f%%" 100x for x in values],
-        yticks = 0:0.005:0.05
+        yticks = 0:0.005:0.05,
     )
 
     CairoMakie.lines!(damageaxis, mgrid, damagevalues; color = defaultpalette[:damages], linewidth = publicationdefault(:medianlinewidth), label = L"Damages $d(m)$")
-    CairoMakie.lines!(damageaxis, [m₀, m₀], [0, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
-    CairoMakie.lines!(damageaxis, [0, m₀], [initialdamage, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
-    CairoMakie.scatter!(damageaxis, [m₀], [initialdamage]; color = defaultpalette[:damages], strokewidth = 0)
+    CairoMakie.lines!(damageaxis, [climate.m₀, climate.m₀], [0, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+    CairoMakie.lines!(damageaxis, [0, climate.m₀], [initialdamage, initialdamage]; color = defaultpalette[:guide], linestyle = :dot, linewidth = publicationdefault(:guidelinewidth))
+    CairoMakie.scatter!(damageaxis, [climate.m₀], [initialdamage]; color = defaultpalette[:damages], strokewidth = 0)
     CairoMakie.axislegend(damageaxis; position = :lt)
-    savepublicationfigure(joinpath(plotpath, "damages"), damagefig)
+    savepublicationfigure(joinpath(figurepath, "damages"), damagefig)
 
     damagefig
 end
 
-## Mac curve
+## MAC curve
 agrid = range(0, firm.e₀, 501)
 
 begin
@@ -93,15 +89,15 @@ begin
     macaxis = CairoMakie.Axis(
         macfig[1, 1];
         xlabel = L"Abatement $a_{i, t}$ [GtCO2e / year]",
-        ylabel = L"Output loss [% GDP / year] $$",
+        ylabel = "Output loss [% GDP / year]",
         limits = (extrema(agrid), (0, nothing)),
         ytickformat = values -> [Printf.@sprintf "%.2f%%" 100x for x in values],
-        yticks = (0:0.25:2) ./ 100
+        yticks = (0:0.25:2) ./ 100,
     )
 
     CairoMakie.lines!(macaxis, agrid, macvalues; color = defaultpalette[:mac], linewidth = publicationdefault(:medianlinewidth), label = L"Marginal abatement cost $c(a_{i, t})$")
     CairoMakie.axislegend(macaxis; position = :rt)
-    savepublicationfigure(joinpath(plotpath, "marginal-abatement-costs"), macfig)
+    savepublicationfigure(joinpath(figurepath, "marginal-abatement-costs"), macfig)
 
     macfig
 end
@@ -134,7 +130,7 @@ begin
     beliefdriftvalues = beliefdrift.(calibrationχ, φgrid)
     beliefdiffusionvalues = beliefdiffusion.(calibrationχ, φgrid)
 
-    plottemperaturecalibration! = function (position)
+    function plottemperaturecalibration!(position)
         axis = CairoMakie.Axis(
             position;
             xlabel = L"Cumulative emissions $m$ [GtCO2e]",
@@ -152,7 +148,7 @@ begin
         axis
     end
 
-    plotemissionscalibration! = function (position)
+    function plotemissionscalibration!(position)
         axis = CairoMakie.Axis(
             position;
             xlabel = L"Abatement $a$ [GtCO2e/year]",
@@ -171,7 +167,7 @@ begin
         axis
     end
 
-    plottaxabatementcalibration! = function (position)
+    function plottaxabatementcalibration!(position)
         axis = CairoMakie.Axis(
             position;
             xlabel = "Carbon tax [USD/tCO2e]",
@@ -190,7 +186,7 @@ begin
         axis
     end
 
-    plotbeliefdriftcalibration! = function (position)
+    function plotbeliefdriftcalibration!(position)
         axis = CairoMakie.Axis(
             position;
             xlabel = L"Belief $\phi$",
@@ -201,6 +197,7 @@ begin
             ),
             limits = ((0, 1), nothing),
             xticks = 0:0.1:1,
+            xtickformat = percenttickformat,
             yticks = denseyticks,
             ytickformat = values -> percentageformatter.(values),
         )
@@ -211,7 +208,7 @@ begin
         axis
     end
 
-    plotbeliefdiffusioncalibration! = function (position)
+    function plotbeliefdiffusioncalibration!(position)
         axis = CairoMakie.Axis(
             position;
             xlabel = L"Belief $\phi$",
@@ -222,6 +219,7 @@ begin
             ),
             limits = ((0, 1), (0, nothing)),
             xticks = 0:0.1:1,
+            xtickformat = percenttickformat,
             yticks = denseyticks,
             ytickformat = values -> percentageformatter.(values),
         )
@@ -235,7 +233,7 @@ begin
     CairoMakie.Label(
         calibrationfig[0, 1:3],
         "Calibration mechanisms";
-        fontsize = 20,
+        fontsize = publicationdefault(:paneltitlefontsize),
         tellwidth = false,
     )
     plottemperaturecalibration!(calibrationfig[1, 1])
@@ -246,7 +244,7 @@ begin
     plotbeliefdiffusioncalibration!(beliefgrid[1, 2])
 
     savepublicationfigure(
-        joinpath(plotpath, "calibration-mechanisms"),
+        joinpath(figurepath, "calibration-mechanisms"),
         calibrationfig,
     )
 
@@ -260,14 +258,14 @@ begin
     for (filename, plotpanel!) in individualpanels
         panelfig = CairoMakie.Figure(size = singlepanelsize)
         plotpanel!(panelfig[1, 1])
-        savepublicationfigure(joinpath(plotpath, filename), panelfig)
+        savepublicationfigure(joinpath(figurepath, filename), panelfig)
     end
 
     calibrationfig
 end
 
 
-## Non committed tax coefficient
+## Non-committed tax coefficient
 begin
     coefficienttaxmethod = OneShotTax()
     coefficientbeliefgrid = range(0.0, 1.0; length = 501)
@@ -278,7 +276,7 @@ begin
     reputationvaluebillions = 1_000 .* reputationvaluegrid
 
     taxcoefficientpercentage = [
-        100 * inv(1 + government.r * government.δ / noncommittedtaxcoefficient(-p, φ, signal, coefficienttaxmethod,))
+        100 * inv(1 + government.r * government.δ / noncommittedtaxcoefficient(-p, φ, signal, coefficienttaxmethod))
         for φ in coefficientbeliefgrid, p in reputationvaluegrid
     ]
     coefficientlevels = range(0.0, 100.0; length = 11)
@@ -290,6 +288,7 @@ begin
         ylabel = L"Value of reputation $p$ [bn USD]",
         limits = ((0, 1), extrema(reputationvaluebillions)),
         xticks = 0:0.1:1,
+        xtickformat = percenttickformat,
         yticks = denseyticks,
     )
     coefficientplot = CairoMakie.contourf!(
@@ -318,7 +317,7 @@ begin
     )
 
     savepublicationfigure(
-        joinpath(plotpath, "noncommitted-tax-coefficient"),
+        joinpath(figurepath, "noncommitted-tax-coefficient"),
         coefficientfig,
     )
 

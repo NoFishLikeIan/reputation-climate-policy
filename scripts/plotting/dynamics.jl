@@ -1,12 +1,9 @@
 using Revise
 
-import DotEnv; DotEnv.load!()
+import DotEnv
+DotEnv.load!()
 
 import JLD2
-import UnPack: @unpack
-import LaTeXStrings: @L_str
-import Printf
-
 import SciMLBase
 import FastInterpolations as Itp
 import LinearSolve
@@ -14,8 +11,12 @@ import SparseArrays
 import StaticArrays as SA
 import Statistics
 import StochasticDiffEq as SDE
-import StochasticDiffEqImplicit as SDEImplicit
 import OrdinaryDiffEq as ODE
+import UnPack: @unpack
+import LaTeXStrings: @L_str
+import Printf
+import CairoMakie
+import Colors
 
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
@@ -37,10 +38,6 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
-## Plotting
-import CairoMakie
-import Colors
-
 includet("publication.jl")
 includet("colours.jl")
 includet("simulationplots.jl")
@@ -48,92 +45,102 @@ includet("simulationplots.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 ## Load problem
-## Setup import
 firm, government, signal, climate = initmodels()
-
 taxmethod = OneShotTax()
 filename = solutionfilename(climate, government, firm)
-solpath = joinpath("data", "solutions", filename)
-if !isfile(solpath) throw("File $solpath not found.") end
+datapath = get(ENV, "DATAPATH", "data")
+plotpath = get(ENV, "PLOTPATH", "figures")
+solpath = joinpath(datapath, "solutions", filename)
+isfile(solpath) || error("File $solpath not found.")
 
-solution, grid, taxmethod, trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
-    solutionkey = uncommittedsolutionkey(signal, taxmethod)
-
-    if !haskey(file, solutionkey) error("Uncommitted solution $solutionkey not found in $solpath.") end
-
-    (
-        file["$solutionkey/solution"],
-        file["$solutionkey/grid"],
-        file["$solutionkey/taxmethod"],
-        file["trajectory"],
-        file["taxes"],
-        file["time"],
-    )
+trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
+    file["trajectory"], file["taxes"], file["time"]
 end
 
-activeterminal = committedtime[end]
-terminalabatement = trajectory[end][2]
+activeterminal = last(committedtime)
+terminalabatement = last(trajectory)[2]
 terminal = committedtaxterminal(activeterminal, terminalabatement, firm, government)
+activecommittedtax = Itp.linear_interp(
+    committedtime,
+    committedtaxes;
+    extrap = Itp.ClampExtrap(),
+)
+τᶜ = CommittedTaxPath(
+    activecommittedtax,
+    activeterminal,
+    terminal,
+    terminalabatement,
+    firm,
+    government,
+)
 
-activecommittedtax = Itp.linear_interp(committedtime, committedtaxes; extrap = Itp.ClampExtrap())
-τᶜ = CommittedTaxPath(activecommittedtax, activeterminal, terminal, terminalabatement, firm, government)
+solutionkey = uncommittedsolutionkey(signal, taxmethod)
+solution, grid, taxmethod = JLD2.jldopen(solpath, "r") do file
+    haskey(file, solutionkey) || error(
+        "Uncommitted solution $solutionkey not found in $solpath.",
+    )
+    file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
+end
 
 models = (firm, government, signal, climate)
 parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
 policies = constructpolicies(solution, parameters, grid)
 
 ## Simulate path
-x₀ = SA.SVector(0., climate.m₀, firm.a₀)
+x₀ = SA.SVector(0.0, climate.m₀, firm.a₀)
 dynamicparameters = (policies, τᶜ, terminal, models)
 horizonsimulation = terminal
 
-dynamicfn = SDE.SDEFunction{false}(logdynamicdrift, logdynamicnoise)
-dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, horizonsimulation), dynamicparameters)
+dynamicfunction = SDE.SDEFunction{false}(logdynamicdrift, logdynamicnoise)
+dynamicproblem = SDE.SDEProblem(dynamicfunction, x₀, (0.0, horizonsimulation), dynamicparameters)
 
-plottimes = range(0., horizonsimulation, 501)
-startyear = 2025
+simulationtrajectories = 1_000
+simulationpoints = 501
+plottimes = range(0.0, horizonsimulation; length = simulationpoints)
 plotyears = startyear .+ plottimes
 yearlimits = extrema(plotyears)
 yearticks = startyear:10:floor(Int, last(plotyears))
-denseyticks = CairoMakie.LinearTicks(8)
+beliefyticks = 0:0.2:1
 
 ϵ = 0.1
 φs = [ϵ, 0.5, 1 - ϵ]
 
-function plottingoutput(solution, _)
-    return simulationplotpath(solution, policies, terminal, climate), false
-end
+plottingoutput(solution, _) = (simulationplotpath(solution, policies, terminal, climate), false)
 
-ensembleproblem = SDE.EnsembleProblem(dynamicprob; output_func = plottingoutput)
+ensembleproblem = SDE.EnsembleProblem(dynamicproblem; output_func = plottingoutput)
 plotsummaries = SimulationPlotSummary[]
 for φ₀ in φs
     Printf.@printf "Solving φ₀ = %.3f\n" φ₀
-    ℓ₀ = log(φ₀ / (1 - φ₀))
+    ℓ₀ = logit(φ₀)
 
-    sol = SDE.solve(
+    simulations = SDE.solve(
         ensembleproblem;
         u0 = SA.SVector(ℓ₀, climate.m₀, firm.a₀),
-        trajectories = 1_000,
+        trajectories = simulationtrajectories,
         saveat = plottimes,
         save_everystep = false,
-        dense = false
+        dense = false,
     )
 
-    push!(plotsummaries, summarizesimulation(sol.u))
+    push!(plotsummaries, summarizesimulation(simulations.u))
 end
 
-plotpath = get(ENV, "PLOTPATH", "figures")
-figurepath = joinpath(plotpath, splitext(filename)[1], signallabel(signal), taxmethodlabel(taxmethod))
-!ispath(figurepath) && mkpath(figurepath)
+figurepath = joinpath(
+    plotpath,
+    splitext(filename)[1],
+    signallabel(signal),
+    taxmethodlabel(taxmethod),
+)
+ispath(figurepath) || mkpath(figurepath)
 
 ## Committed government
 committedyears = startyear .+ committedtime
 committedtemperatures = temperature.(getindex.(trajectory, 1), Ref(climate))
 committedabatement = getindex.(trajectory, 2)
 committedtaxdollars = committedtaxes ./ taxfactor
+committedtaxtrajectory = [τᶜ(t) / taxfactor for t in plottimes]
 
 begin
-
     committedfig = CairoMakie.Figure(
         size = (
             3 * publicationdefault(:panelwidth),
@@ -212,7 +219,7 @@ begin
     committedfig
 end
 
-## Noncomitted
+## Non-committed government
 begin
     nφ = length(φs)
     beliefcolormap = CairoMakie.resample_cmap(beliefgradient, 256)
@@ -246,7 +253,7 @@ begin
         L"Value of beliefs $-\phi(1-\phi)\partial_{\phi} u$";
         fontsize = publicationdefault(:paneltitlefontsize),
     )
-    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $\chi m$"; fontsize = publicationdefault(:paneltitlefontsize))
+    CairoMakie.Label(temperaturefigjoint[0, 1:columns], L"Temperature $\zeta m$"; fontsize = publicationdefault(:paneltitlefontsize))
     CairoMakie.Label(abatementfigjoint[0, 1:columns], L"Abatement $a$"; fontsize = publicationdefault(:paneltitlefontsize))
     CairoMakie.Label(taxfigjoint[0, 1:columns], L"Tax $\tau$"; fontsize = publicationdefault(:paneltitlefontsize))
 
@@ -273,7 +280,8 @@ begin
             ylabel = L"Belief $\phi$",
             title = axistitle,
             xticks = panelxticks,
-            yticks = denseyticks,
+            yticks = beliefyticks,
+            ytickformat = percenttickformat,
         )
         beliefvalueaxis = CairoMakie.Axis(
             beliefvaluefigjoint[row, column];
@@ -337,7 +345,6 @@ begin
         )
 
         # Policy
-        τᶜtraj = [τᶜ(t) / taxfactor for t in plottimes]
         taxaxis = CairoMakie.Axis(
             taxfigjoint[row, column];
             limits = (yearlimits, (0, nothing)),
@@ -352,7 +359,7 @@ begin
         CairoMakie.lines!(
             taxaxis,
             plotyears,
-            τᶜtraj;
+            committedtaxtrajectory;
             color = defaultpalette[:committed],
             linestyle = :dash,
             linewidth = publicationdefault(:committedlinewidth),
@@ -380,41 +387,3 @@ begin
     println("Saved figures in ", figurepath)
 end
 
-## Simulation with random ϕ₀
-function reinitφ₀(problem, ctx)
-    φ₀ = rand()
-    ℓ₀ = logit(φ₀)
-    u0 = SA.SVector(ℓ₀, problem.u0[2], problem.u0[3])
-    return SDE.remake(problem; u0 = u0)
-end
-
-function abatementoutput(solution, _)
-    return simulationstatepath(solution, 3), false
-end
-
-ensembleuniqueprob = SDE.EnsembleProblem(
-    dynamicprob;
-    prob_func = reinitφ₀,
-    output_func = abatementoutput,
-)
-sol = SDE.solve(
-    ensembleuniqueprob,
-    SDE.SOSRI();
-    trajectories = 1_000,
-    saveat = plottimes,
-    save_everystep = false,
-    dense = false,
-)
-randomplotsummary = trajectoryplotsummary(sol.u, 1)
-sol = nothing
-GC.gc()
-
-begin
-    abatementfig = CairoMakie.Figure()
-    abatemnetaxis = CairoMakie.Axis(abatementfig[1, 1]; xlabel = "Year", ylabel = "GtCO2 per year", xticks = yearticks, yticks = denseyticks, limits = (yearlimits, (0, 1.05 * firm.e₀)))
-
-    plottrajectorysummary!(abatemnetaxis, plotyears, randomplotsummary; color = :black)
-    savepublicationfigure(joinpath(figurepath, "random-init-fig"), abatementfig)
-
-    abatementfig
-end

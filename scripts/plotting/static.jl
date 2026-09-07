@@ -4,25 +4,18 @@ import DotEnv
 DotEnv.load!()
 
 import JLD2
-import OrdinaryDiffEq as ODE
 import SciMLBase
 import FastInterpolations as Itp
-
 import LinearSolve
 import SparseArrays
 import StaticArrays as SA
 import Statistics
-import StochasticDiffEq as SDE
 import OrdinaryDiffEq as ODE
-
 import UnPack: @unpack
 import LaTeXStrings: @L_str
-
 import Printf
 import CairoMakie
 import Colors
-
-includet("publication.jl")
 
 includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
@@ -44,6 +37,7 @@ includet("../../src/solve/government/noncommitted.jl")
 
 includet("../../src/dynamics/simulation.jl")
 
+includet("publication.jl")
 includet("colours.jl")
 
 CairoMakie.set_theme!(publicationtheme)
@@ -53,7 +47,9 @@ firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
 
 filename = solutionfilename(climate, government, firm)
-solpath = joinpath("data", "solutions", filename)
+datapath = get(ENV, "DATAPATH", "data")
+plotpath = get(ENV, "PLOTPATH", "figures")
+solpath = joinpath(datapath, "solutions", filename)
 isfile(solpath) || error("File $solpath not found.")
 
 trajectory, committedtaxes, committedtime = JLD2.jldopen(solpath, "r") do file
@@ -62,13 +58,7 @@ end
 
 activeterminal = last(committedtime)
 terminalabatement = last(trajectory)[2]
-terminal = committedtaxterminal(
-    activeterminal,
-    terminalabatement,
-    firm,
-    government,
-)
-
+terminal = committedtaxterminal(activeterminal, terminalabatement, firm, government)
 activecommittedtax = Itp.linear_interp(
     committedtime,
     committedtaxes;
@@ -83,38 +73,26 @@ activecommittedtax = Itp.linear_interp(
     government,
 )
 
+figurepath = joinpath(
+    plotpath,
+    splitext(filename)[1],
+    "comparative-statics",
+    taxmethodlabel(taxmethod),
+)
+ispath(figurepath) || mkpath(figurepath)
+
 ## Signal-volatility comparison
-comparisonσs = (0.38, 0.76)
-comparisons = map(comparisonσs) do σ
+comparisonσs = (signal.σ, 2signal.σ)
+function comparisonslice(σ)
     comparisonsignal = Signal(; ϵ = signal.ϵ, σ)
     solutionkey = uncommittedsolutionkey(comparisonsignal, taxmethod)
-
     solution, grid, savedtaxmethod = JLD2.jldopen(solpath, "r") do file
         haskey(file, solutionkey) || error(
             "Uncommitted solution $solutionkey not found in $solpath.",
         )
-
-        (
-            file["$solutionkey/solution"],
-            file["$solutionkey/grid"],
-            file["$solutionkey/taxmethod"],
-        )
+        file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
     end
-
-    typeof(savedtaxmethod) == typeof(taxmethod) || error(
-        "Expected $(typeof(taxmethod)) at $solutionkey, found $(typeof(savedtaxmethod)).",
-    )
-
-    parameters = NonCommittedParameters(
-        τᶜ,
-        terminal,
-        grid,
-        firm,
-        government,
-        comparisonsignal,
-        climate,
-        savedtaxmethod,
-    )
+    parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, comparisonsignal, climate, savedtaxmethod)
     policies = noncommittedpoliciesattime(solution, parameters, 0.0)
 
     mindex = argmin(abs.(grid.mgrid .- climate.m₀))
@@ -131,9 +109,7 @@ comparisons = map(comparisonσs) do σ
     φindices = (firstindex(grid.φgrid) + 2):(lastindex(grid.φgrid) - 1)
     φvalues = collect(grid.φgrid[φindices])
     taxvalues = collect(policies.tax[φindices, mindex, aindex])
-    expectedtaxvalues = collect(
-        policies.expectedtax[φindices, mindex, aindex],
-    )
+    expectedtaxvalues = collect(policies.expectedtax[φindices, mindex, aindex])
     s = noncommittedreversetime(0.0, parameters)
     values = noncommittedvalues(solution(s), parameters)
     welfarecost = 1_000 .* collect(values.W[φindices, mindex, aindex])
@@ -141,27 +117,19 @@ comparisons = map(comparisonσs) do σ
     signalprecision = χ.(taxvalues, committedtax, Ref(comparisonsignal))
     reputationloss = -100 .* beliefdrift.(signalprecision, φvalues)
 
-    (
-        ;
-        σ,
-        φvalues,
-        taxratio = taxvalues ./ committedtax,
-        expectedtaxratio = expectedtaxvalues ./ committedtax,
-        reputationloss,
-        welfarecost,
-    )
+    return (; σ, φvalues, taxratio = taxvalues ./ committedtax, expectedtaxratio = expectedtaxvalues ./ committedtax, reputationloss, welfarecost)
 end
+comparisons = map(comparisonslice, comparisonσs)
 
 ## Plot
-panelwidth = 310
-panelheight = 360
+panelwidth = publicationdefault(:panelwidth)
+panelheight = publicationdefault(:panelheight) + 40
 comparisoncolors = (
     defaultpalette[:committed],
     defaultpalette[:damages],
 )
-comparisonstyles = (:solid, :solid)
 percentticks = 0:0.25:1
-percentformat = values -> [Printf.@sprintf("%.0f%%", 100 * value) for value in values]
+beliefxticks = 0:0.2:1
 
 begin
     volatilityfig = CairoMakie.Figure(size = (3 * panelwidth, panelheight))
@@ -172,9 +140,10 @@ begin
         ylabel = L"Implemented tax $\tau / \tau^{\mathrm{c}}$",
         title = "(a) Government policy",
         limits = ((0, 1), (0, 1.02)),
-        xticks = 0:0.25:1,
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
         yticks = percentticks,
-        ytickformat = percentformat,
+        ytickformat = percenttickformat,
     )
     expectedtaxaxis = CairoMakie.Axis(
         volatilityfig[1, 2];
@@ -182,9 +151,10 @@ begin
         ylabel = L"Expected tax $\tau^e / \tau^{\mathrm{c}}$",
         title = "(b) Firms' incentives",
         limits = ((0, 1), (0, 1.02)),
-        xticks = 0:0.25:1,
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
         yticks = percentticks,
-        ytickformat = percentformat,
+        ytickformat = percenttickformat,
     )
     reputationaxis = CairoMakie.Axis(
         volatilityfig[1, 3];
@@ -192,20 +162,19 @@ begin
         ylabel = L"Expected loss $-\mu_\phi$ [pp/year]",
         title = "(c) Reputation dynamics",
         limits = ((0, 1), (0, nothing)),
-        xticks = 0:0.25:1,
-        yticks = CairoMakie.LinearTicks(6),
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
     )
 
-    for (comparison, color, linestyle) in zip(
+    for (comparison, color) in zip(
         comparisons,
         comparisoncolors,
-        comparisonstyles,
     )
         label = L"$\sigma = %$(comparison.σ)$"
         lineoptions = (;
             color,
-            linestyle,
-            linewidth = 3,
+            linewidth = publicationdefault(:medianlinewidth),
             label,
         )
 
@@ -245,14 +214,6 @@ begin
         color = defaultpalette[:guide],
     )
 
-    plotpath = joinpath(ENV["PLOTPATH"])
-    figurepath = joinpath(
-        plotpath,
-        splitext(filename)[1],
-        "comparative-statics",
-        taxmethodlabel(taxmethod),
-    )
-    ispath(figurepath) || mkpath(figurepath)
     savepublicationfigure(
         joinpath(figurepath, "signal-volatility"),
         volatilityfig,
@@ -279,31 +240,31 @@ begin
         ylabel = L"Welfare costs $u$ [bn USD]",
         title = "(a) Welfare-cost functions",
         limits = ((0, 1), nothing),
-        xticks = 0:0.25:1,
-        yticks = CairoMakie.LinearTicks(6),
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
     )
     differenceaxis = CairoMakie.Axis(
         welfarefig[1, 2];
         xlabel = L"Reputation $\phi$",
-        ylabel = L"Change in costs $u_{\sigma=0.76} - u_{\sigma=0.38}$ [bn USD]",
+        ylabel = L"Change in costs $u_{\sigma=%$(comparisonσs[2])} - u_{\sigma=%$(comparisonσs[1])}$ [bn USD]",
         title = "(b) Effect of higher volatility",
         limits = ((0, 1), nothing),
-        xticks = 0:0.25:1,
-        yticks = CairoMakie.LinearTicks(6),
+        xticks = beliefxticks,
+        xtickformat = percenttickformat,
+        yticks = denseyticks,
     )
 
-    for (comparison, color, linestyle) in zip(
+    for (comparison, color) in zip(
         comparisons,
         comparisoncolors,
-        comparisonstyles,
     )
         CairoMakie.lines!(
             welfareaxis,
             comparison.φvalues,
             comparison.welfarecost;
             color,
-            linestyle,
-            linewidth = 3,
+            linewidth = publicationdefault(:medianlinewidth),
             label = L"$\sigma = %$(comparison.σ)$",
         )
     end
@@ -313,7 +274,7 @@ begin
         [0.0];
         color = defaultpalette[:guide],
         linestyle = :dot,
-        linewidth = 2,
+        linewidth = publicationdefault(:guidelinewidth),
     )
     CairoMakie.band!(
         differenceaxis,
@@ -327,7 +288,7 @@ begin
         referencebeliefs,
         welfaredifference;
         color = defaultpalette[:damages],
-        linewidth = 3,
+        linewidth = publicationdefault(:medianlinewidth),
     )
 
     CairoMakie.Legend(
