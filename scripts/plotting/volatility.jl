@@ -47,9 +47,9 @@ includet("simulationplots.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 ## Configuration
-σs = @. σ̂ * 2^(0, 1, 2)
-volatilitylabels = ("Normal", "High", "Very high")
-volatilitycolors = (defaultpalette[:committed], Colors.colorant"#D18B47", defaultpalette[:damages])
+σs = @. σ̂ * 2^(-1, 0, 1, 2)
+volatilitylabels = ("Low", "Normal", "High", "Very high")
+volatilitycolors = (defaultpalette[:abatement], defaultpalette[:committed], Colors.colorant"#D18B47", defaultpalette[:damages])
 
 startyear = 2025
 φ₀ = 0.5

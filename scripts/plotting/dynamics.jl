@@ -90,9 +90,6 @@ horizonsimulation = terminal
 dynamicfn = SDE.SDEFunction{false}(logdynamicdrift, logdynamicnoise)
 dynamicprob = SDE.SDEProblem(dynamicfn, x₀, (0, horizonsimulation), dynamicparameters)
 
-# Test solver
-sol = SDE.solve(dynamicprob)
-
 plottimes = range(0., horizonsimulation, 501)
 startyear = 2025
 plotyears = startyear .+ plottimes
@@ -116,7 +113,7 @@ for φ₀ in φs
     sol = SDE.solve(
         ensembleproblem;
         u0 = SA.SVector(ℓ₀, climate.m₀, firm.a₀),
-        trajectories = 100,
+        trajectories = 1_000,
         saveat = plottimes,
         save_everystep = false,
         dense = false
@@ -386,7 +383,7 @@ end
 ## Simulation with random ϕ₀
 function reinitφ₀(problem, ctx)
     φ₀ = rand()
-    ℓ₀ = log(φ₀ / (1 - φ₀))
+    ℓ₀ = logit(φ₀)
     u0 = SA.SVector(ℓ₀, problem.u0[2], problem.u0[3])
     return SDE.remake(problem; u0 = u0)
 end

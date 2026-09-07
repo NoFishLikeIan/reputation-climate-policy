@@ -62,6 +62,7 @@ end
 
 # Log-odds system
 logistic(ℓ) = inv(exp(-ℓ) + 1)
+logit(φ) = log(φ / (1 - φ))
 function logdynamicdrift(x, dynamicparameters, t)
     policies, τᶜ, horizon, models = dynamicparameters
     firm, _, signal, _ = models
