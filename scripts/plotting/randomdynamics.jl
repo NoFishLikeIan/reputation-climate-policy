@@ -101,7 +101,7 @@ plotyears = startyear .+ plottimes
 yearlimits = extrema(plotyears)
 yearticks = startyear:10:floor(Int, last(plotyears))
 
-function reinitφ₀(problem, _, _)
+function reinitφ₀(problem, _)
     φ₀ = clamp(rand(), eps(Float64), 1 - eps(Float64))
     ℓ₀ = logit(φ₀)
     return SDE.remake(problem; u0 = SA.SVector(ℓ₀, problem.u0[2], problem.u0[3]))
