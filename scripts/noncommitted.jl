@@ -26,6 +26,7 @@ includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 includet("../src/primitives/climate.jl")
 
+includet("../src/agents/households.jl")
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
@@ -41,9 +42,9 @@ includet("../src/solve/government/committed.jl")
 includet("../src/solve/government/noncommitted.jl")
 
 ## Load committed problem
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 
-committedfile = joinpath("data", "solutions", solutionfilename(climate, government, firm))
+committedfile = joinpath("data", "solutions", solutionfilename(household, firm, government, climate))
 if !isfile(committedfile)
     error("Committed solution file $committedfile not found. Run scripts/committed.jl first.")
 end
@@ -71,7 +72,7 @@ mgrid = range(climate.m₀, climate.m₀ + mpadding, ns[2])
 agrid = range(firm.a₀, firm.e₀, ns[3])
 
 grid = NonCommittedGrid(φgrid, mgrid, agrid)
-parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
+parameters = NonCommittedParameters(τᶜ, terminal, grid, household, firm, government, signal, climate, taxmethod)
 
 ## Solve backwards from the end of the committed tax tail
 @printf "Solving %d equations over %.1f years\n" length(grid) terminal

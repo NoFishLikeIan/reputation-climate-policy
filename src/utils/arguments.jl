@@ -29,6 +29,16 @@ function parameterargumentsettings()
             dest_name = "firm_r"
             default = nothing
             help = "Firm discount rate."
+        "--nu", "--ν"
+            arg_type = Float64
+            dest_name = "ν"
+            default = nothing
+            help = "Scale of labour disutility."
+        "--inverse-frisch", "--varphi-L", "--φᴸ"
+            arg_type = Float64
+            dest_name = "φᴸ"
+            default = nothing
+            help = "Inverse Frisch elasticity of labour supply."
         "--y0", "--y₀"
             arg_type = Float64
             dest_name = "y₀"
@@ -43,7 +53,7 @@ function parameterargumentsettings()
             arg_type = Float64
             dest_name = "δ"
             default = nothing
-            help = "Government tax-adjustment cost coefficient."
+            help = "Political cost of taxation coefficient."
         "--epsilon", "--eps", "--ϵ", "--ε"
             arg_type = Float64
             dest_name = "ϵ"
@@ -96,14 +106,17 @@ function initmodels(args = ARGS)
     firmr = get(parsed, :firm_r, nothing)
     firmr === nothing || (firmkwargs[:r] = firmr)
 
+    householdkwargs = parameterkwargs(parsed, (:ν, :φᴸ))
     governmentkwargs = parameterkwargs(parsed, (:y₀, :δ))
     governmentr = get(parsed, :government_r, nothing)
     governmentr === nothing || (governmentkwargs[:r] = governmentr)
 
     firm = Firm(; firmkwargs...)
+    householdkwargs[:r] = firm.r
+    household = Household(; householdkwargs...)
     government = Government(; governmentkwargs...)
     signal = Signal(; parameterkwargs(parsed, (:ϵ, :σ))...)
     climate = Climate(; parameterkwargs(parsed, (:γ, :ζ, :m₀))...)
 
-    return firm, government, signal, climate
+    return household, firm, government, signal, climate
 end

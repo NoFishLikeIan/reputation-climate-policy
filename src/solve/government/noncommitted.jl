@@ -39,9 +39,10 @@ struct NonCommittedScalingParameters{T}
     end
 end
 
-struct NonCommittedParameters{TC, T, F, G, S, C, TG, TS, TM <: NonCommittedTaxMethod}
+struct NonCommittedParameters{TC, T, H, F, G, S, C, TG, TS, TM <: NonCommittedTaxMethod}
     τᶜ::TC
     horizon::T
+    household::H
     firm::F
     government::G
     signal::S
@@ -51,9 +52,9 @@ struct NonCommittedParameters{TC, T, F, G, S, C, TG, TS, TM <: NonCommittedTaxMe
     taxmethod::TM
 end
 
-function NonCommittedParameters(τᶜ, horizon, grid::NonCommittedGrid,firm::Firm, government::Government, signal::Signal, climate::Climate, taxmethod::NonCommittedTaxMethod)
+function NonCommittedParameters(τᶜ, horizon, grid::NonCommittedGrid, household::Household, firm::Firm, government::Government, signal::Signal, climate::Climate, taxmethod::NonCommittedTaxMethod)
     scaling = NonCommittedScalingParameters(firm, government)
-    return NonCommittedParameters(τᶜ, horizon, firm, government, signal, climate, grid, scaling, taxmethod)
+    return NonCommittedParameters(τᶜ, horizon, household, firm, government, signal, climate, grid, scaling, taxmethod)
 end
 
 function noncommittedviews(x, grid::NonCommittedGrid)
@@ -290,7 +291,7 @@ function noncommittedreversedrift!(dx::TX, x, parameters::NonCommittedParameters
 
         u = investmentpolicy(q, a, firm)
         τ = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ , signal, government, taxmethod)
-        τᵉ = firmexpectedtax(φ, τ, τᶜₜ )
+        τᵉ = expectedtax(φ, τ, τᶜₜ )
 
         signaltonoise = χ(τ, τᶜₜ , signal)
         bᵩ = beliefdrift(signaltonoise, φ)
@@ -391,7 +392,7 @@ function noncommittedpolicies(x, parameters::NonCommittedParameters, s)
         taxcurvature[i, j, k] = government.r * government.δ + taxcoefficient[i, j, k]
         investment[i, j, k] = investmentpolicy(q, a, firm)
         tax[i, j, k] = noncommittedtax(∂ᵩW, ∂ᵩᵩW, φ, τᶜₜ, signal, government, taxmethod)
-        expectedtax[i, j, k] = firmexpectedtax(φ, tax[i, j, k], τᶜₜ)
+        expectedtax[i, j, k] = expectedtax(φ, tax[i, j, k], τᶜₜ)
     end
 
     return (; investment, tax, expectedtax, taxcoefficient, taxcurvature, beliefvalue)

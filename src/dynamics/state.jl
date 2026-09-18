@@ -1,9 +1,6 @@
-function cumulativeemissionsdrift(a, firm::Firm)
-    e(a, firm)
-end
-
-function abatementdrift(u)
-    u
+function cumulativeemissionsdrift(τ, a, household::Household, firm::Firm)
+    labour = n(τ, household, firm)
+    return e(labour, a, firm)
 end
 
 function investmentratedrift(a, u, τ, firm::Firm)

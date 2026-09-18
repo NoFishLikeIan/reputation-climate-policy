@@ -21,6 +21,7 @@ includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 includet("../../src/primitives/climate.jl")
 
+includet("../../src/agents/households.jl")
 includet("../../src/agents/firm.jl")
 includet("../../src/agents/government.jl")
 
@@ -43,10 +44,10 @@ includet("colours.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 ## Load problem
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
 
-filename = solutionfilename(climate, government, firm)
+filename = solutionfilename(household, firm, government, climate)
 datapath = get(ENV, "DATAPATH", "data")
 plotpath = get(ENV, "PLOTPATH", "figures")
 solpath = joinpath(datapath, "solutions", filename)
@@ -92,7 +93,7 @@ function comparisonslice(σ)
         )
         file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
     end
-    parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, comparisonsignal, climate, savedtaxmethod)
+    parameters = NonCommittedParameters(τᶜ, terminal, grid, household, firm, government, comparisonsignal, climate, savedtaxmethod)
     policies = noncommittedpoliciesattime(solution, parameters, 0.0)
 
     mindex = argmin(abs.(grid.mgrid .- climate.m₀))

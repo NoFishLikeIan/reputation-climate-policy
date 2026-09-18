@@ -27,11 +27,13 @@ import BoundaryValueDiffEq as BVP
 # Optimization
 import NLopt
 import FiniteDiff
+import Roots
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
 includet("../src/primitives/climate.jl")
 
+includet("../src/agents/households.jl")
 includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
@@ -50,15 +52,15 @@ const SIMPATH = joinpath("data", "solutions")
 ispath(SIMPATH) || mkpath(SIMPATH)
 
 ## Defaults
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 
-filename = joinpath(SIMPATH, solutionfilename(climate, government, firm))
+filename = joinpath(SIMPATH, solutionfilename(household, firm, government, climate))
 
 if isfile(filename)
     throw("Committed solution in $filename already saved! Breaking to avoid overwriting.")
 end
 
-parameters = CommittedParameters(firm, government, climate)
+parameters = CommittedParameters(household, firm, government, climate)
 scaling = ScalingParameters(parameters)
 
 optparameters = (parameters, scaling)
@@ -115,7 +117,7 @@ end
 
 ## Save 
 JLD2.jldopen(filename, "w") do file
-    @pack! file = trajectory, taxes, time, climate, government, firm
+    @pack! file = trajectory, taxes, time, household, firm, government, climate
 end
 
 @printf "Saved outcome in %s\n" filename

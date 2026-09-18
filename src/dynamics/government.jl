@@ -1,5 +1,10 @@
 function transitionflowcost(a, m, u, τ, firm::Firm, government::Government, climate::Climate)
-    government.y₀ * d(m, climate) + l(τ, government) + investmentcost(a, u, firm)
+    government.y₀ * d(m, climate) + l(τ, government) + k(a, u, firm)
+end
+
+
+function transitionflowcost(a, m, u, τ, household::Household, firm::Firm, government::Government, climate::Climate)
+    w(τ, m, a, u, household, firm, government, climate)
 end
 
 function governmentvaluedrift(W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩᵩW, bᵩ, σᵩ, firm::Firm, government::Government, climate::Climate)
@@ -7,7 +12,7 @@ function governmentvaluedrift(W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩ�
 
     return -government.r * W + government.r * flowcost +
         cumulativeemissionsdrift(a, firm) * ∂ₘW +
-        abatementdrift(u) * ∂ₐW + bᵩ * ∂ᵩW + σᵩ^2 * ∂ᵩᵩW / 2
+        u * ∂ₐW + bᵩ * ∂ᵩW + σᵩ^2 * ∂ᵩᵩW / 2
 end
 
 function cumulativeemissionscostatedrift(λₘ, m, government::Government, climate::Climate)

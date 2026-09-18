@@ -22,6 +22,7 @@ includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 includet("../../src/primitives/climate.jl")
 
+includet("../../src/agents/households.jl")
 includet("../../src/agents/firm.jl")
 includet("../../src/agents/government.jl")
 
@@ -45,9 +46,9 @@ includet("simulationplots.jl")
 CairoMakie.set_theme!(publicationtheme)
 
 ## Load problem
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
-filename = solutionfilename(climate, government, firm)
+filename = solutionfilename(household, firm, government, climate)
 datapath = get(ENV, "DATAPATH", "data")
 plotpath = get(ENV, "PLOTPATH", "figures")
 solpath = joinpath(datapath, "solutions", filename)
@@ -82,8 +83,8 @@ solution, grid, taxmethod = JLD2.jldopen(solpath, "r") do file
     file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
 end
 
-models = (firm, government, signal, climate)
-parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, signal, climate, taxmethod)
+models = (household, firm, government, signal, climate)
+parameters = NonCommittedParameters(τᶜ, terminal, grid, household, firm, government, signal, climate, taxmethod)
 policies = constructpolicies(solution, parameters, grid)
 
 ## Simulate path

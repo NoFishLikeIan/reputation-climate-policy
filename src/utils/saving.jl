@@ -6,19 +6,24 @@ function parameterstring(x)
     replace(string(x), "+" => "")
 end
 
-function dynamicsolutionlabel(firm::Firm)
+function dynamicsolutionlabel(household::Household, firm::Firm)
     join((
+        "nu$(parameterstring(household.ν))",
+        "varphiL$(parameterstring(household.φᴸ))",
+        "householddiscount$(parameterstring(household.r))",
         "e0$(parameterstring(firm.e₀))",
         "a0$(parameterstring(firm.a₀))",
+        "A$(parameterstring(firm.A))",
+        "etaE$(parameterstring(firm.ηᴱ))",
         "kappa$(parameterstring(firm.κ))",
         "xi$(parameterstring(firm.ξ))",
         "firmdiscount$(parameterstring(firm.r))",
     ), "_")
 end
 
-function solutionlabel(climate::Climate, government::Government, firm::Firm)
+function solutionlabel(household::Household, firm::Firm, government::Government, climate::Climate)
     join((
-        dynamicsolutionlabel(firm),
+        dynamicsolutionlabel(household, firm),
         "y0$(parameterstring(government.y₀))",
         "r$(parameterstring(government.r))",
         "delta$(parameterstring(government.δ))",
@@ -35,9 +40,9 @@ function signallabel(signal::Signal)
     ), "_")
 end
 
-function solutionlabel(climate::Climate, government::Government, firm::Firm, signal::Signal)
+function solutionlabel(household::Household, firm::Firm, government::Government, signal::Signal, climate::Climate)
     join((
-        solutionlabel(climate, government, firm),
+        solutionlabel(household, firm, government, climate),
         signallabel(signal),
     ), "_")
 end
@@ -51,22 +56,16 @@ function taxmethodlabel(taxmethod)
     join((string(nameof(typeof(taxmethod))), fields...), "_")
 end
 
-function solutionlabel(
-    climate::Climate,
-    government::Government,
-    firm::Firm,
-    signal::Signal,
-    taxmethod,
-)
+function solutionlabel(household::Household, firm::Firm, government::Government, signal::Signal, climate::Climate, taxmethod)
     join((
-        solutionlabel(climate, government, firm, signal),
+        solutionlabel(household, firm, government, signal, climate),
         "taxmethod$(taxmethodlabel(taxmethod))",
     ), "_")
 end
 
 "Short, stable filename determined by every committed-solution parameter."
-function solutionfilename(climate::Climate, government::Government, firm::Firm)
-    digest = bytes2hex(SHA.sha256(solutionlabel(climate, government, firm)))
+function solutionfilename(household::Household, firm::Firm, government::Government, climate::Climate)
+    digest = bytes2hex(SHA.sha256(solutionlabel(household, firm, government, climate)))
     "solution-$digest.jld2"
 end
 

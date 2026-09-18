@@ -32,7 +32,7 @@ end
 
 function dynamicdrift(x, dynamicparameters, t)
     policies, τᶜ, horizon, models = dynamicparameters
-    firm, _, signal, _ = models
+    _, firm, _, signal, _ = models
     φ, m, a = x
     s = noncommittedreversetime(t, horizon)
 
@@ -48,7 +48,7 @@ function dynamicdrift(x, dynamicparameters, t)
 end
 function dynamicnoise(x, dynamicparameters, t)
     policies, τᶜ, horizon, models = dynamicparameters
-    signal = models[3]
+    signal = models[4]
     φ, m, a = x
     s = noncommittedreversetime(t, horizon)
 
@@ -65,7 +65,7 @@ logistic(ℓ) = inv(exp(-ℓ) + 1)
 logit(φ) = log(φ / (1 - φ))
 function logdynamicdrift(x, dynamicparameters, t)
     policies, τᶜ, horizon, models = dynamicparameters
-    firm, _, signal, _ = models
+    _, firm, _, signal, _ = models
     ℓ, m, a = x
     φ = logistic(ℓ)
 
@@ -84,7 +84,7 @@ function logdynamicdrift(x, dynamicparameters, t)
 end
 function logdynamicnoise(x, dynamicparameters, t)
     policies, τᶜ, horizon, models = dynamicparameters
-    signal = models[3]
+    signal = models[4]
     ℓ, m, a = x
     φ = logistic(ℓ)
 

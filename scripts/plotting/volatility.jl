@@ -22,6 +22,7 @@ includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 includet("../../src/primitives/climate.jl")
 
+includet("../../src/agents/households.jl")
 includet("../../src/agents/firm.jl")
 includet("../../src/agents/government.jl")
 
@@ -62,11 +63,11 @@ selectedepisodestart = episodestart
 selectedepisodeduration = 10.0
 
 ## Load equilibria
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 taxmethod = OneShotTax()
 σs = signal.σ .* volatilitymultipliers
 
-filename = solutionfilename(climate, government, firm)
+filename = solutionfilename(household, firm, government, climate)
 datapath = get(ENV, "DATAPATH", "data")
 plotpath = get(ENV, "PLOTPATH", "figures")
 solpath = joinpath(datapath, "solutions", filename)
@@ -103,9 +104,9 @@ function loadvolatilityequilibrium(σ)
         )
         file["$solutionkey/solution"], file["$solutionkey/grid"], file["$solutionkey/taxmethod"]
     end
-    parameters = NonCommittedParameters(τᶜ, terminal, grid, firm, government, comparisonsignal, climate, savedtaxmethod)
+    parameters = NonCommittedParameters(τᶜ, terminal, grid, household, firm, government, comparisonsignal, climate, savedtaxmethod)
     policies = constructpolicies(solution, parameters, grid)
-    models = (firm, government, comparisonsignal, climate)
+    models = (household, firm, government, comparisonsignal, climate)
     dynamicparameters = (policies, τᶜ, terminal, models)
 
     return (; σ, signal = comparisonsignal, solution, grid, parameters, policies, dynamicparameters)
@@ -600,7 +601,7 @@ end
 ## Welfare-flow decomposition for the selected episode
 function flowcomponents(objects)
     damages = government.y₀ .* d.(objects.cumulativeemissions, Ref(climate))
-    investment = investmentcost.(
+    investment = k.(
         objects.abatement,
         objects.investment,
         Ref(firm),

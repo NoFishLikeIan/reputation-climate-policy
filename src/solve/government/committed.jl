@@ -4,8 +4,8 @@ function gaussianintegral(m, α, β)
 end
 
 "Annualised cost before investment begins"
-function J₁(mₛ, firm::Firm, government::Government, climate::Climate)
-    α = government.r / e(firm.a₀, firm)
+function J₁(mₛ, household::Household, firm::Firm, government::Government, climate::Climate)
+    α = government.r / cumulativeemissionsdrift(zero(mₛ), firm.a₀, household, firm)
     β = climate.γ * climate.ζ^2 / 2
     Δm = mₛ - climate.m₀
     discount = exp(-α * Δm)
@@ -21,12 +21,13 @@ end
 
 ## Cost at transition end
 "Annualised current damage value under permanent abatement"
-function V₃damages(ā, m̄, firm::Firm, government::Government, climate::Climate)
-    if iszero(e(ā, firm))
+function V₃damages(ā, m̄, household::Household, firm::Firm, government::Government, climate::Climate)
+    emissions = cumulativeemissionsdrift(zero(m̄), ā, household, firm)
+
+    if iszero(emissions)
         return government.y₀ * d(m̄, climate)
     end
 
-    emissions = e(ā, firm)
     α = government.r / emissions
     β = climate.γ * climate.ζ^2 / 2
     gaussianweight = α * √(π / β) / 2
@@ -35,29 +36,31 @@ function V₃damages(ā, m̄, firm::Firm, government::Government, climate::Clim
 end
 
 "Annualised current cost of the least-cost tax tail implementing partial abatement"
-function V₃tax(ā, firm::Firm, government::Government)
-    government.r * government.δ * (2firm.r - government.r) * c(ā, firm)^2 / 2
+function V₃tax(ā, household::Household, firm::Firm, government::Government)
+    taxcostcurvature = 𝒦(zero(ā), household, firm) + government.δ
+    government.r * taxcostcurvature * (2firm.r - government.r) * c(ā, firm)^2 / 2
 end
 
 "Annualised current terminal value under permanent partial abatement"
-function V₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
-    value = V₃damages(ā, m̄, firm, government, climate)
+function V₃(ā, m̄, household::Household, firm::Firm, government::Government, climate::Climate)
+    value = V₃damages(ā, m̄, household, firm, government, climate)
 
-    if !iszero(e(ā, firm))
-        value += V₃tax(ā, firm, government)
+    if !iszero(cumulativeemissionsdrift(zero(m̄), ā, household, firm))
+        value += V₃tax(ā, household, firm, government)
     end
 
     return value
 end
 
-function ∂ₘV₃(ā, m̄, firm::Firm, government::Government, climate::Climate)
-    if iszero(e(ā, firm))
+function ∂ₘV₃(ā, m̄, household::Household, firm::Firm, government::Government, climate::Climate)
+    emissions = cumulativeemissionsdrift(zero(m̄), ā, household, firm)
+
+    if iszero(emissions)
         return government.y₀ * d′(m̄, climate)
     end
 
-    emissions = e(ā, firm)
     α = government.r / emissions
-    damages = V₃damages(ā, m̄, firm, government, climate)
+    damages = V₃damages(ā, m̄, household, firm, government, climate)
 
     return α * (damages - government.y₀ * d(m̄, climate))
 end
@@ -70,7 +73,8 @@ struct CommittedState{T} <: SA.FieldVector{2, T}
     ā::T # Terminal abatement level 
 end
 
-struct CommittedParameters{F, G, C}
+struct CommittedParameters{H, F, G, C}
+    household::H
     firm::F
     government::G
     climate::C
@@ -81,11 +85,13 @@ struct ScalingParameters{T}
     scale::T
 end
 function ScalingParameters(parameters::CommittedParameters)
-    @unpack firm, government, climate = parameters
+    @unpack household, firm, government, climate = parameters
 
     horizon = adjustmenthorizon(firm)
-    abatementscope = e(firm.a₀, firm)
-    taxscale = firm.r * c(firm.e₀, firm)
+    zerotax = zero(firm.a₀)
+    grossemissions = cumulativeemissionsdrift(zerotax, zerotax, household, firm)
+    abatementscope = cumulativeemissionsdrift(zerotax, firm.a₀, household, firm)
+    taxscale = firm.r * c(grossemissions, firm)
 
     centre = SA.SVector(climate.m₀, firm.a₀, 0., 0., 0., 0., 0.)
     scale = SA.SVector(
@@ -94,7 +100,7 @@ function ScalingParameters(parameters::CommittedParameters)
         abatementscope / horizon,
         government.r * taxscale,
         taxscale,
-        government.r * government.δ * firm.ξ * taxscale,
+        government.r * firm.ξ * l′(taxscale, household, firm, government),
         government.y₀,
     )
 
@@ -117,43 +123,73 @@ struct CommittedPathParameters{TS <: CommittedState, TP <: CommittedParameters, 
     parameters::TP
     scaling::S
 end
-function CommittedPathParameters(duration, ā, firm::Firm, government::Government, climate::Climate)
+function CommittedPathParameters(duration, ā, household::Household, firm::Firm, government::Government, climate::Climate)
     x = CommittedState(duration, ā)
-    parameters = CommittedParameters(firm, government, climate)
+    parameters = CommittedParameters(household, firm, government, climate)
     scaling = ScalingParameters(parameters)
 
     return CommittedPathParameters(x, parameters, scaling)
 end
 
-function committedtax(λᵤ, firm::Firm, government::Government)
-    λᵤ / (government.r * government.δ * firm.ξ)
+function committedtaxcostate(τ, λₘ, household::Household, firm::Firm, government::Government)
+    firm.ξ * (government.r * l′(τ, household, firm, government) + λₘ * e′(τ, household, firm))
 end
 
-function committedhamiltonian(x, firm::Firm, government::Government, climate::Climate)
+"First order condition of committed tax problem."
+function committedtaxresidual(τ, λₘ, λᵤ, household::Household, firm::Firm, government::Government)
+    government.r * l′(τ, household, firm, government) + λₘ * e′(τ, household, firm) - λᵤ / firm.ξ
+end
+function committedtaxresidual(τ, rest)
+    committedtaxresidual(τ, rest[1], rest[2], rest[3], rest[4], rest[5])
+end
+function committedtax(λₘ::T, λᵤ, household::Household, firm::Firm, government::Government) where T
+    𝟎 = zero(T)
+    taxupperbound = 𝟎 + inv(firm.ηᴱ)
+
+    if household.φᴸ ≈ 1.
+        τ = (𝒦(𝟎, household, firm) * λₘ + λᵤ / firm.ξ) / (government.r * (𝒦(𝟎, household, firm) + government.δ))
+
+        return clamp(τ, 𝟎, taxupperbound)
+    else
+        residual = Base.Fix2(committedtaxresidual, (λₘ, λᵤ, household, firm, government))
+
+        leftresidual = residual(𝟎)
+        if leftresidual ≥ 0 return 𝟎 end
+    
+        rightresidual = residual(taxupperbound)
+        if rightresidual ≤ 0 return taxupperbound end
+
+        return Roots.find_zero(residual, (𝟎, taxupperbound))
+    end
+end
+
+function committedhamiltonian(x, household::Household, firm::Firm, government::Government, climate::Climate)
     m, a, u, λₘ, λₐ, λᵤ, _ = x
-    τ = committedtax(λᵤ, firm, government)
+    τ = committedtax(λₘ, λᵤ, household, firm, government)
     v = investmentratedrift(a, u, τ, firm)
-    flowcost = transitionflowcost(a, m, u, τ, firm, government, climate)
+    flowcost = transitionflowcost(a, m, u, τ, household, firm, government, climate)
 
     return government.r * flowcost +
-        λₘ * cumulativeemissionsdrift(a, firm) +
-        λₐ * abatementdrift(u) + λᵤ * v
+        λₘ * cumulativeemissionsdrift(τ, a, household, firm) +
+        λₐ * u + λᵤ * v
 end
 
 "Canonical system in calendar time"
 function committeddrift(x, parameters, _)
-    @unpack firm, government, climate = parameters
+    @unpack household, firm, government, climate = parameters
     m, a, u, λₘ, λₐ, λᵤ, P = x
 
-    τ = committedtax(λᵤ, firm, government)
-    flowcost = transitionflowcost(a, m, u, τ, firm, government, climate)
+    τ = committedtax(λₘ, λᵤ, household, firm, government)
+    flowcost = w(τ, m, a, u, household, firm, government, climate)
 
-    dm = cumulativeemissionsdrift(a, firm)
-    da = abatementdrift(u)
+    dm = cumulativeemissionsdrift(τ, a, household, firm)
+    da = u
     du = investmentratedrift(a, u, τ, firm)
+
     dλₘ = cumulativeemissionscostatedrift(λₘ, m, government, climate)
     dλₐ = abatementcostatedrift(λₘ, λₐ, λᵤ, a, u, firm, government)
     dλᵤ = investmentratecostatedrift(λₐ, λᵤ, a, u, firm, government)
+    
     dP = annualisedcostdrift(P, flowcost, government)
 
     return SA.SVector(dm, da, du, dλₘ, dλₐ, dλᵤ, dP)
@@ -173,14 +209,13 @@ end
 
 function initialcondition!(res, x, p::CommittedPathParameters)
     @unpack parameters, scaling = p
-    @unpack firm, government, climate = parameters
+    @unpack household, firm, government, climate = parameters
     physical = physicalstate(x, scaling)
-    m, a, _, _, _, λᵤ, _ = physical
+    m, a, _, λₘ, _, λᵤ, _ = physical
 
-    # Calibrate the initial tax to keep a = a₀ stationary in the absence of
-    # additional investment, instead of imposing the zero-tax natural boundary.
+    # Calibrate the initial tax to keep a = a₀ stationary in the absence of additional investment
     initialtax = sustainingtax(firm.a₀, firm)
-    initialλᵤ = government.r * government.δ * firm.ξ * initialtax
+    initialλᵤ = committedtaxcostate(initialtax, λₘ, household, firm, government)
 
     res[1] = (m - climate.m₀) / scaling.scale[1]
     res[2] = (a - firm.a₀) / scaling.scale[2]
@@ -190,17 +225,17 @@ function initialcondition!(res, x, p::CommittedPathParameters)
 end
 function terminalcondition!(res, x, p::CommittedPathParameters)
     @unpack y, parameters, scaling = p
-    @unpack firm, government, climate = parameters
+    @unpack household, firm, government, climate = parameters
 
     physical = physicalstate(x, scaling)
     m̄, ā, ū, λₘ, _, _, P = physical
-    terminalλₘ = ∂ₘV₃(y.ā, m̄, firm, government, climate)
+    terminalλₘ = ∂ₘV₃(y.ā, m̄, household, firm, government, climate)
 
     
     res[1] = (ā - y.ā) / scaling.scale[2]
     res[2] = ū / scaling.scale[3]
     res[3] = (λₘ - terminalλₘ) / scaling.scale[4]
-    res[4] = (P - V₃(y.ā, m̄, firm, government, climate)) / scaling.scale[7]
+    res[4] = (P - V₃(y.ā, m̄, household, firm, government, climate)) / scaling.scale[7]
 
     return
 end
@@ -215,33 +250,34 @@ end
 
 function committedinitialguess(s, p::CommittedPathParameters)
     @unpack y, parameters, scaling = p
-    @unpack firm, government, climate = parameters
+    @unpack household, firm, government, climate = parameters
 
     progress, investmentrate, cumulativeabatement = committedinitialprofile(s)
     _, _, totalabatement = committedinitialprofile(one(s))
     Δa = y.ā - firm.a₀
 
+    initialtax = sustainingtax(firm.a₀, firm)
+    initialemissions = cumulativeemissionsdrift(initialtax, firm.a₀, household, firm)
     m = climate.m₀ + y.t̄ * (
-        cumulativeemissionsdrift(firm.a₀, firm) * s -
+        initialemissions * s -
         Δa * cumulativeabatement
     )
     
     a = firm.a₀ + Δa * progress
     u = Δa * investmentrate / y.t̄
     m̄ = climate.m₀ + y.t̄ * (
-        cumulativeemissionsdrift(firm.a₀, firm) -
+        initialemissions -
         Δa * totalabatement
     )
 
-    λₘ = ∂ₘV₃(y.ā, m̄, firm, government, climate)
+    λₘ = ∂ₘV₃(y.ā, m̄, household, firm, government, climate)
     λₐ = zero(λₘ)
     
-    initialtax = sustainingtax(firm.a₀, firm)
     terminaltax = sustainingtax(y.ā, firm)
-    initialλᵤ = government.r * government.δ * firm.ξ * initialtax
-    terminalλᵤ = government.r * government.δ * firm.ξ * terminaltax
+    initialλᵤ = committedtaxcostate(initialtax, λₘ, household, firm, government)
+    terminalλᵤ = committedtaxcostate(terminaltax, λₘ, household, firm, government)
     λᵤ = initialλᵤ + (terminalλᵤ - initialλᵤ) * progress
-    P = V₃(y.ā, m̄, firm, government, climate)
+    P = V₃(y.ā, m̄, household, firm, government, climate)
     physical = SA.MVector(m, a, u, λₘ, λₐ, λᵤ, P)
 
     return normalisedstate(physical, p.scaling)
@@ -283,32 +319,33 @@ function committedobjective(y::CommittedState, (parameters, scaling))
     return committedvalue(solution, pathparameters)
 end
 
-function committedtailpath(
-    terminal, y::CommittedState, parameters::CommittedParameters;
-    horizon = 100., dt = 0.5
-)
-    @unpack firm, government = parameters
+function committedtailpath(terminal, y::CommittedState, parameters::CommittedParameters;horizon = 100., dt = 0.5)
+    @unpack household, firm, government = parameters
     m̄ = terminal[1]
     elapsedtime = range(0., horizon; step = dt)
-
-    states = map(elapsedtime) do t
-        SA.SVector(
-            m̄ + cumulativeemissionsdrift(y.ā, firm) * t,
-            y.ā,
-            zero(y.ā)
-        )
-    end
     taxes = map(t -> committedtailtax(t, y.ā, firm, government), elapsedtime)
+    states = Vector{SA.SVector{3, eltype(terminal)}}(undef, length(elapsedtime))
+    cumulativeemissions = m̄
+    previousemissions = cumulativeemissionsdrift(first(taxes), y.ā, household, firm)
+
+    for i in eachindex(elapsedtime)
+        if i > firstindex(elapsedtime)
+            emissions = cumulativeemissionsdrift(taxes[i], y.ā, household, firm)
+            cumulativeemissions += (elapsedtime[i] - elapsedtime[i - 1]) * (previousemissions + emissions) / 2
+            previousemissions = emissions
+        end
+
+        states[i] = SA.SVector(cumulativeemissions, y.ā, zero(y.ā))
+    end
+
     time = @. y.t̄ + elapsedtime
 
     return states, taxes, time
 end
 
 
-function committedpathdiagnostics(
-    yopt, parameters::CommittedParameters, scaling
-)
-    @unpack firm, government, climate = parameters
+function committedpathdiagnostics(yopt, parameters::CommittedParameters, scaling)
+    @unpack household, firm, government, climate = parameters
 
     y = CommittedState(yopt...)
     pathparameters = CommittedPathParameters(y, parameters, scaling)
@@ -317,13 +354,13 @@ function committedpathdiagnostics(
     solutionpath = BVP.solve(problem, BVP.MIRK4(); dt = 1e-2)
     states = [physicalstate(u, scaling) for u in solutionpath.u]
 
-    taxes = map(x -> committedtax(x[6], firm, government), states)
+    taxes = map(x -> committedtax(x[4], x[6], household, firm, government), states)
     terminal = last(states)
-    m̄, ā = terminal[1:2]
+    m̄ = terminal[1]
 
     terminalhamiltonian = committedhamiltonian(
-        terminal, firm, government, parameters.climate
-    ) - government.r * V₃(y.ā, m̄, firm, government, climate)
+        terminal, household, firm, government, parameters.climate
+    ) - government.r * V₃(y.ā, m̄, household, firm, government, climate)
 
     time = @. y.t̄ * solutionpath.t
 

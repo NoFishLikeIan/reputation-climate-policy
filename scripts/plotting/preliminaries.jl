@@ -22,6 +22,7 @@ includet("../../src/primitives/constants.jl")
 includet("../../src/primitives/signal.jl")
 includet("../../src/primitives/climate.jl")
 
+includet("../../src/agents/households.jl")
 includet("../../src/agents/firm.jl")
 includet("../../src/agents/government.jl")
 
@@ -48,7 +49,7 @@ combinedfiguresize = (900, 620)
 plotpath = get(ENV, "PLOTPATH", "figures")
 figurepath = joinpath(plotpath, "preliminaries")
 ispath(figurepath) || mkpath(figurepath)
-firm, government, signal, climate = initmodels()
+household, firm, government, signal, climate = initmodels()
 
 ## Welfare costs
 Δm = 100firm.e₀ # 100 years without abatement
