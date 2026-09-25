@@ -63,9 +63,8 @@ initialguess(model) = initialguess(SA.SVector, model)
 function initialguess(TV, model::AbstractModelParameters)
     @unpack household, firm, government, climate = model
 
-    τᶜ₀ = firm.r * c(firm.a₀, firm)
-    λₘ₀ = τᶜ₀ - d(climate.m₀, climate) / firm.η    
-    q₀ = 2 * firm.r * c(firm.a₀, firm)
+    q₀ = τ₀
+    λₘ₀ = τ₀ - d(climate.m₀, climate) / firm.η
     λₐ₀ = -q₀ / firm.r
     λᵨ₀ = zero(λₐ₀)
 
@@ -152,15 +151,6 @@ end
 
 
 ## Outer Optimization
-struct CommittedPathParameters{TS <: Real, TP <: AbstractModelParameters}
-    T::TS
-    model::TP
-end
-
-function driftcommitted!(dx, x, p::CommittedPathParameters, t)
-    driftcommitted!(dx, x, p.model, t)
-end
-
 optimisationbounds(model) = optimisationbounds(SA.SVector, model)
 function optimisationbounds(TV, model::AbstractModelParameters; λmax = Inf)
     @unpack household, firm, government, climate = model
@@ -173,25 +163,23 @@ function optimisationbounds(TV, model::AbstractModelParameters; λmax = Inf)
     return lb, ub
 end
 
-function initialcondition(x₀::TX, p::CommittedPathParameters) where {T, TX <: AbstractVector{T}}
-    initialcondition!(Vector{Float64}(undef, 3), x₀, p)
+function initialcondition(x₀::TX, model::LinearLabourModelParameters) where {T, TX <: AbstractVector{T}}
+    initialcondition!(Vector{Float64}(undef, 3), x₀, model)
 end
-function initialcondition!(res, x₀, p::CommittedPathParameters)
-    m, a, _, _, _, λᵨ = x₀ # State, co-state, cumulative costs (z, λ, u)₀
-
-    res[1] = m - p.model.climate.m₀
-    res[2] = a - p.model.firm.a₀
-    res[3] = λᵨ
+function initialcondition!(res, x₀, model::LinearLabourModelParameters)
+    res[1] = x₀[1] - model.climate.m₀
+    res[2] = x₀[2] - model.firm.a₀
+    res[3] = τ₀ - committedtax(x₀, model)
 
     return res
 end
 
-function terminalcondition(x̄::TX, p::CommittedPathParameters) where {T, TX <: AbstractVector{T}}
-    terminalcondition!(Vector{Float64}(undef, 3), x̄, p)
+function terminalcondition(x̄::TX, model::AbstractModelParameters) where {T, TX <: AbstractVector{T}}
+    terminalcondition!(Vector{Float64}(undef, 3), x̄, model)
 end
-function terminalcondition!(res, x̄, p::CommittedPathParameters)
-    @unpack firm, household = p.model
-    ∂ₘv, ∂ₐv, ∂ᵨv = ∇v̄(x̄, p.model)
+function terminalcondition!(res, x̄, model::AbstractModelParameters)
+    @unpack firm, household = model
+    ∂ₘv, ∂ₐv, ∂ᵨv = ∇v̄(x̄, model)
     _, a, q, λₘ, λₐ, λᵨ = x̄ # State, co-state, cumulative costs (z, λ, u)̄
 
     wage = ω(q, firm)
@@ -205,21 +193,57 @@ function terminalcondition!(res, x̄, p::CommittedPathParameters)
     return res
 end
 
-function solvecommittedpath(p::CommittedPathParameters; normalisedstep = 1e-3)
-    # x₀ = initialguess(SA.MVector, p.model)
-   
-    # fn = BVP.BVPFunction(driftcommitted!, boundaryconditions!; bcresid_prototype = zeros(7))
-    # problem = BVP.BVProblem(fn, x₀, (0., p.T), p)
+"Drift of state co-state system with welfare as last variable"
+function driftwelfarecommitted!(dz, z, model, t)
+    # State co-state drift
+    dx = @view dz[1:6]
+    x = @view z[1:6]
 
-    # dt = normalisedstep * p.S
-    # solution = BVP.solve(problem, BVP.MIRK4(); dt = dt)
-    
+    driftcommitted!(dx, x, model, t)
 
+    # Welfare costs drift
+    @unpack household, firm, government, climate = model
+    da, dq = @view dx[2:3]
+    m, a, q = @view x[1:3]
+    τᶜ = q - dq / firm.r + firm.κ * da
+
+    dw = exp(-government.r * t) * w(τᶜ, m, a, da, household, firm, government, climate)
+
+    dz[7] = dw
+
+    return dz
+
+end
+
+const defbvpalg = BVP.MIRK4()
+const defodealg = ODE.AutoTsit5(ODE.Rosenbrock23())
+
+function objectivewelfare(T, parameters)
+    bvproblem, welfareproblem, odeproblem, model, normalisedstep, bvpalg, odealg = parameters
+    return objectivewelfare(T, bvproblem, welfareproblem, odeproblem, model; normalisedstep, bvpalg, odealg)
+end
+function objectivewelfare(T::TX, bvproblem::BVP.BVProblem, welfareproblem::ODE.ODEProblem, odeproblem::ODE.ODEProblem, model::AbstractModelParameters; normalisedstep = 0.1, bvpalg = defbvpalg, odealg = defodealg) where TX
+    odesolguess = ODE.solve(odeproblem, odealg; tspan = T)
+    bvpsolution = BVP.solve(bvproblem, bvpalg; u0 = odesolguess, dt = normalisedstep * T, tspan = (0., T))
+
+    if !SciMLBase.successful_retcode(bvpsolution)
+        @warn "Unsuccessful BV solution with T = $T"
+    end
+
+    x₀ = bvpsolution.u[1]
+    z₀ = SA.MVector{7, TX}(x₀..., 0.)
+    welfaresolution = ODE.solve(welfareproblem, odealg; u0 = z₀, save_end = true, save_everystep = false, save_start = false, tspan = T)
+
+    z̄ = only(welfaresolution.u)
+    m̄, ā, q̄ = @view z̄[1:3]
+
+    ū = w(q̄, m̄, ā, 0, model.household, model.firm, model.government, model.climate) / model.government.r
     
+    return z̄[7] + exp(-model.government.r * T) * ū
 end
 
 function e(x::TX, t, integrator::TI) where {TX <: AbstractVector, TI <: ODECore.ODEIntegrator}
-    model = integrator.p.model
+    model = integrator.model
     
     τᶜ = committedtax(x, model) # FIXME: Inefficient to calculate twice if FOC is used
     wage = ω(τᶜ, model.firm)

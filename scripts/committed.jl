@@ -28,7 +28,7 @@ import QuadGK
 import SpecialFunctions as SF
 
 # Optimization
-import NLopt
+import Optimization, Optim
 import FiniteDiff
 import Roots
 import BandedMatrices: BandError
@@ -60,9 +60,6 @@ ispath(SIMPATH) || mkpath(SIMPATH);
 household, firm, government, signal, climate = initmodels()
 model = ModelParameters(household, firm, government, climate)
 
-householdnl = Household(household.ν, 1 + eps(Float64), household.r)
-modelnl = ModelParameters(householdnl, firm, government, climate)
-
 filename = joinpath(SIMPATH, solutionfilename(household, firm, government, climate))
 
 if isfile(filename)
@@ -71,23 +68,32 @@ end
 
 ## Define and hot-start ODE problem
 x₀ = initialguess(SA.MVector, model)
+odeproblem = ODE.ODEProblem(ODE.ODEFunction{true}(driftcommitted!), x₀, (0., 1.), model)
 
-p = CommittedPathParameters(100., model)
-odeprob = ODE.ODEProblem(driftcommitted!, x₀, (0., p.T), p)
-abatemnetcallback = ODE.DiscreteCallback(isfullabatement, ODE.terminate!)
+z₀ = SA.MVector{7}(x₀..., 0.)
+welfareproblem = ODE.ODEProblem(ODE.ODEFunction{true}(driftwelfarecommitted!), z₀, (0., 1.), model)
 
-odealg = ODE.AutoTsit5(ODE.Rosenbrock23())
-odesol = ODE.solve(odeprob, odealg)
+## Solver
+lb, ub = optimisationbounds(model)
+bcresid_prototype = (initialcondition(x₀, model), terminalcondition(x₀, model))
 
-## Define and solve BVP problem
-bvpalg = BVP.MIRK4()
-lb, ub = optimisationbounds(SA.MVector, model; λmax = Inf)
+bvpfunction = SciMLBase.BVPFunction(driftcommitted!, (initialcondition!, terminalcondition!); bcresid_prototype, twopoint = Val(true))
+bvproblem = BVP.TwoPointBVProblem(bvpfunction, ODE.solve(odeproblem, defodealg), odeproblem.tspan, model; lb, ub)
 
-bcresid_prototype = (initialcondition(x₀, p), terminalcondition(x₀, p))
-problem = BVP.TwoPointBVProblem(driftcommitted!, (initialcondition!, terminalcondition!), odesol, (0., p.T), p; lb = lb, ub = ub, bcresid_prototype)
+## Solve
+objectivewelfare(1., bvproblem, welfareproblem, odeproblem, model)
+optimisationparameters = (bvproblem, welfareproblem, odeproblem, model, 0.05, defbvpalg, defodealg);
 
-solution = BVP.solve(problem, bvpalg; dt = p.T * 1e-2)
+optsol = Optim.optimize(Base.Fix2(objectivewelfare, optimisationparameters), 0., 150., Optim.Brent())
+T = optsol.minimizer
+optimalpath = BVP.solve(bvproblem, defbvpalg; u0 = ODE.solve(odeproblem, defodealg; tspan = T), dt = 1e-2T, tspan = (0., T))
 
-initialcondition(solution.u[1], p)
-terminalcondition(solution.u[end], p)
+taxpath = map(Base.Fix2(committedtax, model), optimalpath.u)
+ts = optimalpath.t
 
+τᶜ = CommittedTaxPath(taxpath, ts)
+
+## Illustrate solution
+
+
+## Save solution

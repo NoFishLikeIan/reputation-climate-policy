@@ -6,17 +6,9 @@ function governmentvaluedrift(W, a, m, u, τ, ∂ₘW, ∂ₐW, ∂ᵩW, ∂ᵩ�
         u * ∂ₐW + bᵩ * ∂ᵩW + σᵩ^2 * ∂ᵩᵩW / 2
 end
 
-function committedtailtax(t, ā, firm::Firm, government::Government)
-    zero(t + ā)
-end
-
 struct CommittedTaxPath{TI, T}
-    active::TI
-    terminal::T
-
-    function CommittedTaxPath(active::TI, activeterminal::T, terminal, terminalabatement, firm::Firm, government::Government) where {TI, T}
-        return new{TI, T}(active, activeterminal)
-    end
+    taxpath::TI
+    ts::T
 end
 
 function (path::CommittedTaxPath{TI, T})(t) where {TI, T}
