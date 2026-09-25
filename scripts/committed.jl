@@ -91,9 +91,35 @@ optimalpath = BVP.solve(bvproblem, defbvpalg; u0 = ODE.solve(odeproblem, defodea
 taxpath = map(Base.Fix2(committedtax, model), optimalpath.u)
 ts = optimalpath.t
 
-τᶜ = CommittedTaxPath(taxpath, ts)
-
 ## Illustrate solution
+if isinteractive()
+    Plots.default(linewidth = 5)
+    cumulativeemissionspath = getindex.(optimalpath.u, 1)
+    abatementpath = getindex.(optimalpath.u, 2)
 
+    taxfig = Plots.plot(ts, taxpath ./ taxfactor; c = :black, xlabel = "Year", ylabel = L"Policy [USD / tCO$_2$]", xlims = (0, T), margins = 6Plots.mm, label = L"\tau^c")
+
+    wagepath = map(Base.Fix2(ω, firm), taxpath)
+    labourpath = map(Base.Fix2(n, household), wagepath)
+    temperaturepath = climate.ζ .* cumulativeemissionspath
+    outputpath = firm.A .* labourpath
+
+    temperaturefig = Plots.plot(ts, temperaturepath; c = :darkred, ylabel = L"Temperature [$^\circ$C]", xlims = (0, T), margins = 6Plots.mm, label = L"\zeta m_t")
+
+    abatementfig = Plots.plot(ts, abatementpath; c = :darkgreen, ylabel = L"Abatement [GtCO$_2$e / year]", xlims = (0, T), margins = 6Plots.mm, label = L"a")
+
+    outputfig = Plots.plot(ts, outputpath; c = :darkblue, xlabel = "Year", ylabel = "Output [trillion USD / year]", xlims = (0, T), margins = 6Plots.mm, label = L"y_t")
+
+    solutionfig = Plots.plot(taxfig, temperaturefig, abatementfig, outputfig; layout = (2, 2), size = (1000., 800.))
+
+end
 
 ## Save solution
+## Save 
+committedtaxpath = CommittedTaxPath(taxpath, ts)
+
+JLD2.jldopen(filename, "w") do file
+    @pack! file = committedtaxpath, model
+end
+
+@printf "Saved committed model outcome in %s\n" filename
