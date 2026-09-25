@@ -8,9 +8,9 @@ const a₀ = 5.9 # [GtCO2e / year] installed abatement in 2026
 const e₀ = 36 + a₀ # [GtCO2e / year] gross emissions before abatement in 2026
 const y₀ = 197.231 # [trillion USD / year]
 
-const realfirmdiscount = 0.07
-const realhouseholddiscount = realfirmdiscount
-const realgovernmentdiscount = 0.01
+const realhouseholddiscount = 1e-2
+const realfirmdiscount = realhouseholddiscount
+const realgovernmentdiscount = realhouseholddiscount
 
 # The zero-tax allocation is normalised to n(0) = 1, y(0) = y₀, and gross emissions e₀.
 const defaultA = y₀

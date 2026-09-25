@@ -39,11 +39,16 @@ function parameterargumentsettings()
             dest_name = "φᴸ"
             default = nothing
             help = "Inverse Frisch elasticity of labour supply."
-        "--y0", "--y₀"
+        "--productivity", "--A"
             arg_type = Float64
-            dest_name = "y₀"
+            dest_name = "A"
             default = nothing
-            help = "Output."
+            help = "Total factor productivity."
+        "--emissions-intensity", "--eta-E", "--ηᴱ"
+            arg_type = Float64
+            dest_name = "ηᴱ"
+            default = nothing
+            help = "Emissions intensity of output."
         "--government-discount", "--government-r", "--r"
             arg_type = Float64
             dest_name = "government_r"
@@ -102,12 +107,12 @@ end
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
 
-    firmkwargs = parameterkwargs(parsed, (:e₀, :a₀, :κ, :ξ))
+    firmkwargs = parameterkwargs(parsed, (:e₀, :a₀, :A, :ηᴱ, :κ, :ξ))
     firmr = get(parsed, :firm_r, nothing)
     firmr === nothing || (firmkwargs[:r] = firmr)
 
     householdkwargs = parameterkwargs(parsed, (:ν, :φᴸ))
-    governmentkwargs = parameterkwargs(parsed, (:y₀, :δ))
+    governmentkwargs = parameterkwargs(parsed, (:δ,))
     governmentr = get(parsed, :government_r, nothing)
     governmentr === nothing || (governmentkwargs[:r] = governmentr)
 

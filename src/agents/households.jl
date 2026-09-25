@@ -1,19 +1,53 @@
 abstract type AbstractHousehold{T <: Real} end
+struct Household{T} <: AbstractHousehold{T}
+    ν::T
+    ϕ::T
+    r::T
 
-Base.@kwdef struct Household{T} <: AbstractHousehold{T}
-    ν::T = defaultν
-    φᴸ::T = defaultφᴸ
-    r::T = realhouseholddiscount
+    function Household(; ν::T = defaultν, ϕ::T = defaultφᴸ, r::T = realhouseholddiscount) where T
+        isone(ϕ) ? LinearHousehold(ν, r) : new{T}(ν, ϕ, r)
+    end
+
+    function Household(ν, ϕ, r)
+        Household(; ν, ϕ, r)
+    end
 end
 
+
 function v(n, household::Household)
-    household.ν * n^(1 + household.φᴸ) / (1 + household.φᴸ)
+    household.ν * n^(1 + household.ϕ) / (1 + household.ϕ)
 end
 
 function v′(n, household::Household)
-    household.ν * n^household.φᴸ
+    household.ν * n^household.ϕ
 end
 
-function n(W, household::Household)
-    (W / household.ν)^(1 / household.φᴸ)
+function n(ω, household::Household)
+    (ω / household.ν)^(1 / household.ϕ)
+end
+
+function n′(ω, household::Household)
+    inv(household.ϕ) * (ω / household.ν)^(inv(household.ϕ) - 1)
+end
+
+# Sepcialise methods for φ = 1
+struct LinearHousehold{T} <: AbstractHousehold{T}
+    ν::T
+    r::T
+end
+
+function v(n, household::LinearHousehold)
+    household.ν * n^2 / 2
+end
+
+function v′(n, household::LinearHousehold)
+    household.ν * n
+end
+
+function n(ω, household::LinearHousehold)
+    ω / household.ν
+end
+
+function n′(::T, household::LinearHousehold) where T
+    inv(household.ν)
 end

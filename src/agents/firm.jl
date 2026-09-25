@@ -4,7 +4,7 @@ Base.@kwdef struct Firm{T} <: AbstractFirm{T}
     e₀::T = e₀
     a₀::T = a₀
     A::T = defaultA
-    ηᴱ::T = defaultηᴱ
+    η::T = defaultηᴱ
     κ::T = defaultdietzϕ * y₀ / realfirmdiscount
     ξ::T = defaultξ
     r::T = realfirmdiscount
@@ -14,26 +14,22 @@ function y(n, firm::Firm)
     firm.A * n
 end
 
-function wage(τ, firm::Firm)
-    firm.A * (1 - firm.ηᴱ * τ)
+function ω(τ, firm::Firm)
+    firm.A * (1 - firm.η * τ)
 end
-function n(τ, household::Household, firm::Firm)
-    n(firm.A * (1 - firm.ηᴱ * τ), household)
-end
-
-function n′(τ, household::Household, firm::Firm)
-    -firm.ηᴱ * n(τ, household, firm) / (household.φᴸ * (1 - firm.ηᴱ * τ))
+function ω′(_, firm::Firm)
+    -firm.A * firm.η
 end
 
 function e(n, a, firm::Firm)
-    firm.ηᴱ * y(n, firm) - a
+    firm.η * y(n, firm) - a
 end
 
-function e′(τ, household::Household, firm::Firm)
-    firm.ηᴱ * y(n′(τ, household, firm), firm)
+function e′(τ, household::AbstractHousehold, firm::Firm)
+    firm.η * y(n′(τ, household, firm), firm)
 end
 
-function 𝒦(τ, household::Household, firm::Firm)
+function 𝒦(τ, household::AbstractHousehold, firm::Firm)
     -e′(τ, household, firm)
 end
 
@@ -54,4 +50,16 @@ function adjustmenthorizon(firm::Firm)
     return (
         firm.r * firm.ξ + √((firm.r * firm.ξ)^2 + 4slope * firm.ξ)
     ) / (2slope)
+end
+
+function δ(firm::Firm)
+    @unpack r, κ, ξ = firm
+
+    (√(r^2 + 4r * κ / ξ) - r) / 2
+end
+
+function α(q, a, firm::Firm)
+    da = ((q / firm.r) - c(a, firm)) / firm.ξ
+
+    return max(da, 0)
 end

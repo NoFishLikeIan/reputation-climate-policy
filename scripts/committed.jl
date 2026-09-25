@@ -21,13 +21,17 @@ import StaticArraysCore
 import SciMLBase
 import SpecialFunctions
 import OrdinaryDiffEq as ODE
+import OrdinaryDiffEqCore as ODECore
 import OrdinaryDiffEqRosenbrock as ODERosenbrock
 import BoundaryValueDiffEq as BVP
+import QuadGK
+import SpecialFunctions as SF
 
 # Optimization
 import NLopt
 import FiniteDiff
 import Roots
+import BandedMatrices: BandError
 
 includet("../src/primitives/constants.jl")
 includet("../src/primitives/signal.jl")
@@ -43,16 +47,21 @@ includet("../src/dynamics/government.jl")
 
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
+includet("../src/utils/integrals.jl")
 
 includet("../src/solve/government/committed.jl")
 
 includet("plotting/utils.jl")
 
 const SIMPATH = joinpath("data", "solutions")
-ispath(SIMPATH) || mkpath(SIMPATH)
+ispath(SIMPATH) || mkpath(SIMPATH);
 
 ## Defaults
 household, firm, government, signal, climate = initmodels()
+model = ModelParameters(household, firm, government, climate)
+
+householdnl = Household(household.ν, 1 + eps(Float64), household.r)
+modelnl = ModelParameters(householdnl, firm, government, climate)
 
 filename = joinpath(SIMPATH, solutionfilename(household, firm, government, climate))
 
@@ -60,64 +69,25 @@ if isfile(filename)
     throw("Committed solution in $filename already saved! Breaking to avoid overwriting.")
 end
 
-parameters = CommittedParameters(household, firm, government, climate)
-scaling = ScalingParameters(parameters)
+## Define and hot-start ODE problem
+x₀ = initialguess(SA.MVector, model)
 
-optparameters = (parameters, scaling)
+p = CommittedPathParameters(100., model)
+odeprob = ODE.ODEProblem(driftcommitted!, x₀, (0., p.T), p)
+abatemnetcallback = ODE.DiscreteCallback(isfullabatement, ODE.terminate!)
 
-## Solve
-y0 = [80., firm.e₀ * 0.9]
-lb = [10., firm.a₀]
-ub = [100., firm.e₀]
+odealg = ODE.AutoTsit5(ODE.Rosenbrock23())
+odesol = ODE.solve(odeprob, odealg)
 
-objectivefunction = @closure (y, ∇) -> begin
-    if length(∇) > 0
-        FiniteDiff.finite_difference_gradient!(
-            ∇, y -> committedobjective(y, optparameters), y
-        )
-    end
+## Define and solve BVP problem
+bvpalg = BVP.MIRK4()
+lb, ub = optimisationbounds(SA.MVector, model; λmax = Inf)
 
-    return committedobjective(y, optparameters)
-end
+bcresid_prototype = (initialcondition(x₀, p), terminalcondition(x₀, p))
+problem = BVP.TwoPointBVProblem(driftcommitted!, (initialcondition!, terminalcondition!), odesol, (0., p.T), p; lb = lb, ub = ub, bcresid_prototype)
 
-opt = NLopt.Opt(:LN_COBYLA, length(y0))
-NLopt.lower_bounds!(opt, lb)
-NLopt.upper_bounds!(opt, ub)
-NLopt.xtol_rel!(opt, 1e-8)
-NLopt.min_objective!(opt, objectivefunction)
+solution = BVP.solve(problem, bvpalg; dt = p.T * 1e-2)
 
-objective, yopt, ret = NLopt.optimize(opt, y0)
-yopt = CommittedState(yopt...)
+initialcondition(solution.u[1], p)
+terminalcondition(solution.u[end], p)
 
-## Plot optimisation problem
-durationgrid = range(10., 100.; step = 0.5)
-abatementgrid = range(firm.a₀, firm.e₀; step = 0.5)
-
-if isinteractive()
-    objfigure = contourf(durationgrid, abatementgrid, (t̄, ā) -> committedobjective([t̄, ā], optparameters); xlabel = L"\bar{t}", ylabel = L"\bar{a}", linewidth = 0, c = :viridis)
-    scatter!(objfigure, [yopt.t̄], [yopt.ā]; c = :white, label = false)
-end
-
-## Plot solution path
-trajectory, taxes, time, terminalhamiltonian = committedpathdiagnostics(yopt, parameters, scaling);
-@printf "Terminal hamiltonian %.5e" terminalhamiltonian
-
-abatement = getindex.(trajectory, 2)
-
-if isinteractive()
-    afig = plot(time, abatement ./ firm.e₀; ylims = (0, 1), xlabel = "Year", label = "Fraction of abated emissions", xlims = extrema(time), c = :darkgreen, legend = :topleft, linewidth = 2.)
-
-    taxfig = twinx(afig)
-
-    plot!(taxfig, time, taxes ./ taxfactor, xlims = extrema(time), c = :darkred, label = L"Tax $\tau$", ylabel = "USD / tCO2e", legend = :bottomright, linewidth = 2.)
-    hline!(taxfig, [0.], linestyle = :dot, label = false, c = :darkred)
-
-    afig
-end
-
-## Save 
-JLD2.jldopen(filename, "w") do file
-    @pack! file = trajectory, taxes, time, household, firm, government, climate
-end
-
-@printf "Saved outcome in %s\n" filename
