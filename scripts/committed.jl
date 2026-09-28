@@ -49,6 +49,7 @@ includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
 includet("../src/utils/integrals.jl")
 
+includet("../src/solve/model.jl")
 includet("../src/solve/government/committed.jl")
 
 includet("plotting/utils.jl")

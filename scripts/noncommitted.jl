@@ -31,13 +31,14 @@ includet("../src/agents/firm.jl")
 includet("../src/agents/government.jl")
 
 includet("../src/dynamics/state.jl")
-includet("../src/dynamics/belief.jl")
 includet("../src/dynamics/firm.jl")
 includet("../src/dynamics/government.jl")
 
 includet("../src/utils/arguments.jl")
 includet("../src/utils/saving.jl")
+includet("../src/utils/integrals.jl")
 
+includet("../src/solve/model.jl")
 includet("../src/solve/government/committed.jl")
 includet("../src/solve/government/noncommitted.jl")
 
