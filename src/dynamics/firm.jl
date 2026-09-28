@@ -7,13 +7,13 @@ function investmentpolicy(q::T, a, firm::Firm) where T
         return zero(T)
     end
 
-    investment = (q / firm.r - c(a, firm)) / firm.ξ
+    investment = (q / household.r - c(a, firm)) / firm.ξ
 
     return max(investment, zero(T))
 end
 
 function firmmarginalvaluedrift(q, a, u, τᵉ, ∂ₘq, ∂ₐq, ∂ᵩᵩq, σᵩ, firm::Firm)
-    -firm.r * q + firm.r * (τᵉ - c′(a, firm) * u) +
+    -household.r * q + household.r * (τᵉ - c′(a, firm) * u) +
         cumulativeemissionsdrift(a, firm) * ∂ₘq +
         u * ∂ₐq + σᵩ^2 * ∂ᵩᵩq / 2
 end

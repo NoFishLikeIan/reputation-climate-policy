@@ -118,11 +118,11 @@ begin
         length = 501,
     )
     longrunabatement = min.(
-        taxfactor .* taxgrid ./ (firm.r * firm.κ),
+        taxfactor .* taxgrid ./ (household.r * firm.κ),
         firm.e₀,
     )
     initialtaxabatement = min(
-        initialtax / (firm.r * firm.κ),
+        initialtax / (household.r * firm.κ),
         firm.e₀,
     )
     φgrid = range(0.0, 1.0; length = 501)
@@ -277,7 +277,7 @@ begin
     reputationvaluebillions = 1_000 .* reputationvaluegrid
 
     taxcoefficientpercentage = [
-        100 * inv(1 + government.r * government.δ / noncommittedtaxcoefficient(-p, φ, signal, coefficienttaxmethod))
+        100 * inv(1 + household.r * government.δ / noncommittedtaxcoefficient(-p, φ, signal, coefficienttaxmethod))
         for φ in coefficientbeliefgrid, p in reputationvaluegrid
     ]
     coefficientlevels = range(0.0, 100.0; length = 11)

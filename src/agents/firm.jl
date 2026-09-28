@@ -7,11 +7,10 @@ Base.@kwdef struct Firm{T} <: AbstractFirm{T}
     η::T = defaultηᴱ
     κ::T = defaultdietzϕ * y₀ / realfirmdiscount
     ξ::T = defaultξ
-    r::T = realfirmdiscount
 end
 
 function y(n, firm::Firm)
-    firm.A * n
+    n * firm.A
 end
 
 function ω(τ, firm::Firm)
@@ -45,10 +44,10 @@ function k(a, u, firm::Firm)
 end
 
 function adjustmenthorizon(firm::Firm)
-    slope = firm.r * c′(firm)
+    slope = household.r * c′(firm)
 
     return (
-        firm.r * firm.ξ + √((firm.r * firm.ξ)^2 + 4slope * firm.ξ)
+        household.r * firm.ξ + √((household.r * firm.ξ)^2 + 4slope * firm.ξ)
     ) / (2slope)
 end
 
@@ -59,7 +58,7 @@ function δ(firm::Firm)
 end
 
 function α(q, a, firm::Firm)
-    da = ((q / firm.r) - c(a, firm)) / firm.ξ
+    da = ((q / household.r) - c(a, firm)) / firm.ξ
 
     return max(da, 0)
 end

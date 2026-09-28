@@ -49,11 +49,11 @@ function parameterargumentsettings()
             dest_name = "ηᴱ"
             default = nothing
             help = "Emissions intensity of output."
-        "--government-discount", "--government-r", "--r"
+        "--discount", "--r"
             arg_type = Float64
-            dest_name = "government_r"
+            dest_name = "r"
             default = nothing
-            help = "Government discount rate."
+            help = "Discount rate."
         "--delta", "--δ"
             arg_type = Float64
             dest_name = "δ"
@@ -94,11 +94,14 @@ function parseparameterarguments(args = ARGS)
 end
 
 function parameterkwargs(parsed, fields)
-    kwargs = Dict{Symbol,Float64}()
+    kwargs = Dict{Symbol, Float64}()
 
     for field in fields
         value = get(parsed, field, nothing)
-        value === nothing || (kwargs[field] = value)
+
+        if !isnothing(value)
+            kwargs[field] = value
+        end
     end
 
     return kwargs
@@ -106,22 +109,14 @@ end
 
 function initmodels(args = ARGS)
     parsed = parseparameterarguments(args)
-
+    
     firmkwargs = parameterkwargs(parsed, (:e₀, :a₀, :A, :ηᴱ, :κ, :ξ))
-    firmr = get(parsed, :firm_r, nothing)
-    firmr === nothing || (firmkwargs[:r] = firmr)
-
-    householdkwargs = parameterkwargs(parsed, (:ν, :φᴸ))
-    governmentkwargs = parameterkwargs(parsed, (:δ,))
-    governmentr = get(parsed, :government_r, nothing)
-    governmentr === nothing || (governmentkwargs[:r] = governmentr)
-
     firm = Firm(; firmkwargs...)
-    householdkwargs[:r] = firm.r
+    householdkwargs = parameterkwargs(parsed, (:ν, :φᴸ, :r))
     household = Household(; householdkwargs...)
-    government = Government(; governmentkwargs...)
+
     signal = Signal(; parameterkwargs(parsed, (:ϵ, :σ))...)
     climate = Climate(; parameterkwargs(parsed, (:γ, :ζ, :m₀))...)
 
-    return household, firm, government, signal, climate
+    return household, firm, signal, climate
 end

@@ -1,8 +1,7 @@
 import SHA
 
 function parameterstring(x)
-    # `string` uses Julia's shortest round-trippable representation for floats,
-    # so distinct parameter values are not collapsed by display rounding.
+    # `string` uses Julia's shortest round-trippable representation for floats, so distinct parameter values are not collapsed by display rounding.
     replace(string(x), "+" => "")
 end
 
@@ -19,15 +18,14 @@ function dynamicsolutionlabel(household::AbstractHousehold, firm::Firm)
         "etaE$(parameterstring(firm.η))",
         "kappa$(parameterstring(firm.κ))",
         "xi$(parameterstring(firm.ξ))",
-        "firmdiscount$(parameterstring(firm.r))",
+        "firmdiscount$(parameterstring(household.r))",
     ), "_")
 end
 
-function solutionlabel(household::AbstractHousehold, firm::Firm, government::Government, climate::Climate)
+function solutionlabel(household::AbstractHousehold, firm::Firm, climate::Climate)
     join((
         dynamicsolutionlabel(household, firm),
-        "r$(parameterstring(government.r))",
-        "delta$(parameterstring(government.δ))",
+        "r$(parameterstring(household.r))",
         "gamma$(parameterstring(climate.γ))",
         "zeta$(parameterstring(climate.ζ))",
         "m0$(parameterstring(climate.m₀))",
@@ -41,36 +39,13 @@ function signallabel(signal::Signal)
     ), "_")
 end
 
-function solutionlabel(household::AbstractHousehold, firm::Firm, government::Government, signal::Signal, climate::Climate)
-    join((
-        solutionlabel(household, firm, government, climate),
-        signallabel(signal),
-    ), "_")
-end
-
-function taxmethodlabel(taxmethod)
-    fields = (
-        "$(field)$(parameterstring(getfield(taxmethod, field)))"
-        for field in fieldnames(typeof(taxmethod))
-    )
-
-    join((string(nameof(typeof(taxmethod))), fields...), "_")
-end
-
-function solutionlabel(household::AbstractHousehold, firm::Firm, government::Government, signal::Signal, climate::Climate, taxmethod)
-    join((
-        solutionlabel(household, firm, government, signal, climate),
-        "taxmethod$(taxmethodlabel(taxmethod))",
-    ), "_")
+function solutionlabel(household::AbstractHousehold, firm::Firm, signal::Signal, climate::Climate)
+    join((solutionlabel(household, firm, climate), signallabel(signal)), "_")
 end
 
 "Short, stable filename determined by every committed-solution parameter."
-function solutionfilename(household::AbstractHousehold, firm::Firm, government::Government, climate::Climate)
-    digest = bytes2hex(SHA.sha256(solutionlabel(household, firm, government, climate)))
-    "solution-$digest.jld2"
-end
-
-"JLD2 group containing one signal and tax-method-specific uncommitted solution."
-function uncommittedsolutionkey(signal::Signal, taxmethod)
-    join(("uncommitted", signallabel(signal), taxmethodlabel(taxmethod)), "/")
+function solutionfilename(household::AbstractHousehold, firm::Firm, climate::Climate)
+    label = solutionlabel(household, firm, climate)
+    digest = label |> SHA.sha256 |> bytes2hex
+    return "solution-$digest.jld2"
 end

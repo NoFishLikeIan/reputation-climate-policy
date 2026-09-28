@@ -1,12 +1,12 @@
 ## Optimal tax
 committedtaxresidual(τ, (x, model)) = committedtaxresidual(τ, x, model)
 function committedtaxresidual(τ, x, model::AbstractModelParameters)
-    @unpack household, firm, government, climate = model
+    @unpack household, firm, climate = model
     m, _, _, λₘ, _, λᵨ = x # State, co-state, cumulative costs (z, λ, u)
 
     wage = ω(τ, firm)
 
-    return firm.A * n′(wage, household) * ω′(τ, firm) * (d(m, climate) + firm.η * ( λₘ - τ )) - firm.r * λᵨ
+    return firm.A * n′(wage, household) * ω′(τ, firm) * (d(m, climate) + firm.η * ( λₘ - τ )) - household.r * λᵨ
 end
 function committedtax(x::TX, model::AbstractModelParameters) where {T, TX <: AbstractVector{T}}
     𝟎 = zero(T)
@@ -29,7 +29,7 @@ function committedtax(x::TX, model::LinearLabourModelParameters) where {T, TX <:
     @unpack household, firm, climate = model
     m, _, _, λₘ, _, λᵨ = x # State, co-state, cumulative costs (z, λ, u)
 
-    interiortax = (d(m, climate) / firm.η) + λₘ + firm.r * household.ν * λᵨ / (firm.A * firm.η)^2
+    interiortax = (d(m, climate) / firm.η) + λₘ + household.r * household.ν * λᵨ / (firm.A * firm.η)^2
 
     return clamp(interiortax, 0, inv(firm.η))
 end
@@ -37,18 +37,18 @@ end
 ## State-Costate system
 initialguess(model) = initialguess(SA.SVector, model)
 function initialguess(TV, model::AbstractModelParameters)
-    @unpack household, firm, government, climate = model
+    @unpack household, firm, climate = model
 
     q₀ = τ₀
     λₘ₀ = τ₀ - d(climate.m₀, climate) / firm.η
-    λₐ₀ = -q₀ / firm.r
+    λₐ₀ = -q₀ / household.r
     λᵨ₀ = zero(λₐ₀)
 
     return TV(climate.m₀, firm.a₀, q₀, λₘ₀, λₐ₀, λᵨ₀)
 end
 
 function driftcommitted!(dx, x, model::AbstractModelParameters, t)
-    @unpack household, firm, government, climate = model 
+    @unpack household, firm, climate = model 
     m, a, q, λₘ, λₐ, λᵨ = x # State, co-state, cumulative costs (z, λ, u)
     
     τᶜ = committedtax(x, model)
@@ -57,13 +57,11 @@ function driftcommitted!(dx, x, model::AbstractModelParameters, t)
 
     dm = firm.η * firm.A * labour - a
     da = e(labour, a, firm) > 0 ? α(q, a, firm) : zero(a)
-    dq = firm.r * (q - τᶜ + firm.κ * da)
+    dq = household.r * (q - τᶜ + firm.κ * da)
 
-    dλₘ = government.r * λₘ - firm.A * labour * d′(m, climate)
-    dλₐ = (government.r + firm.κ / firm.ξ) * λₐ + λₘ + (firm.r*firm.κ^2 / firm.ξ) * λᵨ + (a * firm.κ^2 / firm.ξ)
-    dλᵨ = (government.r - firm.r - firm.κ / firm.ξ) * λᵨ - λₐ / (firm.r * firm.ξ) - q / (firm.r^2 * firm.ξ)
-
-    # dw = exp(-government.r * t) * w(τᶜ, m, a, da, household, firm, government, climate)
+    dλₘ = household.r * λₘ - firm.A * labour * d′(m, climate)
+    dλₐ = (household.r + firm.κ / firm.ξ) * λₐ + λₘ + (household.r*firm.κ^2 / firm.ξ) * λᵨ + (a * firm.κ^2 / firm.ξ)
+    dλᵨ = -firm.κ / firm.ξ * λᵨ - λₐ / (household.r * firm.ξ) - q / (household.r^2 * firm.ξ)
 
     dx[1] = dm
     dx[2] = da
@@ -71,8 +69,7 @@ function driftcommitted!(dx, x, model::AbstractModelParameters, t)
     dx[4] = dλₘ
     dx[5] = dλₐ
     dx[6] = dλᵨ
-    # dx[7] = dw
-
+    
     return dx
 end
 
@@ -83,7 +80,7 @@ function ρd̄′(t, (τᶜ, x, model))
     labour = n(wage, model.household)
     mₜ = m + e(labour, a, model.firm) * t
 
-    return d′(mₜ, model.climate) * exp(-model.government.r * t)
+    return d′(mₜ, model.climate) * exp(-model.household.r * t)
 end
 function tρd̄′(t, (τᶜ, x, model))
     ρd̄′(t, (τᶜ, x, model)) * t
@@ -95,12 +92,12 @@ function ρd̄(t, (τᶜ, x, model))
     labour = n(wage, model.household)
     mₜ = m + e(labour, a, model.firm) * t
 
-    return d(mₜ, model.climate) * exp(-model.government.r * t)
+    return d(mₜ, model.climate) * exp(-model.household.r * t)
 end
 
 "Terminal gradient of the value function"
 function ∇v̄(x, model::AbstractModelParameters)
-    @unpack household, firm, government, climate = model
+    @unpack household, firm, climate = model
     m, a, q = @view x[1:3]
 
     wage = ω(q, firm)
@@ -112,7 +109,7 @@ function ∇v̄(x, model::AbstractModelParameters)
     ecds = climate.γ * climate.ζ^2
 
     aₘ = ecds * m^2 / 2
-    bₘ = government.r + m * ecds * emissions
+    bₘ = household.r + m * ecds * emissions
     cₘ = ecds * emissions^2 / 2
 
     Jₘ = J(aₘ, bₘ, cₘ)
@@ -120,7 +117,7 @@ function ∇v̄(x, model::AbstractModelParameters)
 
     ∂ₘv = output * ecds * (m * Jₘ + emissions * Gₘ)
     ∂ₐv = -output * ecds * (m * Gₘ + emissions * L(aₘ, bₘ, cₘ))
-    ∂ᵨv = output′ * ((1 / government.r) - Jₘ - firm.η * ∂ₐv - firm.η * q / government.r)
+    ∂ᵨv = output′ * ((1 / household.r) - Jₘ - firm.η * ∂ₐv - firm.η * q / household.r)
 
     return (∂ₘv, ∂ₐv, ∂ᵨv)
 end
@@ -129,9 +126,9 @@ end
 ## Outer Optimization
 optimisationbounds(model) = optimisationbounds(SA.SVector, model)
 function optimisationbounds(TV, model::AbstractModelParameters; λmax = Inf)
-    @unpack household, firm, government, climate = model
+    @unpack household, firm, climate = model
   
-    q₀ = firm.r * c(firm.a₀, firm)
+    q₀ = household.r * c(firm.a₀, firm)
 
     lb = TV(climate.m₀, firm.a₀, q₀, -λmax, -λmax, -λmax)
     ub = TV(climate.m₀, firm.a₀, λmax, λmax, λmax, λmax)
@@ -178,12 +175,12 @@ function driftwelfarecommitted!(dz, z, model, t)
     driftcommitted!(dx, x, model, t)
 
     # Welfare costs drift
-    @unpack household, firm, government, climate = model
+    @unpack household, firm, climate = model
     da, dq = @view dx[2:3]
     m, a, q = @view x[1:3]
-    τᶜ = q - dq / firm.r + firm.κ * da
+    τᶜ = q - dq / household.r + firm.κ * da
 
-    dw = exp(-government.r * t) * w(τᶜ, m, a, da, household, firm, government, climate)
+    dw = exp(-household.r * t) * w(τᶜ, m, a, da, household, firm, climate)
 
     dz[7] = dw
 
@@ -203,7 +200,7 @@ function objectivewelfare(T::TX, bvproblem::BVP.BVProblem, welfareproblem::ODE.O
     bvpsolution = BVP.solve(bvproblem, bvpalg; u0 = odesolguess, dt = normalisedstep * T, tspan = (0., T))
 
     if !SciMLBase.successful_retcode(bvpsolution)
-        @warn "Unsuccessful BV solution with T = $T"
+        @warn "Unsuccessful BV solution with T = $T. Retcode = $(bvpsolution.retcode)"
     end
 
     x₀ = bvpsolution.u[1]
@@ -213,21 +210,7 @@ function objectivewelfare(T::TX, bvproblem::BVP.BVProblem, welfareproblem::ODE.O
     z̄ = only(welfaresolution.u)
     m̄, ā, q̄ = @view z̄[1:3]
 
-    ū = w(q̄, m̄, ā, 0, model.household, model.firm, model.government, model.climate) / model.government.r
+    ū = w(q̄, m̄, ā, 0, model.household, model.firm, model.climate) / model.household.r
     
-    return z̄[7] + exp(-model.government.r * T) * ū
-end
-
-function e(x::TX, t, integrator::TI) where {TX <: AbstractVector, TI <: ODECore.ODEIntegrator}
-    model = integrator.model
-    
-    τᶜ = committedtax(x, model) # FIXME: Inefficient to calculate twice if FOC is used
-    wage = ω(τᶜ, model.firm)
-    labour = n(wage, model.household)
-    a, _ = x # State, co-state, cumulative costs (z, λ, u)[2]
-
-    return e(labour, a, model.firm)
-end
-function isfullabatement(x, t, integrator)
-    e(x, t, integrator) ≤ 0
+    return z̄[7] + exp(-model.household.r * T) * ū
 end

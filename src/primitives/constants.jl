@@ -10,7 +10,6 @@ const y₀ = 197.231 # [trillion USD / year]
 
 const realhouseholddiscount = 1e-2
 const realfirmdiscount = realhouseholddiscount
-const realgovernmentdiscount = realhouseholddiscount
 
 # The zero-tax allocation is normalised to n(0) = 1, y(0) = y₀, and gross emissions e₀.
 const defaultA = y₀

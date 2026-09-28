@@ -58,10 +58,10 @@ const SIMPATH = joinpath("data", "solutions")
 ispath(SIMPATH) || mkpath(SIMPATH);
 
 ## Defaults
-household, firm, government, signal, climate = initmodels()
-model = ModelParameters(household, firm, government, climate)
+household, firm, signal, climate = initmodels()
+model = ModelParameters(household, firm, climate)
 
-filename = joinpath(SIMPATH, solutionfilename(household, firm, government, climate))
+filename = joinpath(SIMPATH, solutionfilename(household, firm, climate))
 
 if isfile(filename)
     throw("Committed solution in $filename already saved! Breaking to avoid overwriting.")
@@ -74,6 +74,9 @@ odeproblem = ODE.ODEProblem(ODE.ODEFunction{true}(driftcommitted!), x₀, (0., 1
 z₀ = SA.MVector{7}(x₀..., 0.)
 welfareproblem = ODE.ODEProblem(ODE.ODEFunction{true}(driftwelfarecommitted!), z₀, (0., 1.), model)
 
+ODE.solve(odeproblem)
+ODE.solve(welfareproblem)
+
 ## Solver
 lb, ub = optimisationbounds(model)
 bcresid_prototype = (initialcondition(x₀, model), terminalcondition(x₀, model))
@@ -81,8 +84,10 @@ bcresid_prototype = (initialcondition(x₀, model), terminalcondition(x₀, mode
 bvpfunction = SciMLBase.BVPFunction(driftcommitted!, (initialcondition!, terminalcondition!); bcresid_prototype, twopoint = Val(true))
 bvproblem = BVP.TwoPointBVProblem(bvpfunction, ODE.solve(odeproblem, defodealg), odeproblem.tspan, model; lb, ub)
 
+BVP.solve(bvproblem, defbvpalg; dt = 0.01)
+
 ## Solve
-objectivewelfare(1., bvproblem, welfareproblem, odeproblem, model)
+objectivewelfare(100., bvproblem, welfareproblem, odeproblem, model)
 optimisationparameters = (bvproblem, welfareproblem, odeproblem, model, 0.05, defbvpalg, defodealg);
 
 optsol = Optim.optimize(Base.Fix2(objectivewelfare, optimisationparameters), 0., 150., Optim.Brent())

@@ -620,12 +620,12 @@ function discountedflow(values)
     for timeindex in firstindex(simulationtimes):(lastindex(simulationtimes) - 1)
         lefttime = simulationtimes[timeindex]
         righttime = simulationtimes[timeindex + 1]
-        leftvalue = exp(-government.r * lefttime) * expectedflow[timeindex]
-        rightvalue = exp(-government.r * righttime) * expectedflow[timeindex + 1]
+        leftvalue = exp(-household.r * lefttime) * expectedflow[timeindex]
+        rightvalue = exp(-household.r * righttime) * expectedflow[timeindex + 1]
         discountedcost += (righttime - lefttime) * (leftvalue + rightvalue) / 2
     end
 
-    return government.r * discountedcost
+    return household.r * discountedcost
 end
 
 function continuationcost(simulation)
@@ -646,7 +646,7 @@ function continuationcost(simulation)
         for path in simulation.u
     ]
 
-    return exp(-government.r * t) * Statistics.mean(continuationvalues)
+    return exp(-household.r * t) * Statistics.mean(continuationvalues)
 end
 
 baselineflows = flowcomponents(baselineobjects)
